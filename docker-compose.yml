@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: ./backend
+    container_name: thrifter-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./images:/app/images
+      - ./backend/embeddings.json:/app/embeddings.json
+    environment:
+      - UPLOAD_PASSWORD=thrifter-admin-2024
+
+  frontend:
+    build: ./frontend
+    container_name: thrifter-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend

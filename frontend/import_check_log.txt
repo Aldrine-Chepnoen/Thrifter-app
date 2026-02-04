@@ -1,0 +1,3 @@
+starting
+imported
+<class 'fastapi.applications.FastAPI'>

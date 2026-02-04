@@ -1,0 +1,5 @@
+Starting import test...
+Imported torch
+Imported sentence_transformers
+Loaded model
+Test complete
