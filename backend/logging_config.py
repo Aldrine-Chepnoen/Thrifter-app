@@ -1,3 +1,4 @@
+# This file defines the logging configuration for the Thrifter backend application. It includes a custom StructuredFormatter that formats log records as JSON objects, containing fields such as timestamp, log level, logger name, message, module, function name, and line number. The setup_logging function configures the logging system to use this formatter for console output and sets the logging level based on the provided argument. This structured logging approach allows for easier parsing and analysis of logs, especially when aggregated in log management systems or when debugging issues in production environments. The configuration also ensures that third-party libraries' logs are captured with a simple format for clarity.
 import logging
 import sys
 import json

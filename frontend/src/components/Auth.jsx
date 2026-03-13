@@ -1,3 +1,4 @@
+// This is the Auth component for the Thrifter frontend application. It provides a user interface for logging in and registering new accounts. The component uses React hooks to manage state and handles form submissions to authenticate users with the backend API. Depending on the mode (login or register), it displays different form fields and buttons, and it also includes error handling to display appropriate messages if authentication fails.
 import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';

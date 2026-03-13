@@ -1,3 +1,4 @@
+# This script checks if a specific port (5173) on the localhost is open or closed. It attempts to create a socket connection to the port and writes the result to a log file called "port_status.txt". If the connection is successful, it logs "OPEN"; if it fails, it logs "CLOSED" along with the error code. If any exceptions occur during the process, it logs the error message. This script can be used to monitor the status of a service running on that port, such as a frontend development server.
 import socket
 import sys
 import os

@@ -1,3 +1,4 @@
+// This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React from 'react';
 import { Search, PlusCircle, Camera, Heart, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';

@@ -1,3 +1,4 @@
+// This is the main App component for the Thrifter frontend application. It manages the overall state of the application, including the list of items, search results, user authentication, and interactions with the backend API. The component uses React Router for navigation between different pages such as the home page, upload form, authentication page, vendor page, outfit builder, and wardrobe. It also handles file uploads for image-based searches and outfit building, and it displays a product modal when an item is clicked. The App component integrates various child components like Navbar, MasonryGrid, ProductModal, UploadForm, Auth, and VendorPage to create a cohesive user experience for browsing and managing thrifted fashion items.
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { PlusCircle } from 'lucide-react';

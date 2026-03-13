@@ -1,3 +1,4 @@
+# This is the Docker Compose configuration file for the Thrifter application. It defines two services: the backend and the frontend. The backend service is built from the Dockerfile located in the ./backend directory, and it exposes port 8000 for API access. It also mounts volumes for images and embeddings to allow for persistent storage. The frontend service is built from the Dockerfile in the ./frontend directory and exposes port 8080 for web access. The frontend depends on the backend service, ensuring that it starts after the backend is up and running. Environment variables are used to configure the backend service, including an upload password for secure access to image uploads. This setup allows for easy deployment and management of both services using Docker Compose.
 services:
   backend:
     build: ./backend

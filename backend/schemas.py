@@ -1,3 +1,4 @@
+# This file defines the Pydantic schemas for the Thrifter backend application. These schemas are used for data validation and serialization when handling API requests and responses. The UserCreate schema is used for user registration, ensuring that the email, password, and optional vendor information are properly validated. The Token schema defines the structure of the JWT token response after successful authentication. The UserInfo schema represents the user information that can be returned in API responses, while the ItemBase, ItemCreate, and Item schemas define the structure of item data for creation and retrieval. Finally, the VendorInfo schema provides a structure for representing vendor information in API responses. These schemas help ensure that data is consistently structured and validated across the application.
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List
 import re

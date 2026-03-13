@@ -1,3 +1,4 @@
+// This is the UploadForm component for the Thrifter frontend application. It provides a form for vendors to list new items for sale. The form includes fields for item details such as name, price, size, market, vendor information, and a description, as well as an image upload feature with a preview. The component checks if the user is authenticated and has a vendor account before allowing them to submit the form. Upon submission, it sends the form data to the backend API and handles success and error responses accordingly. The component also uses Tailwind CSS for styling and React hooks for managing state and side effects.
 import React, { useState, useEffect } from 'react';
 import { Upload, X } from 'lucide-react';
 import api from '../api';

@@ -1,3 +1,4 @@
+// This is the ProductModal component for the Thrifter frontend application. It displays detailed information about a specific product in a modal window when the user clicks on an item. The modal includes the product image, name, price, size, description, and vendor information if available. It also provides buttons for adding the item to the user's wardrobe, chatting with the vendor via WhatsApp, and deleting the listing if the user is the vendor. The component uses Framer Motion for smooth animations when opening and closing the modal, and it handles API interactions for adding items to the wardrobe and deleting listings. The image source is determined based on whether the image_path is a full URL or a relative path, ensuring that images are displayed correctly regardless of their source.
 import React from 'react';
 import { X, MessageCircle, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

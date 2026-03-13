@@ -1,3 +1,4 @@
+# This is the configuration file for the Thrifter backend application. It uses Pydantic's BaseSettings to manage environment variables and application settings. The settings include database connection details, JWT configuration, Cloudinary API credentials, and application-specific flags for debugging and seeding demo data. The configuration is designed to load values from a .env file, allowing for easy management of sensitive information and environment-specific settings without hardcoding them into the source code. The settings object can be imported and used throughout the application to access these configuration values in a consistent manner.
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional

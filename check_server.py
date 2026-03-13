@@ -1,3 +1,4 @@
+# This script checks if the backend of the Thrifter application is up and running by sending HTTP requests to the specified URL. It writes the status of the check to a file called "server_status_log.txt". The script attempts to connect to the backend for a maximum of 20 seconds, checking every second. If the backend responds with a status code of 200, it indicates that the backend is up, and the script exits with a success status. If the connection cannot be established within the timeout period, it writes a timeout message to the file and exits with an error status. This script can be used as part of a startup routine or health check to ensure that the backend is available before proceeding with other operations.
 import requests
 import time
 import sys

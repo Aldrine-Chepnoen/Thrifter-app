@@ -1,3 +1,4 @@
+# This script is designed to run the frontend development server for the Thrifter application and log its output for debugging purposes. It changes the working directory to the frontend folder, starts the npm development server, and logs the process output to a file called "npm_output.log". Additionally, it writes a global log of the script's execution to "frontend_debug_global.log", including any exceptions that may occur. The script also checks if the process is still running after a few seconds and terminates it if necessary. This can help identify issues with starting the frontend server and provide insights into any errors that may arise during the startup process.
 import subprocess
 import os
 import time

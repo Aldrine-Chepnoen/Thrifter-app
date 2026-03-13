@@ -1,3 +1,4 @@
+# This script tests the backend of the Thrifter application by sending HTTP requests to specific endpoints and logging the results. It checks if the backend is accessible by hitting the /docs endpoint and then attempts to fetch items from the /items endpoint, logging the status codes and any exceptions that occur during the process. The results are written to a file called "backend_status.txt" for later review. This script can be used as part of a health check routine to ensure that the backend is functioning correctly before proceeding with other operations or starting dependent services.
 import requests
 import sys
 import os

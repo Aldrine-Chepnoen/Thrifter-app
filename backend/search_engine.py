@@ -1,3 +1,4 @@
+# This file defines the SearchEngine class for the Thrifter backend application. The SearchEngine is responsible for generating embeddings for text and images, which are used for search functionality within the application. It attempts to use a pre-trained model (CLIP) for generating embeddings, but if the model is not available, it falls back to simple heuristic-based embeddings. The text embedding method tokenizes the input text and creates a vector based on token frequencies, while the image embedding method processes the image to create a feature vector based on color and grayscale information. This allows the application to perform similarity searches even without access to a more sophisticated model, ensuring that search functionality remains available in all environments.
 import numpy as np
 import re
 import hashlib

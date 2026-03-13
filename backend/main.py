@@ -1,3 +1,4 @@
+# This is the main application file for the Thrifter backend API. It sets up the FastAPI application, configures database connections, defines API endpoints for user authentication, item management, and search functionality. The application uses SQLAlchemy for database interactions, Cloudinary for image storage, and a custom search engine for generating image embeddings and performing similarity searches. The code also includes structured logging, error handling, and rate limiting to ensure a robust and secure API. Additionally, there are utility functions for password hashing, JWT token management, and seeding demo data for testing purposes. 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Header, Response, Request
 from fastapi.responses import JSONResponse
 import logging
