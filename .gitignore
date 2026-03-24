@@ -17,6 +17,7 @@ backend/*.db
 # Environments
 venv/
 .venv/
+backend/.env
 
 # OS files
 .DS_Store
