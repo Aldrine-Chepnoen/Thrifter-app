@@ -155,13 +155,19 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 overflow-x-hidden">
-      <Navbar 
-        onSearch={handleSearch} 
-        onImageSearchClick={handleImageSearchClick} 
-        onOutfitBuilderClick={() => builderInputRef.current.click()}
-        user={user}
-        onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
-      />
+      {location.pathname === '/auth' ? (
+        <header className="py-10 flex justify-center mb-6">
+          <h1 className="text-4xl font-serif font-bold tracking-tight text-gray-900">Thrifter</h1>
+        </header>
+      ) : (
+        <Navbar 
+          onSearch={handleSearch} 
+          onImageSearchClick={handleImageSearchClick} 
+          onOutfitBuilderClick={() => builderInputRef.current.click()}
+          user={user}
+          onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
+        />
+      )}
       
       {/* Hidden File Inputs */}
       <input 
