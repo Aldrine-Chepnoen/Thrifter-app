@@ -9,6 +9,7 @@ frontend/dist/
 # Local images and generated embeddings
 backend/images/
 backend/embeddings.json
+images
 
 # Local databases
 *.db

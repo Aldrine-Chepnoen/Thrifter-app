@@ -258,7 +258,7 @@ function App() {
                             />
                           </div>
                           <p className="text-sm font-medium line-clamp-1">{outfit.top.name}</p>
-                          <p className="text-xs text-gray-500">Top • ₦{outfit.top.price.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500">Top • UGX{outfit.top.price.toLocaleString()}</p>
                         </div>
                         
                         <div className="flex justify-center">
@@ -277,7 +277,7 @@ function App() {
                             />
                           </div>
                           <p className="text-sm font-medium line-clamp-1">{outfit.bottom.name}</p>
-                          <p className="text-xs text-gray-500">Bottom • ₦{outfit.bottom.price.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500">Bottom • UGX{outfit.bottom.price.toLocaleString()}</p>
                         </div>
                       </div>
                     ) : (
@@ -293,7 +293,7 @@ function App() {
                           />
                         </div>
                         <p className="text-sm font-medium line-clamp-1">{outfit.item.name}</p>
-                        <p className="text-xs text-gray-500">Dress • ₦{outfit.item.price.toLocaleString()}</p>
+                        <p className="text-xs text-gray-500">Dress • UGX{outfit.item.price.toLocaleString()}</p>
                       </div>
                     )}
                   </div>
