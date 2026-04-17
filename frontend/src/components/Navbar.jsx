@@ -16,7 +16,7 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
           <div className="flex items-center gap-2 md:gap-4">
             <button 
               onClick={onOutfitBuilderClick}
-              className="px-3 py-2 border border-gray-200 rounded-full hover:bg-gray-100 transition-all text-sm flex items-center gap-2 text-purple-600 border-purple-100 bg-purple-50"
+              className="flex items-center gap-2 bg-black text-white px-3 md:px-4 py-2 rounded-full hover:bg-gray-800 transition-all font-medium text-sm"
               title="Outfit Builder"
             >
               <Sparkles className="w-4 h-4" />
