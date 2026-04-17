@@ -42,7 +42,11 @@ function App() {
         try {
           const me = await api.get('/auth/me');
           setUser(me.data);
-        } catch {}
+        } catch {
+          setUser(null);
+        }
+      } else {
+        setUser(null);
       }
     })();
   }, []);
