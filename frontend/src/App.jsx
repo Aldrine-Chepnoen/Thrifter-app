@@ -89,6 +89,7 @@ function App() {
       alert('Image search failed');
     } finally {
       setLoading(false);
+      e.target.value = null;
     }
   };
 
@@ -110,6 +111,7 @@ function App() {
       alert('Outfit builder failed');
     } finally {
       setLoading(false);
+      e.target.value = null;
     }
   };
   
