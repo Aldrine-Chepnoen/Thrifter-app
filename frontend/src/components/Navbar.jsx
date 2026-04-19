@@ -6,6 +6,10 @@ import { Link, useLocation } from 'react-router-dom';
 const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout }) => {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
+  const isAuthPage = location.pathname === '/auth';
+  const isWardrobePage = location.pathname === '/wardrobe';
+  const isVendorPage = location.pathname.startsWith('/vendor/');
+  const showIcons = !isAuthPage && !isWardrobePage && !isVendorPage;
 
   return (
     <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 py-3 px-4 md:py-4 md:px-6 mb-6">
@@ -14,53 +18,55 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
           <Link to="/" className="text-xl md:text-2xl font-serif font-bold tracking-tight">Thrifter</Link>
         </div>
         
-        <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
-          <button 
-            onClick={onOutfitBuilderClick}
-            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
-            title="Outfit Builder"
-          >
-            <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
-            <Sparkles className="w-3.5 h-3.5" />
-          </button>
-          <button 
-            onClick={onImageSearchClick}
-            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
-            title="Upload outfit inspiration"
-          >
-            <span className="text-[10px] md:text-xs tracking-tight">AI search</span>
-            <Camera className="w-3.5 h-3.5" />
-          </button>
-          <Link 
-            to="/wardrobe" 
-            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
-            title="Wardrobe"
-          >
-            <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
-            <Heart className="w-3.5 h-3.5" />
-          </Link>
-          {!user && (
-            <Link 
-              to="/auth" 
-              className="flex flex-col items-center gap-1 bg-black text-white px-3 md:px-5 py-2 rounded-xl hover:bg-gray-800 transition-all font-medium text-sm"
+        {showIcons && (
+          <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
+            <button 
+              onClick={onOutfitBuilderClick}
+              className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
+              title="Outfit Builder"
             >
-              Login
+              <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
+              <Sparkles className="w-3.5 h-3.5" />
+            </button>
+            <button 
+              onClick={onImageSearchClick}
+              className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
+              title="Upload outfit inspiration"
+            >
+              <span className="text-[10px] md:text-xs tracking-tight">AI search</span>
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+            <Link 
+              to="/wardrobe" 
+              className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
+              title="Wardrobe"
+            >
+              <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
+              <Heart className="w-3.5 h-3.5" />
             </Link>
-          )}
-          <Link 
-            to="/upload" 
-            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
-          >
-            <span className="text-[10px] md:text-xs tracking-tight">Sell item</span>
-            <PlusCircle className="w-3.5 h-3.5" />
-          </Link>
-          {user && (
-            <div className="flex flex-col items-center gap-1">
-              <span className="hidden lg:inline text-[10px] text-gray-500">{user.is_vendor ? 'Vendor' : 'User'}</span>
-              <button onClick={onLogout} className="px-2 py-1 bg-black text-white rounded-lg hover:bg-gray-800 text-[10px] transition-all">Logout</button>
-            </div>
-          )}
-        </div>
+            {!user && (
+              <Link 
+                to="/auth" 
+                className="flex flex-col items-center gap-1 bg-black text-white px-3 md:px-5 py-2 rounded-xl hover:bg-gray-800 transition-all font-medium text-sm"
+              >
+                Login
+              </Link>
+            )}
+            <Link 
+              to="/upload" 
+              className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
+            >
+              <span className="text-[10px] md:text-xs tracking-tight">Sell item</span>
+              <PlusCircle className="w-3.5 h-3.5" />
+            </Link>
+            {user && (
+              <div className="flex flex-col items-center gap-1">
+                <span className="hidden lg:inline text-[10px] text-gray-500">{user.is_vendor ? 'Vendor' : 'User'}</span>
+                <button onClick={onLogout} className="px-2 py-1 bg-black text-white rounded-lg hover:bg-gray-800 text-[10px] transition-all">Logout</button>
+              </div>
+            )}
+          </div>
+        )}
 
         {isHomePage && (
           <div className="w-full md:hidden mt-1">
