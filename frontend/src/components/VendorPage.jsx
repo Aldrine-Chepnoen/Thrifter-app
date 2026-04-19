@@ -4,28 +4,29 @@ import { useParams } from 'react-router-dom';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
 
-const VendorPage = () => {
+const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
   const { name } = useParams();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [vendorInfo, setVendorInfo] = useState(null);
 
+  const fetchVendorItems = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/items?vendor=${encodeURIComponent(name)}`);
+      setItems(res.data || []);
+      const vres = await api.get('/vendors');
+      const info = (vres.data || []).find((v) => v.name?.toLowerCase() === name?.toLowerCase());
+      setVendorInfo(info || null);
+    } catch (e) {
+      console.error('Failed to load vendor items', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const run = async () => {
-      setLoading(true);
-      try {
-        const res = await api.get(`/items?vendor=${encodeURIComponent(name)}`);
-        setItems(res.data || []);
-        const vres = await api.get('/vendors');
-        const info = (vres.data || []).find((v) => v.name?.toLowerCase() === name?.toLowerCase());
-        setVendorInfo(info || null);
-      } catch (e) {
-        console.error('Failed to load vendor items', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    run();
+    fetchVendorItems();
   }, [name]);
 
   return (
@@ -47,7 +48,7 @@ const VendorPage = () => {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
         </div>
       ) : items.length > 0 ? (
-        <MasonryGrid items={items} onItemClick={() => {}} />
+        <MasonryGrid items={items} onItemClick={setSelectedItem} />
       ) : (
         <div className="text-center py-20 text-gray-500">
           <p>No items from this vendor yet.</p>

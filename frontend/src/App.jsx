@@ -240,7 +240,13 @@ function App() {
         
         <Route path="/upload" element={<UploadForm />} />
         <Route path="/auth" element={<Auth onAuthed={setUser} />} />
-        <Route path="/vendor/:name" element={<VendorPage />} />
+        <Route path="/vendor/:name" element={
+          <VendorPage 
+            setSelectedItem={setSelectedItem} 
+            user={user} 
+            onItemDeleted={fetchItems} 
+          />
+        } />
         <Route path="/outfit-builder" element={
           <main className="max-w-7xl mx-auto px-6">
             <div className="mb-8">
