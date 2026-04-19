@@ -14,50 +14,50 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
           <Link to="/" className="text-xl md:text-2xl font-serif font-bold tracking-tight">Thrifter</Link>
         </div>
         
-        <div className="flex items-center justify-around md:justify-end gap-1 md:gap-4">
+        <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
           <button 
             onClick={onOutfitBuilderClick}
-            className="flex flex-col items-center gap-1 px-2 md:px-4 py-1.5 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all text-gray-700 font-medium"
+            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
             title="Outfit Builder"
           >
             <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="w-3.5 h-3.5" />
           </button>
           <button 
             onClick={onImageSearchClick}
-            className="flex flex-col items-center gap-1 p-1.5 hover:bg-gray-100 rounded-xl transition-colors text-gray-700"
+            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
             title="Upload outfit inspiration"
           >
             <span className="text-[10px] md:text-xs tracking-tight">AI search</span>
-            <Camera className="w-5 h-5" />
+            <Camera className="w-3.5 h-3.5" />
           </button>
           <Link 
             to="/wardrobe" 
-            className="flex flex-col items-center gap-1 px-2 py-1.5 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all text-gray-700"
+            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
             title="Wardrobe"
           >
             <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
-            <Heart className="w-4 h-4" />
+            <Heart className="w-3.5 h-3.5" />
           </Link>
           {!user && (
             <Link 
               to="/auth" 
-              className="px-3 py-2 border border-gray-200 rounded-full hover:bg-gray-100 transition-all text-sm"
+              className="flex flex-col items-center gap-1 bg-black text-white px-3 md:px-5 py-2 rounded-xl hover:bg-gray-800 transition-all font-medium text-sm"
             >
               Login
             </Link>
           )}
           <Link 
             to="/upload" 
-            className="flex flex-col items-center gap-1 px-2 md:px-4 py-1.5 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all text-gray-700 font-medium"
+            className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
           >
             <span className="text-[10px] md:text-xs tracking-tight">Sell item</span>
-            <PlusCircle className="w-4 h-4" />
+            <PlusCircle className="w-3.5 h-3.5" />
           </Link>
           {user && (
             <div className="flex flex-col items-center gap-1">
               <span className="hidden lg:inline text-[10px] text-gray-500">{user.is_vendor ? 'Vendor' : 'User'}</span>
-              <button onClick={onLogout} className="px-2 py-1 text-[10px] border border-gray-200 rounded-lg hover:bg-gray-100">Logout</button>
+              <button onClick={onLogout} className="px-2 py-1 bg-black text-white rounded-lg hover:bg-gray-800 text-[10px] transition-all">Logout</button>
             </div>
           )}
         </div>
