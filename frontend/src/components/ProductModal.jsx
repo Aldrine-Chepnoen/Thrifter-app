@@ -115,7 +115,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
             )}
 
             <a 
-              href={`https://wa.me/${(item.vendor_whatsapp || item.whatsapp) ?? ''}?text=${encodeURIComponent('Hi, I saw this item on Thrifter. Is it still available?')}`}
+              href={`https://wa.me/${(item.vendor_whatsapp || item.whatsapp) ?? ''}?text=${encodeURIComponent(`Hi, I saw your "${item.name}" on Thrifter. Is it still available?`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors mt-6"
