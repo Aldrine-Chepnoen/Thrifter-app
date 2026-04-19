@@ -96,7 +96,7 @@ const Auth = ({ onAuthed }) => {
                 checked={isVendor}
                 onChange={(e) => setIsVendor(e.target.checked)}
               />
-              <label htmlFor="isVendor" className="text-sm">I am a vendor</label>
+              <label htmlFor="isVendor" className="text-sm">I am a Business/Brand</label>
             </div>
             {isVendor && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
