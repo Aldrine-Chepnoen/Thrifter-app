@@ -368,6 +368,7 @@ function App() {
         onClose={() => setSelectedItem(null)}
         user={user}
         onDeleted={() => { fetchItems(); }}
+        isWardrobe={location.pathname === '/wardrobe'}
       />
     </div>
   );

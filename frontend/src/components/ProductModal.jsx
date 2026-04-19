@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../api';
 
-const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
+const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) => {
   if (!isOpen || !item) return null;
   const imgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
@@ -107,13 +107,15 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
               </div>
             </div>
 
-            <button
-              onClick={handleAddWardrobe}
-              className="w-full bg-black text-white py-3 px-6 rounded-xl font-bold hover:bg-gray-800 transition-colors mb-3 flex items-center justify-center gap-2"
-            >
-              <Heart className="w-5 h-5" />
-              Add to Wardrobe
-            </button>
+            {!isWardrobe && (
+              <button
+                onClick={handleAddWardrobe}
+                className="w-full bg-black text-white py-3 px-6 rounded-xl font-bold hover:bg-gray-800 transition-colors mb-3 flex items-center justify-center gap-2"
+              >
+                <Heart className="w-5 h-5" />
+                Add to Wardrobe
+              </button>
+            )}
             {canDelete && (
               <button
                 onClick={handleDelete}
