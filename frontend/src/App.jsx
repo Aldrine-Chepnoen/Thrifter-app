@@ -16,6 +16,7 @@ function App() {
   const [builderResults, setBuilderResults] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
@@ -37,6 +38,7 @@ function App() {
   useEffect(() => {
     fetchItems();
     (async () => {
+      setAuthLoading(true);
       const token = localStorage.getItem('thrifter_token');
       if (token) {
         try {
@@ -48,6 +50,7 @@ function App() {
       } else {
         setUser(null);
       }
+      setAuthLoading(false);
     })();
   }, []);
 
@@ -158,6 +161,14 @@ function App() {
     const filename = path.split(/[\\/]/).pop();
     return `${base}/images/${filename}`;
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 overflow-x-hidden">
