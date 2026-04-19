@@ -101,7 +101,7 @@ const Auth = ({ onAuthed }) => {
             {isVendor && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Vendor name</label>
+                  <label className="block text-sm font-medium mb-1">Business/brand name</label>
                   <input
                     type="text"
                     value={vendorName}
