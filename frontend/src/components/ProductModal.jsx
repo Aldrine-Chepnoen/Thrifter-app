@@ -35,7 +35,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
     }
     try {
       await api.post(`/wardrobe/${item.id}`);
-      alert('Added to your wardrobe');
+      onClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Failed to add to wardrobe';
       alert(msg);
@@ -79,7 +79,16 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
                 {item.market}
               </span>
               {item.vendor_name && (
-                <p className="text-sm text-gray-600 mb-2">Vendor: <Link to={`/vendor/${encodeURIComponent(item.vendor_name)}`} className="font-medium hover:underline">{item.vendor_name}</Link></p>
+                <p className="text-sm text-gray-600 mb-2">
+                  Vendor: 
+                  <Link 
+                    to={`/vendor/${encodeURIComponent(item.vendor_name)}`} 
+                    className="font-medium hover:underline"
+                    onClick={onClose}
+                  >
+                    {item.vendor_name}
+                  </Link>
+                </p>
               )}
               <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">{item.name}</h2>
               <p className="text-2xl font-medium text-gray-900 mb-6">{formatUGX(item.price)}</p>
@@ -118,7 +127,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted }) => {
               href={`https://wa.me/${(item.vendor_whatsapp || item.whatsapp) ?? ''}?text=${encodeURIComponent(`Hi, I saw your "${item.name}" on Thrifter. Is it still available?`)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors mt-6"
+              onClick={onClose}
+              className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center center justify-center gap-2 hover:bg-[#20bd5a] transition-colors mt-6"
             >
               <MessageCircle className="w-5 h-5" />
               Chat with Vendor
