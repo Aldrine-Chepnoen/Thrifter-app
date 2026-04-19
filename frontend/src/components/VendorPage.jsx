@@ -29,19 +29,19 @@ const VendorPage = () => {
   }, [name]);
 
   return (
-    <main className="max-w-7xl mx-auto">
-      <div className="relative h-40 md:h-52 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900">
+    <main className="max-w-7xl mx-auto px-6">
+      <div className="relative h-40 md:h-52 bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 rounded-2xl overflow-hidden mb-8 shadow-inner">
         <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-10 pointer-events-none"></div>
         <div className="h-full w-full flex items-center">
           <div className="px-6 md:px-8">
-            <h1 className="text-3xl md:text-4xl font-serif font-bold text-white">Vendor: {name}</h1>
+            <h1 className="text-3xl md:text-4xl font-serif font-bold text-white">{name}</h1>
             <p className="text-sm text-gray-200 mt-1">
-              {items.length} item(s){vendorInfo?.whatsapp ? ` • WhatsApp: ${vendorInfo.whatsapp}` : ''}
+              {items.length} item(s)
             </p>
           </div>
         </div>
       </div>
-      <div className="px-6">
+      <div>
       {loading ? (
         <div className="flex justify-center py-20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
