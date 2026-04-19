@@ -130,6 +130,30 @@ JWT_SECRET = settings.JWT_SECRET
 JWT_EXP_SECONDS = settings.JWT_EXP_SECONDS
 SEED_DEMO = settings.SEED_DEMO
 
+def format_whatsapp_number(number: str) -> str:
+    if not number:
+        return ""
+    # Remove all spaces, dashes, brackets
+    number = number.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    
+    # Already has correct format
+    if number.startswith("+256"):
+        return number
+    
+    # Has 256 without the +
+    if number.startswith("256"):
+        return "+" + number
+    
+    # Local format starting with 0 (e.g. 0772123456)
+    if number.startswith("0"):
+        return "+256" + number[1:]
+    
+    # Just the 9 digit number (e.g. 772123456)
+    if len(number) == 9:
+        return "+256" + number
+    
+    return number
+
 def hash_password(pw: str) -> str:
     return pwd_context.hash(pw)
 
@@ -281,7 +305,7 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     vendor_whatsapp = None
     if user.is_vendor:
         name = user.vendor_name or user.email.split("@")[0]
-        whatsapp = user.vendor_whatsapp or ""
+        whatsapp = format_whatsapp_number(user.vendor_whatsapp or "")
         vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
         if not vendor:
             vendor = models.Vendor(name=name, whatsapp=whatsapp)
@@ -384,7 +408,7 @@ async def upload_item(
         raise HTTPException(status_code=400, detail="Image exceeds 10MB limit")
 
     if not current_user.vendor_id:
-        if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp):
+        if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
             raise HTTPException(status_code=400, detail="Invalid WhatsApp number format")
 
     logger.info(f"Uploading item '{name}' for vendor {current_user.vendor_id or 'new'}")
@@ -411,8 +435,9 @@ async def upload_item(
         vendor = None
         if current_user.vendor_id:
             vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
-            if vendor and (vendor_whatsapp and re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp)):
-                vendor.whatsapp = vendor_whatsapp
+            if vendor and vendor_whatsapp:
+                formatted_wa = format_whatsapp_number(vendor_whatsapp)
+                vendor.whatsapp = formatted_wa
                 db.add(vendor)
                 db.commit()
                 db.refresh(vendor)
@@ -422,7 +447,8 @@ async def upload_item(
                 raise HTTPException(status_code=400, detail="Vendor name is required")
             vendor = db.query(models.Vendor).filter(models.Vendor.name == vendor_name).first()
             if not vendor:
-                vendor = models.Vendor(name=vendor_name, whatsapp=vendor_whatsapp)
+                formatted_wa = format_whatsapp_number(vendor_whatsapp or "")
+                vendor = models.Vendor(name=vendor_name, whatsapp=formatted_wa)
                 db.add(vendor)
                 db.commit()
                 db.refresh(vendor)

@@ -58,7 +58,7 @@ const UploadForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!canUpload) {
-      alert('Login with a vendor account to list items');
+      alert('Login with a business account to list items');
       navigate('/auth');
       return;
     }
@@ -87,7 +87,7 @@ const UploadForm = () => {
       {!authChecked ? (
         <div className="mb-4 text-sm text-gray-600">Checking account...</div>
       ) : !canUpload ? (
-        <div className="mb-4 text-sm text-red-600">You need a vendor account to list items.</div>
+        <div className="mb-4 text-sm text-red-600">You need a business account to list items.</div>
       ) : null}
       
       <form onSubmit={handleSubmit} className="space-y-6">
