@@ -12,9 +12,14 @@ class UserCreate(BaseModel):
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
-        if v and not re.fullmatch(r"\+?\d{10,15}", v):
-            raise ValueError('Invalid WhatsApp number format')
-        return v
+        if not v:
+            return v
+        # Simple cleanup for common characters
+        cleaned = v.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        # Basic check to ensure there are enough digits
+        if not any(char.isdigit() for char in cleaned):
+             raise ValueError('Invalid WhatsApp number: must contain digits')
+        return cleaned
 
 class Token(BaseModel):
     access_token: str

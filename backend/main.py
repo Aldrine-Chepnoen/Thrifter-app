@@ -53,7 +53,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logger.error(f"Validation error: {exc.errors()}", extra={"path": request.url.path})
     return JSONResponse(
         status_code=422,
-        content={"detail": "Validation Error", "errors": exc.errors()}
+        content={"detail": "Validation Error", "errors": str(exc.errors())}
     )
 
 @app.exception_handler(HTTPException)
