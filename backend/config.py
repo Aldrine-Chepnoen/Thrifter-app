@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     SEED_DEMO: bool = os.getenv("SEED_DEMO", "False").lower() == "true"
+    FEATURE_OUTFIT_BUILDER_ENABLED: bool = os.getenv("FEATURE_OUTFIT_BUILDER_ENABLED", "True").lower() == "true"
     
     model_config = SettingsConfigDict(extra="ignore")
 

@@ -107,6 +107,12 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
+@app.get("/features")
+def get_features():
+    return {
+        "outfit_builder": settings.FEATURE_OUTFIT_BUILDER_ENABLED
+    }
+
 # Mount images directory
 IMAGES_DIR = "images"
 if not os.path.exists(IMAGES_DIR):

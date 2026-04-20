@@ -3,7 +3,7 @@ import React from 'react';
 import { Search, PlusCircle, Camera, Heart, Sparkles } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
-const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout }) => {
+const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout, features }) => {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
   const isAuthPage = location.pathname === '/auth';
@@ -21,9 +21,15 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
         {showIcons && (
           <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
             <button 
-              onClick={onOutfitBuilderClick}
-              className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
-              title="Outfit Builder"
+              onClick={() => {
+                if (features?.outfit_builder === false) {
+                  alert("This feature is currently under development and will be back soon!");
+                  return;
+                }
+                onOutfitBuilderClick();
+              }}
+              className={`flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+              title={features?.outfit_builder === false ? "Under Development" : "Outfit Builder"}
             >
               <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
               <Sparkles className="w-3.5 h-3.5" />

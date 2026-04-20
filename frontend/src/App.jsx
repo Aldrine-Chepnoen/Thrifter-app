@@ -18,6 +18,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [features, setFeatures] = useState({ outfit_builder: true });
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const navigate = useNavigate();
@@ -39,6 +40,15 @@ function App() {
     fetchItems();
     (async () => {
       setAuthLoading(true);
+      
+      // Fetch feature flags
+      try {
+        const fres = await api.get('/features');
+        setFeatures(fres.data);
+      } catch (e) {
+        console.error('Failed to fetch features', e);
+      }
+
       const token = localStorage.getItem('thrifter_token');
       if (token) {
         try {
@@ -183,6 +193,7 @@ function App() {
           onOutfitBuilderClick={() => builderInputRef.current.click()}
           user={user}
           onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
+          features={features}
         />
       )}
       
