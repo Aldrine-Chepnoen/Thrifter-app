@@ -19,29 +19,78 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [features, setFeatures] = useState({ outfit_builder: true });
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
   const navigate = useNavigate();
 
-  const fetchItems = async () => {
+  const fetchItems = async (isNew = true) => {
+    if (!isNew && (loadingMore || !hasMore)) return;
+
+    if (isNew && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    if (isNew) {
+      abortControllerRef.current = new AbortController();
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+
     const rid = ++requestIdRef.current;
-    setLoading(true);
+    const currentPage = isNew ? 0 : page;
+    const limit = 20;
+
     try {
-      const response = await api.get('/items');
+      const response = await api.get(`/items?skip=${currentPage * limit}&limit=${limit}`, {
+        signal: isNew ? abortControllerRef.current.signal : undefined
+      });
+      
       if (rid !== requestIdRef.current) return;
-      const shuffled = [...response.data].sort(() => Math.random() - 0.5);
-      setItems(shuffled);
+
+      const newItems = response.data;
+      if (isNew) {
+        const shuffled = [...newItems].sort(() => Math.random() - 0.5);
+        setItems(shuffled);
+        setPage(1);
+      } else {
+        setItems(prev => [...prev, ...newItems]);
+        setPage(currentPage + 1);
+      }
+      setHasMore(newItems.length === limit);
     } catch (error) {
-      console.error('Error fetching items:', error);
+      if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+        console.error('Error fetching items:', error);
+      }
     } finally {
-      if (rid === requestIdRef.current) setLoading(false);
+      if (rid === requestIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
   useEffect(() => {
+    const handleScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 500) {
+        if (!loading && !loadingMore && hasMore && !outfitResults && items.length > 0) {
+          fetchItems(false);
+        }
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [loading, loadingMore, hasMore, items.length, outfitResults]);
+
+  useEffect(() => {
     fetchItems();
+    // ... rest of init logic ...
     (async () => {
       setAuthLoading(true);
       
@@ -74,6 +123,11 @@ function App() {
     }
 
     searchTimeoutRef.current = setTimeout(async () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
       const rid = ++requestIdRef.current;
       setOutfitResults(null);
       setBuilderResults(null);
@@ -86,11 +140,15 @@ function App() {
 
       setLoading(true);
       try {
-        const response = await api.get(`/search?query=${query}`);
+        const response = await api.get(`/search?query=${query}`, {
+          signal: abortControllerRef.current.signal
+        });
         if (rid !== requestIdRef.current) return;
         setItems(response.data);
       } catch (error) {
-        console.error('Search failed:', error);
+        if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+          console.error('Search failed:', error);
+        }
       } finally {
         if (rid === requestIdRef.current) setLoading(false);
       }
@@ -256,7 +314,19 @@ function App() {
                 ))}
               </>
             ) : items.length > 0 ? (
-              <MasonryGrid items={items} onItemClick={setSelectedItem} />
+              <>
+                <MasonryGrid items={items} onItemClick={setSelectedItem} />
+                {loadingMore && (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                  </div>
+                )}
+                {!hasMore && items.length > 5 && (
+                  <div className="text-center py-12 text-gray-400">
+                    <p className="text-sm font-serif italic">You've reached the end of the collection.</p>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-center py-20 text-gray-500">
                 <p className="mb-2">No items found.</p>

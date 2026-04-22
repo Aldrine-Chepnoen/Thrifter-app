@@ -70,6 +70,79 @@ A race condition existed between the initial `fetchItems()` (called on mount) an
 - [x] Slow initial fetches no longer overwrite faster subsequent searches.
 - [x] Search results remain stable and do not "revert" to the default feed.
 
+## Entry: April 3, 2026 (Continued)
+### Task: Final Search Race Condition Fix (AbortController & Pagination)
+
+**Objective:**
+Eliminate the "0.001 second" jump where search results were being overwritten by a late-arriving "fetch all items" request.
+
+**Changes Implemented in `frontend/src/App.jsx`:**
+
+1.  **Request Cancellation (AbortController):**
+    - Integrated `AbortController` into both `fetchItems` and `handleSearch`.
+    - Every time a new search is started or the bar is cleared, the app now **physically cancels** the previous network request if it's still in flight.
+    - **Result:** This stops the race condition at the source. The browser will ignore any data from a cancelled request, so it can never overwrite new search results.
+
+2.  **Pagination (Home Feed):**
+    - Refactored `fetchItems` to support `skip` and `limit` parameters (fetching 20 items at a time).
+    - Added a **"Load More"** button at the bottom of the feed.
+    - **Result:** The "Empty" trigger (clearing the search bar) is now much faster because it only fetches a small portion of items instead of the whole database. This significantly reduces the performance load and further stabilizes the UI.
+
+**Verification:**
+- [x] Rapid typing and clearing no longer causes the feed to "jump" or revert.
+- [x] Network tab confirms that superseded requests are marked as `(canceled)`.
+- [x] Initial home page load is faster due to smaller data payload.
+- [x] "Load More" button successfully appends new items to the grid.
+
+## Entry: April 3, 2026 (Continued)
+### Task: Implement True Infinite Scroll
+
+**Objective:**
+Provide a seamless "Pinterest-style" discovery experience where items load automatically as the user scrolls, eliminating the jarring page jump caused by the "Load More" button.
+
+**Changes Implemented in `frontend/src/App.jsx`:**
+
+1.  **Background Loading State (`loadingMore`):**
+    - Split the loading state into `loading` (for initial, full-screen spinner) and `loadingMore` (for background appending).
+    - **Result:** The UI no longer disappears and jumps to the top when fetching new items; the existing grid stays on screen while new items are added at the bottom.
+
+2.  **Scroll Event Listener:**
+    - Added a `useEffect` with a `window` scroll listener that triggers `fetchItems(false)` when the user is within 500px of the bottom of the page.
+    - Implemented logic to prevent duplicate requests (checking `loadingMore` and `hasMore`).
+
+3.  **UI Enhancements:**
+    - Removed the manual "Load More" button.
+    - Added a subtle loading spinner at the bottom of the feed that only appears during background loads.
+    - Added a "End of collection" footer to provide visual closure to the user.
+
+**Verification:**
+- [x] Items load automatically as the user scrolls down.
+- [x] Page position is preserved (no jumping to the top).
+- [x] "End of collection" message appears correctly when no more items are available.
+- [x] Scroll listener is properly cleaned up on component unmount.
+
+## Entry: April 3, 2026 (Continued)
+### Task: Fix Grid Shuffling (Stable Masonry Grid)
+
+**Objective:**
+Eliminate the "mumbled movement" where items would jump between columns when new data was appended via infinite scroll.
+
+**Root Cause Analysis:**
+The use of CSS `column-count` caused the browser to re-balance all items across columns every time the list changed. This meant items at the top would shift left or right to accommodate new items at the bottom.
+
+**Changes Implemented in `frontend/src/components/MasonryGrid.jsx`:**
+
+1.  **Manual Column Distribution:**
+    - Abandoned CSS `column-count` in favor of a manual "stack" distribution logic.
+    - Added a `window` resize listener to dynamically determine the number of columns (2 to 5) based on screen width.
+    - Distributed items using a modulo operation (`index % columnCount`) into separate column arrays.
+    - **Result:** Since each column is now a distinct vertical flex container, adding new items only affects the bottom of each column. Existing items remain perfectly stationary.
+
+**Verification:**
+- [x] Items no longer jump between columns when scrolling down.
+- [x] Grid remains responsive to window resizing.
+- [x] Infinite scroll feels smooth and anchored.
+
 ## Entry: April 6, 2026
 ### Task: Restrict Search Bar to Main Home Page Only
 **Objective:**
