@@ -21,6 +21,7 @@ function App() {
   const [features, setFeatures] = useState({ outfit_builder: true });
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
   const navigate = useNavigate();
 
   const fetchItems = async () => {
@@ -64,20 +65,31 @@ function App() {
     })();
   }, []);
 
-  const handleSearch = async (query) => {
-    setOutfitResults(null);
-    setBuilderResults(null);
-    if (!query) {
-      if (location.pathname !== '/') navigate('/');
-      fetchItems();
-      return;
+  const handleSearch = (query) => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
     }
-    try {
-      const response = await api.get(`/search?query=${query}`);
-      setItems(response.data);
-    } catch (error) {
-      console.error('Search failed:', error);
-    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      setOutfitResults(null);
+      setBuilderResults(null);
+      
+      if (!query) {
+        if (location.pathname !== '/') navigate('/');
+        fetchItems();
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await api.get(`/search?query=${query}`);
+        setItems(response.data);
+      } catch (error) {
+        console.error('Search failed:', error);
+      } finally {
+        setLoading(false);
+      }
+    }, 500);
   };
   
   const handleFilterByVendor = async (vendor) => {

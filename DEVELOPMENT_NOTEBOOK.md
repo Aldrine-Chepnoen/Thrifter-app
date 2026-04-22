@@ -30,6 +30,25 @@
 - [x] Navigation bar is inaccessible until login.
 - [x] Manual URL entry for protected paths redirects to login for unauthenticated users.
 
+## Entry: April 3, 2026 (Continued)
+### Task: Fix Search Bug (Debouncing)
+
+**Objective:**
+Address the "buggy" search behavior where results sometimes feel unrelated or jump around while typing.
+
+**Changes Implemented in `frontend/src/App.jsx`:**
+
+1.  **Search Debouncing:**
+    - Introduced `searchTimeoutRef` using `useRef`.
+    - Modified `handleSearch` to clear any existing timeout before setting a new one.
+    - Set a 500ms delay for the API call. 
+    - **Result:** The app now waits for the user to pause typing before sending the search request. This prevents race conditions where an older, shorter query might finish after a newer, longer query and overwrite the results.
+
+**Verification:**
+- [x] Rapidly typing "jacket" only triggers one API call to `/search?query=jacket`.
+- [x] Clearing the search bar triggers `fetchItems()` after 500ms.
+- [x] UI no longer flickers between different result sets while typing.
+
 ## Entry: April 6, 2026
 ### Task: Restrict Search Bar to Main Home Page Only
 **Objective:**
