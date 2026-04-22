@@ -49,6 +49,27 @@ Address the "buggy" search behavior where results sometimes feel unrelated or ju
 - [x] Clearing the search bar triggers `fetchItems()` after 500ms.
 - [x] UI no longer flickers between different result sets while typing.
 
+## Entry: April 3, 2026 (Continued)
+### Task: Fix Search Race Condition (Reverting Results)
+
+**Objective:**
+Fix the issue where search results would briefly appear and then be overwritten by the regular homepage items.
+
+**Root Cause Analysis:**
+A race condition existed between the initial `fetchItems()` (called on mount) and the `handleSearch()` call. If the initial "fetch all" request was slow, it would finish *after* the search request, calling `setItems()` with the full list and overwriting the search results.
+
+**Changes Implemented in `frontend/src/App.jsx`:**
+
+1.  **Request Tracking (requestIdRef):**
+    - Introduced a `requestIdRef` to track the "freshness" of data requests.
+    - Every time `fetchItems` or `handleSearch` starts a new API call, it increments this ref and captures the value.
+    - Before updating the state (`setItems` or `setLoading`), the code now verifies that the captured ID still matches `requestIdRef.current`.
+    - **Result:** Stale responses from older or superseded requests are now ignored, ensuring that only the most recent user action determines what is displayed.
+
+**Verification:**
+- [x] Slow initial fetches no longer overwrite faster subsequent searches.
+- [x] Search results remain stable and do not "revert" to the default feed.
+
 ## Entry: April 6, 2026
 ### Task: Restrict Search Bar to Main Home Page Only
 **Objective:**

@@ -22,18 +22,21 @@ function App() {
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
+  const requestIdRef = useRef(0);
   const navigate = useNavigate();
 
   const fetchItems = async () => {
+    const rid = ++requestIdRef.current;
     setLoading(true);
     try {
       const response = await api.get('/items');
+      if (rid !== requestIdRef.current) return;
       const shuffled = [...response.data].sort(() => Math.random() - 0.5);
       setItems(shuffled);
     } catch (error) {
       console.error('Error fetching items:', error);
     } finally {
-      setLoading(false);
+      if (rid === requestIdRef.current) setLoading(false);
     }
   };
 
@@ -71,6 +74,7 @@ function App() {
     }
 
     searchTimeoutRef.current = setTimeout(async () => {
+      const rid = ++requestIdRef.current;
       setOutfitResults(null);
       setBuilderResults(null);
       
@@ -83,11 +87,12 @@ function App() {
       setLoading(true);
       try {
         const response = await api.get(`/search?query=${query}`);
+        if (rid !== requestIdRef.current) return;
         setItems(response.data);
       } catch (error) {
         console.error('Search failed:', error);
       } finally {
-        setLoading(false);
+        if (rid === requestIdRef.current) setLoading(false);
       }
     }, 500);
   };
