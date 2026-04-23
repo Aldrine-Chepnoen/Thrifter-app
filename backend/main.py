@@ -9,6 +9,7 @@ from sqlalchemy import or_
 import shutil
 import os
 import uuid
+import io
 from typing import List, Optional
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -421,13 +422,13 @@ async def upload_item(
 
     try:
         # 1. Generate Embedding FIRST (to fail early if AI model dies)
-        file.file.seek(0)
-        emb = search_engine.get_image_embedding_from_file(file.file)
+        image_stream = io.BytesIO(content)
+        emb = search_engine.get_image_embedding_from_file(image_stream)
         
         # 2. Upload to Cloudinary with optimization
-        file.file.seek(0)
+        image_stream.seek(0)
         upload_result = cloudinary.uploader.upload(
-            file.file,
+            image_stream,
             folder="thrifter_items",
             transformation=[
                 {"width": 1000, "crop": "limit"}, # Resize if too large
@@ -515,7 +516,8 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
 async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_db)):
     logger.info(f"Image search request: {file.filename}")
     try:
-        input_emb = search_engine.get_image_embedding_from_file(file.file)
+        content = await file.read()
+        input_emb = search_engine.get_image_embedding_from_file(io.BytesIO(content))
         
         # Use pgvector for L2 distance search (closest 50 items for grouping)
         items = db.query(models.Item).order_by(
@@ -561,7 +563,8 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
     from the current database items.
     """
     try:
-        input_emb = search_engine.get_image_embedding_from_file(file.file)
+        content = await file.read()
+        input_emb = search_engine.get_image_embedding_from_file(io.BytesIO(content))
     except Exception as e:
         logger.error(f"Image processing failed: {e}")
         raise HTTPException(status_code=500, detail=f"Image processing failed: {e}")
@@ -646,7 +649,8 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
 @app.post("/outfit-search")
 async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
-        input_emb = search_engine.get_image_embedding_from_file(file.file)
+        content = await file.read()
+        input_emb = search_engine.get_image_embedding_from_file(io.BytesIO(content))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image processing failed: {e}")
     

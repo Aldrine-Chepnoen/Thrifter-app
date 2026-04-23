@@ -143,6 +143,28 @@ The use of CSS `column-count` caused the browser to re-balance all items across 
 - [x] Grid remains responsive to window resizing.
 - [x] Infinite scroll feels smooth and anchored.
 
+## Entry: April 23, 2026
+### Task: Fix Image Upload Bug (UnidentifiedImageError)
+
+**Objective:**
+Resolve a bug where some image uploads failed with `PIL.UnidentifiedImageError: cannot identify image file <tempfile.SpooledTemporaryFile...>`.
+
+**Root Cause Analysis:**
+The backend was attempting to read from FastAPI's `SpooledTemporaryFile` multiple times. Even with `.seek(0)`, Pillow sometimes struggled to identify the file format when reading directly from the spooled file handle in certain environments (like Docker). This was exacerbated by calling `await file.read()` earlier in the function, which consumes the stream.
+
+**Changes Implemented in `backend/main.py`:**
+
+1.  **Memory-Based Image Processing (`io.BytesIO`):**
+    - Imported the `io` module.
+    - Modified `upload_item`, `outfit_search`, and `outfit_builder` to capture the file content using `await file.read()` and wrap it in `io.BytesIO`.
+    - Passed the `BytesIO` stream to both the AI embedding generator and the Cloudinary uploader.
+    - **Result:** This guarantees that Pillow is always reading from a clean, memory-resident byte stream, completely bypassing any issues with temporary file handles or spooling logic.
+
+**Verification:**
+- [x] Images that previously failed due to spooling issues now upload successfully.
+- [x] AI embeddings are correctly generated from the memory stream.
+- [x] Cloudinary uploads continue to function normally using the same stream (with `.seek(0)`).
+
 ## Entry: April 6, 2026
 ### Task: Restrict Search Bar to Main Home Page Only
 **Objective:**
