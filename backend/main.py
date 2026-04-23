@@ -517,41 +517,18 @@ async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_
     logger.info(f"Image search request: {file.filename}")
     try:
         content = await file.read()
-        input_emb = search_engine.get_image_embedding_from_file(io.BytesIO(content))
+        image_stream = io.BytesIO(content)
+        input_emb = search_engine.get_image_embedding_from_file(image_stream)
         
-        # Use pgvector for L2 distance search (closest 50 items for grouping)
+        # Use pgvector for L2 distance search (closest 50 items)
         items = db.query(models.Item).order_by(
             models.Item.embedding.l2_distance(input_emb.tolist())
         ).limit(50).all()
 
         if not items:
-            return {"tops": [], "bottoms": [], "dresses": [], "order": ["tops","bottoms","dresses"]}
+            return []
         
-        tops_kw = r"(top|shirt|t-?shirt|blouse|sweater|hoodie|jacket|coat|cardigan|jersey|vest)"
-        bottoms_kw = r"(jeans|pants|trousers|skirt|shorts|leggings|joggers|sweatpants)"
-        dresses_kw = r"(dress|gown|jumpsuit|romper)"
-        groups = {"tops": [], "bottoms": [], "dresses": []}
-        
-        for it in items:
-            dist = db.query(models.Item.embedding.l2_distance(input_emb.tolist())).filter(models.Item.id == it.id).scalar()
-            score = max(0.1, 1.0 - (dist / 1.5))
-            
-            text = f"{it.name or ''} {it.description or ''}".lower()
-            if re.search(dresses_kw, text):
-                groups["dresses"].append(serialize_item(it))
-            elif re.search(bottoms_kw, text):
-                groups["bottoms"].append(serialize_item(it))
-            elif re.search(tops_kw, text):
-                groups["tops"].append(serialize_item(it))
-            else:
-                groups["tops"].append(serialize_item(it))
-
-        return {
-            "tops": groups["tops"][:10],
-            "bottoms": groups["bottoms"][:10],
-            "dresses": groups["dresses"][:10],
-            "order": ["tops", "bottoms", "dresses"]
-        }
+        return [serialize_item(it) for it in items]
     except Exception as e:
         logger.error(f"Image search failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Image search failed")
@@ -645,71 +622,6 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
     outfits = sorted(outfits, key=lambda x: x["score"], reverse=True)
     
     return {"outfits": outfits}
-
-@app.post("/outfit-search")
-async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    try:
-        content = await file.read()
-        input_emb = search_engine.get_image_embedding_from_file(io.BytesIO(content))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image processing failed: {e}")
-    
-    # Use pgvector to get top 50 candidates
-    items = db.query(models.Item).order_by(
-        models.Item.embedding.l2_distance(input_emb.tolist())
-    ).limit(50).all()
-
-    if not items:
-        return {"tops": [], "bottoms": [], "dresses": [], "order": ["tops","bottoms","dresses"]}
-    
-    tops_kw = r"(top|shirt|t-?shirt|blouse|sweater|hoodie|jacket|coat|cardigan|jersey|vest)"
-    bottoms_kw = r"(jeans|pants|trousers|skirt|shorts|leggings|joggers|sweatpants)"
-    dresses_kw = r"(dress|gown|jumpsuit|romper)"
-    groups = {"tops": [], "bottoms": [], "dresses": []}
-    
-    for it in items:
-        dist = db.query(models.Item.embedding.l2_distance(input_emb.tolist())).filter(models.Item.id == it.id).scalar()
-        score = max(0.1, 1.0 - (dist / 1.5))
-        
-        text = f"{it.name or ''} {it.description or ''}".lower()
-        if re.search(dresses_kw, text):
-            groups["dresses"].append((score, it))
-        elif re.search(bottoms_kw, text):
-            groups["bottoms"].append((score, it))
-        elif re.search(tops_kw, text):
-            groups["tops"].append((score, it))
-        else:
-            groups["tops"].append((score * 0.9, it))
-    result = {}
-    for k in groups:
-        sorted_group = sorted(groups[k], key=lambda x: x[0], reverse=True)[:10]
-        result[k] = [serialize_item(it) for _, it in sorted_group]
-    primary = "tops"
-    try:
-        cats = ["dress","jeans","trousers","skirt","shorts","shirt","tshirt","blouse","sweater","hoodie","jacket","coat","cardigan"]
-        if getattr(search_engine, "model", None) is not None:
-            txt = [search_engine.get_text_embedding(f"a photo of a {c}") for c in cats]
-            mat = np.stack(txt)
-            sims = cosine_similarity(input_emb.reshape(1, -1), mat)[0]
-            best = cats[int(sims.argmax())]
-            if best == "dress":
-                primary = "dresses"
-            elif best in ("jeans","trousers","skirt","shorts"):
-                primary = "bottoms"
-            else:
-                primary = "tops"
-        else:
-            if len(result.get("dresses", [])) > 0:
-                primary = "dresses"
-            elif len(result.get("bottoms", [])) > 0 and len(result.get("tops", [])) == 0:
-                primary = "bottoms"
-            else:
-                primary = "tops"
-    except Exception:
-        primary = "tops"
-    order = [primary] + [k for k in ["tops","bottoms","dresses"] if k != primary]
-    result["order"] = order
-    return result
 
 @app.delete("/items/{item_id}", status_code=204)
 def delete_item(

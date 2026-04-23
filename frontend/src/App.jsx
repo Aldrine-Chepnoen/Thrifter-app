@@ -302,19 +302,12 @@ function App() {
               </div>
             ) : outfitResults ? (
               <>
-                {(outfitResults.order || ['tops','bottoms','dresses']).map((section, idx) => (
-                  <div key={section}>
-                    <div className={`px-6 ${idx > 0 ? 'mt-8' : ''}`}>
-                      <h2 className="text-xl font-serif font-bold mb-4">
-                        {section === 'tops' ? 'Tops' : section === 'bottoms' ? 'Bottoms' : 'Dresses'}
-                      </h2>
-                    </div>
-                    <MasonryGrid items={outfitResults[section] || []} onItemClick={setSelectedItem} />
-                  </div>
-                ))}
+                <div className="px-6 mb-4">
+                  <h2 className="text-xl font-serif font-bold">Similar Items</h2>
+                </div>
+                <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
               </>
-            ) : items.length > 0 ? (
-              <>
+            ) : items.length > 0 ? (              <>
                 <MasonryGrid items={items} onItemClick={setSelectedItem} />
                 {loadingMore && (
                   <div className="flex justify-center py-8">
