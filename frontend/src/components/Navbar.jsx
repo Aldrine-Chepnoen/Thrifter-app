@@ -6,16 +6,26 @@ import { Link, useLocation } from 'react-router-dom';
 const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout, features }) => {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
-  const isAuthPage = location.pathname === '/auth';
-  const isWardrobePage = location.pathname === '/wardrobe';
-  const isVendorPage = location.pathname.startsWith('/vendor/');
-  const showIcons = !isAuthPage && !isWardrobePage && !isVendorPage;
+  const showIcons = isHomePage;
+
+  const handleLogoClick = (e) => {
+    if (location.pathname === '/') {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   return (
     <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 py-3 px-4 md:py-4 md:px-6 mb-6">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
         <div className="flex justify-center md:justify-start">
-          <Link to="/" className="text-xl md:text-2xl font-serif font-bold tracking-tight">Thrifter</Link>
+          <Link 
+            to="/" 
+            onClick={handleLogoClick}
+            className="text-xl md:text-2xl font-serif font-bold tracking-tight"
+          >
+            Thrifter
+          </Link>
         </div>
         
         {showIcons && (

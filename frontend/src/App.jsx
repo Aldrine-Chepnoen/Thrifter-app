@@ -262,7 +262,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900 overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       {location.pathname === '/auth' ? (
         <header className="py-10 flex justify-center mb-6">
           <h1 className="text-4xl font-serif font-bold tracking-tight text-gray-900">Thrifter</h1>
