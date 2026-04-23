@@ -2,12 +2,14 @@
 import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 
 const Auth = ({ onAuthed }) => {
   const navigate = useNavigate();
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isVendor, setIsVendor] = useState(false);
   const [vendorName, setVendorName] = useState('');
   const [vendorWhatsapp, setVendorWhatsapp] = useState('');
@@ -33,6 +35,11 @@ const Auth = ({ onAuthed }) => {
   };
 
   const handleRegister = async () => {
+    if (password.length < 8) {
+      alert('Password must be at least 8 characters long.');
+      return;
+    }
+    
     setLoading(true);
     try {
       const body = {
@@ -45,7 +52,12 @@ const Auth = ({ onAuthed }) => {
       await api.post('/auth/register', body);
       await handleLogin();
     } catch (e) {
-      const msg = e?.response?.data?.detail || e?.message || 'Registration failed';
+      let msg = 'Registration failed';
+      if (e?.response?.status === 422) {
+        msg = 'Invalid data provided. Please check your email and ensure your password is at least 8 characters.';
+      } else {
+        msg = e?.response?.data?.detail || e?.message || msg;
+      }
       alert(msg);
       setLoading(false);
     }
@@ -80,12 +92,21 @@ const Auth = ({ onAuthed }) => {
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
         {mode === 'register' && (
           <>

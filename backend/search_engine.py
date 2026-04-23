@@ -2,7 +2,10 @@
 import numpy as np
 import re
 import hashlib
-from PIL import Image
+from PIL import Image, ImageFile
+
+# Allow loading of truncated images
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 MODEL_NAME = "clip-ViT-B-32"
 model = None

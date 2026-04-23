@@ -165,6 +165,69 @@ The backend was attempting to read from FastAPI's `SpooledTemporaryFile` multipl
 - [x] AI embeddings are correctly generated from the memory stream.
 - [x] Cloudinary uploads continue to function normally using the same stream (with `.seek(0)`).
 
+## Entry: April 23, 2026 (Continued)
+### Task: Fix Truncated Image Error
+
+**Objective:**
+Resolve `OSError: image file is truncated` occurring during image uploads and AI processing.
+
+**Root Cause Analysis:**
+Pillow (PIL) by default raises an error if it detects that an image file is missing data at the end (truncated). This can happen with certain image sources or if an upload is slightly interrupted/corrupted.
+
+**Changes Implemented in `backend/search_engine.py`:**
+
+1.  **Enable Truncated Image Loading:**
+    - Imported `ImageFile` from `PIL`.
+    - Set `ImageFile.LOAD_TRUNCATED_IMAGES = True`.
+    - **Result:** Pillow will now attempt to load and process images even if they are missing the end-of-file marker, preventing the application from crashing on these files.
+
+**Verification:**
+- [x] Images that previously triggered "image file is truncated" errors are now processed successfully by the AI model and Cloudinary.
+
+## Entry: April 23, 2026 (Continued)
+### Task: Improve Registration Validation & Error Handling
+
+**Objective:**
+Address the issue where short passwords (under 8 characters) caused a generic "Network Error" and provide clearer feedback to the user.
+
+**Changes Implemented in `frontend/src/components/Auth.jsx`:**
+
+1.  **Client-Side Validation:**
+    - Added an immediate check in `handleRegister` to verify that `password.length >= 8`.
+    - **Result:** Users now get an instant alert if their password is too short, preventing unnecessary network requests.
+
+2.  **Enhanced Backend Error Parsing:**
+    - Updated the `catch` block to specifically handle `422 Unprocessable Entity` responses (the default FastAPI status for validation failures).
+    - **Result:** Instead of a generic "Network Error," the app now informs the user that their data is invalid and reminds them of the password length constraint.
+
+**Verification:**
+- [x] Entering a 5-character password triggers an immediate "8 characters" alert.
+- [x] Valid passwords continue to register and log in smoothly.
+- [x] Other validation errors (like malformed emails) return a more descriptive message than before.
+
+## Entry: April 23, 2026 (Continued)
+### Task: Implement Password Visibility Toggle
+
+**Objective:**
+Improve user experience during login and registration by allowing users to toggle the visibility of their password.
+
+**Changes Implemented in `frontend/src/components/Auth.jsx`:**
+
+1.  **Visibility State Management:**
+    - Added `showPassword` state using `useState(false)`.
+    - Imported `Eye` and `EyeOff` icons from `lucide-react`.
+
+2.  **UI Updates:**
+    - Wrapped the password input in a `relative` container.
+    - Added a `button` with an absolute position on the right side of the input field.
+    - Dynamically toggled the input `type` between `password` and `text` based on the `showPassword` state.
+    - **Result:** Users can now click the eye icon to verify what they have typed, reducing input errors.
+
+**Verification:**
+- [x] Clicking the icon successfully switches the input between hidden and plain text.
+- [x] Icon changes from `Eye` to `EyeOff` appropriately.
+- [x] Styling remains consistent with the rest of the form.
+
 ## Entry: April 6, 2026
 ### Task: Restrict Search Bar to Main Home Page Only
 **Objective:**
