@@ -365,7 +365,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
         price=item.price,
         size=item.size,
         market=item.market,
-        item_type=item.item_type,
+        item_type=item.item_type or "top",
         description=item.description,
         image_path=item.image_path,
         vendor_name=vendor_name,
