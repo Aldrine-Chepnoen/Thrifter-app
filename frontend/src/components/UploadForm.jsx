@@ -12,6 +12,7 @@ const UploadForm = () => {
     price: '',
     size: '',
     market: '',
+    item_type: 'top',
     vendor_name: '',
     vendor_whatsapp: '',
     description: '',
@@ -173,6 +174,22 @@ const UploadForm = () => {
               required
               disabled={!canUpload}
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Item Category</label>
+            <select 
+              name="item_type"
+              value={formData.item_type} 
+              onChange={handleChange}
+              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none bg-white"
+              required
+              disabled={!canUpload}
+            >
+              <option value="top">Top (Shirt, Jacket, etc.)</option>
+              <option value="bottom">Bottom (Pants, Skirt, etc.)</option>
+              <option value="dress">Dress / Jumpsuit</option>
+              <option value="accessory">Accessory (Shoes, Bag, etc.)</option>
+            </select>
           </div>
         </div>
 

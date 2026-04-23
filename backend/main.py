@@ -365,6 +365,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
         price=item.price,
         size=item.size,
         market=item.market,
+        item_type=item.item_type,
         description=item.description,
         image_path=item.image_path,
         vendor_name=vendor_name,
@@ -399,6 +400,7 @@ async def upload_item(
     price: float = Form(...),
     size: str = Form(...),
     market: str = Form(...),
+    item_type: str = Form("top"),
     vendor_name: Optional[str] = Form(None),
     vendor_whatsapp: Optional[str] = Form(None),
     description: str = Form(None),
@@ -474,6 +476,7 @@ async def upload_item(
             price=price,
             size=size,
             market=market,
+            item_type=item_type,
             description=description,
             image_path=image_url,
             cloudinary_public_id=public_id,
@@ -562,27 +565,24 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
     if not items:
         return {"outfits": []}
     
-    # Grouping logic
-    tops_kw = r"(top|shirt|t-?shirt|blouse|sweater|hoodie|jacket|coat|cardigan|jersey|vest)"
-    bottoms_kw = r"(jeans|pants|trousers|skirt|shorts|leggings|joggers|sweatpants)"
-    dresses_kw = r"(dress|gown|jumpsuit|romper)"
-    
-    groups = {"tops": [], "bottoms": [], "dresses": []}
+    groups = {"tops": [], "bottoms": [], "dresses": [], "accessories": []}
     
     for it in items:
         # Distance to score (rough conversion)
         dist = db.query(models.Item.embedding.l2_distance(input_emb.tolist())).filter(models.Item.id == it.id).scalar()
         score = max(0.1, 1.0 - (dist / 1.5))
         
-        text = f"{it.name or ''} {it.description or ''}".lower()
-        
-        if re.search(dresses_kw, text):
+        # Use structured item_type instead of keywords
+        if it.item_type == "dress":
             groups["dresses"].append((score, it))
-        elif re.search(bottoms_kw, text):
+        elif it.item_type == "bottom":
             groups["bottoms"].append((score, it))
-        elif re.search(tops_kw, text):
+        elif it.item_type == "top":
             groups["tops"].append((score, it))
+        elif it.item_type == "accessory":
+            groups["accessories"].append((score, it))
         else:
+            # Fallback for old items or unspecified types
             groups["tops"].append((score * 0.8, it))
 
     # Sort groups

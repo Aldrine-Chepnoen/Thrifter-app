@@ -29,6 +29,7 @@ class Item(Base):
     size = Column(String)
     market = Column(String)
     image_path = Column(String)
+    item_type = Column(String, default="top", index=True) # top, bottom, dress, accessory
     cloudinary_public_id = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)

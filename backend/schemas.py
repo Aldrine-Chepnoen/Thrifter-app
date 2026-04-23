@@ -40,6 +40,7 @@ class ItemBase(BaseModel):
     price: float = Field(..., gt=0)
     size: str = Field(..., min_length=1)
     market: str = Field(..., min_length=2)
+    item_type: str = Field("top", description="top, bottom, dress, accessory")
     description: Optional[str] = Field(None, max_length=1000)
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
