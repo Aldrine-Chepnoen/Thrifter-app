@@ -591,8 +591,8 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
 
     outfits = []
     
-    # Create up to 10 combinations
-    for i in range(min(10, len(groups["tops"]), len(groups["bottoms"]))):
+    # Create up to 3 combinations
+    for i in range(min(3, len(groups["tops"]), len(groups["bottoms"]))):
         # Pick top and bottom that might go together
         _, t_it = groups["tops"][i]
         _, b_it = groups["bottoms"][i]
@@ -605,7 +605,7 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
         })
 
     # 2. Add standalone Dresses as outfits
-    for i in range(min(5, len(groups["dresses"]))):
+    for i in range(min(3, len(groups["dresses"]))):
         score, it = groups["dresses"][i]
         outfits.append({
             "type": "standalone",
@@ -615,7 +615,7 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
 
     # If no outfits found, just return the top matches as standalone
     if not outfits and items:
-        for i in range(min(10, len(items))):
+        for i in range(min(3, len(items))):
             it = items[i]
             # Score calculation
             dist = db.query(models.Item.embedding.l2_distance(input_emb.tolist())).filter(models.Item.id == it.id).scalar()
@@ -626,8 +626,8 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
                 "score": score
             })
     
-    # Sort final outfits by score
-    outfits = sorted(outfits, key=lambda x: x["score"], reverse=True)
+    # Sort final outfits by score and limit to top 3
+    outfits = sorted(outfits, key=lambda x: x["score"], reverse=True)[:3]
     
     return {"outfits": outfits}
 
