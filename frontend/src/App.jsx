@@ -22,6 +22,7 @@ function App() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [feedSeed, setFeedSeed] = useState(null);
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
@@ -29,7 +30,7 @@ function App() {
   const requestIdRef = useRef(0);
   const navigate = useNavigate();
 
-  const fetchItems = async (isNew = true) => {
+  const fetchItems = async (isNew = true, currentSeed = null) => {
     if (!isNew && (loadingMore || !hasMore)) return;
 
     if (isNew && abortControllerRef.current) {
@@ -46,9 +47,13 @@ function App() {
     const rid = ++requestIdRef.current;
     const currentPage = isNew ? 0 : page;
     const limit = 20;
+    const activeSeed = currentSeed !== null ? currentSeed : feedSeed;
 
     try {
-      const response = await api.get(`/items?skip=${currentPage * limit}&limit=${limit}`, {
+      let url = `/items?skip=${currentPage * limit}&limit=${limit}`;
+      if (activeSeed !== null) url += `&seed=${activeSeed}`;
+
+      const response = await api.get(url, {
         signal: isNew ? abortControllerRef.current.signal : undefined
       });
       
@@ -56,8 +61,7 @@ function App() {
 
       const newItems = response.data;
       if (isNew) {
-        const shuffled = [...newItems].sort(() => Math.random() - 0.5);
-        setItems(shuffled);
+        setItems(newItems);
         setPage(1);
       } else {
         setItems(prev => [...prev, ...newItems]);
@@ -86,10 +90,12 @@ function App() {
     };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [loading, loadingMore, hasMore, items.length, outfitResults]);
+  }, [loading, loadingMore, hasMore, items.length, outfitResults, feedSeed, page]);
 
   useEffect(() => {
-    fetchItems();
+    const seed = Math.random() * 2 - 1; // Range -1 to 1 for Postgres setseed
+    setFeedSeed(seed);
+    fetchItems(true, seed);
     // ... rest of init logic ...
     (async () => {
       setAuthLoading(true);

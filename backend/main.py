@@ -5,7 +5,7 @@ import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 import shutil
 import os
 import uuid
@@ -377,12 +377,20 @@ def read_items(
     skip: int = 0,
     limit: int = 100,
     vendor: Optional[str] = None,
+    seed: Optional[float] = None,
     db: Session = Depends(get_db)
 ):
+    # If seed is provided, set it for this transaction to ensure stable randomization
+    if seed is not None:
+        # Postgres setseed expects a value between -1.0 and 1.0
+        db.execute(text(f"SELECT setseed({seed})"))
+        
     q = db.query(models.Item)
     if vendor:
         q = q.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
-    items = q.offset(skip).limit(limit).all()
+    
+    # Use random order for the discovery feed
+    items = q.order_by(func.random()).offset(skip).limit(limit).all()
     return [serialize_item(i) for i in items]
 
 @app.post("/upload", response_model=schemas.Item)
