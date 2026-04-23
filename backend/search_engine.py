@@ -7,15 +7,26 @@ from PIL import Image, ImageFile
 # Allow loading of truncated images
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-MODEL_NAME = "clip-ViT-B-32"
+MODEL_NAME = "patrickjohncyh/fashion-clip"
 model = None
+processor = None
+
 try:
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(MODEL_NAME)
-except Exception:
+    from transformers import CLIPProcessor, CLIPModel
+    import torch
+    
+    # Load model and processor directly from transformers
+    model = CLIPModel.from_pretrained(MODEL_NAME)
+    processor = CLIPProcessor.from_pretrained(MODEL_NAME)
+    # Set to evaluation mode
+    model.eval()
+except Exception as e:
+    print(f"Error loading FashionCLIP: {e}")
     model = None
+    processor = None
 
 def _simple_image_embedding(image: Image.Image):
+    # (Existing fallback remains the same)
     image = image.convert("RGB").resize((32, 32))
     arr = np.asarray(image, dtype=np.float32) / 255.0
     rgb_mean = arr.mean(axis=(0, 1))
@@ -26,6 +37,7 @@ def _simple_image_embedding(image: Image.Image):
     return vec if n == 0 else vec / n
 
 def _simple_text_embedding(text: str):
+    # (Existing fallback remains the same)
     tokens = re.findall(r"\w+", (text or "").lower())
     vec = np.zeros(128, dtype=np.float32)
     for t in tokens:
@@ -37,20 +49,36 @@ def _simple_text_embedding(text: str):
 class SearchEngine:
     def __init__(self):
         self.model = model
+        self.processor = processor
 
     def get_text_embedding(self, text: str):
-        if self.model:
-            return self.model.encode(text)
+        if self.model and self.processor:
+            import torch
+            with torch.no_grad():
+                inputs = self.processor(text=[text], return_tensors="pt", padding=True)
+                text_features = self.model.get_text_features(**inputs).pooler_output
+                # Normalize
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                return text_features.cpu().numpy()[0]
         return _simple_text_embedding(text)
 
     def get_image_embedding(self, image_path: str):
         image = Image.open(image_path)
-        if self.model:
-            return self.model.encode(image)
-        return _simple_image_embedding(image)
+        return self.get_image_embedding_from_file(image)
 
     def get_image_embedding_from_file(self, image_file):
-        image = Image.open(image_file)
-        if self.model:
-            return self.model.encode(image)
+        # image_file can be a stream or a PIL image
+        if isinstance(image_file, Image.Image):
+            image = image_file
+        else:
+            image = Image.open(image_file)
+            
+        if self.model and self.processor:
+            import torch
+            with torch.no_grad():
+                inputs = self.processor(images=image, return_tensors="pt")
+                image_features = self.model.get_image_features(**inputs).pooler_output
+                # Normalize
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                return image_features.cpu().numpy()[0]
         return _simple_image_embedding(image)

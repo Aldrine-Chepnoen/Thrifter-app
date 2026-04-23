@@ -5,6 +5,7 @@ psycopg2-binary
 python-multipart
 pillow
 sentence-transformers
+transformers
 torch
 scikit-learn
 numpy
