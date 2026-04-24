@@ -10,7 +10,7 @@ import { PostHogProvider } from 'posthog-js/react'
 // Initialize PostHog
 // Replace 'YOUR_PROJECT_API_KEY' with your actual key from PostHog settings
 posthog.init('phc_AttmJ7ufE6Y3xgDagqoP9D2GFBP9ksKEqPjbHP3xass3', {
-  api_host: 'https://us.i.posthog.com',
+  api_host: 'https://eu.i.posthog.com',
   person_profiles: 'identified_only',
 })
 
