@@ -49,7 +49,7 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
               className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
               title="Upload outfit inspiration"
             >
-              <span className="text-[10px] md:text-xs tracking-tight">AI search</span>
+              <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
               <Camera className="w-3.5 h-3.5" />
             </button>
             <Link 
