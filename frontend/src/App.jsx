@@ -299,7 +299,7 @@ function App() {
           !user ? <Navigate to="/auth" replace /> :
           <main className="max-w-7xl mx-auto">
             <div className="px-6 mb-4">
-              <p className="text-xs text-gray-500">Tip: Click the camera to upload outfit inspiration and find similar items.</p>
+              <p className="text-xs text-gray-500">Tip: Click the camera to upload outfit inspiration and find similar items(Currently in active development).</p>
             </div>
 
             {loading ? (
