@@ -4,6 +4,7 @@ import { X, MessageCircle, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../api';
+import posthog from 'posthog-js';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) => {
   if (!isOpen || !item) return null;
@@ -35,11 +36,25 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) =>
     }
     try {
       await api.post(`/wardrobe/${item.id}`);
+      posthog.capture('item_added_to_wardrobe', {
+        item_id: item.id,
+        item_name: item.name,
+        price: item.price
+      });
       onClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Failed to add to wardrobe';
       alert(msg);
     }
+  };
+
+  const handleWhatsAppClick = () => {
+    posthog.capture('whatsapp_contact_clicked', {
+      item_id: item.id,
+      item_name: item.name,
+      vendor_name: item.vendor_name
+    });
+    onClose();
   };
 
   return (
@@ -129,7 +144,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) =>
               href={`https://wa.me/${(item.vendor_whatsapp || item.whatsapp) ?? ''}?text=${encodeURIComponent(`Hi, I saw your "${item.name}" on Thrifter. Is it still available?`)}`}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={onClose}
+              onClick={handleWhatsAppClick}
               className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center center justify-center gap-2 hover:bg-[#20bd5a] transition-colors mt-6"
             >
               <MessageCircle className="w-5 h-5" />

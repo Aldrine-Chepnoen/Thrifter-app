@@ -9,6 +9,7 @@ import Auth from './components/Auth';
 import api from './api';
 import VendorPage from './components/VendorPage';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import posthog from 'posthog-js';
 
 function App() {
   const [items, setItems] = useState([]);
@@ -113,6 +114,14 @@ function App() {
         try {
           const me = await api.get('/auth/me');
           setUser(me.data);
+          // Identify user in PostHog
+          if (me.data) {
+            posthog.identify(me.data.id, {
+              email: me.data.email,
+              is_vendor: me.data.is_vendor,
+              vendor_name: me.data.vendor_name
+            });
+          }
         } catch {
           setUser(null);
         }
@@ -181,6 +190,9 @@ function App() {
     try {
       const response = await api.post('/outfit-search', formData);
       setOutfitResults(response.data);
+      posthog.capture('image_search_performed', { 
+        result_count: response.data.length 
+      });
       navigate('/');
     } catch (error) {
       console.error('Image search failed:', error);
@@ -203,6 +215,9 @@ function App() {
     try {
       const response = await api.post('/outfit-builder', formData);
       setBuilderResults(response.data.outfits);
+      posthog.capture('outfit_builder_performed', { 
+        outfit_count: response.data.outfits.length 
+      });
       navigate('/outfit-builder');
     } catch (error) {
       console.error('Outfit builder failed:', error);
