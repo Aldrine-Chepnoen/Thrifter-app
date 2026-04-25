@@ -1,12 +1,21 @@
 // This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React from 'react';
 import { Search, PlusCircle, Camera, Heart, Sparkles } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout, features }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isHomePage = location.pathname === '/';
   const showIcons = isHomePage;
+
+  const handleProtectedAction = (action) => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    action();
+  };
 
   const handleLogoClick = (e) => {
     if (location.pathname === '/') {
@@ -31,13 +40,13 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
         {showIcons && (
           <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
             <button 
-              onClick={() => {
+              onClick={() => handleProtectedAction(() => {
                 if (features?.outfit_builder === false) {
                   alert("This feature is currently under development and will be back soon!");
                   return;
                 }
                 onOutfitBuilderClick();
-              }}
+              })}
               className={`flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
               title={features?.outfit_builder === false ? "Under Development" : "Outfit Builder"}
             >
@@ -45,7 +54,7 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
               <Sparkles className="w-3.5 h-3.5" />
             </button>
             <button 
-              onClick={onImageSearchClick}
+              onClick={() => handleProtectedAction(onImageSearchClick)}
               className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
               title="Upload outfit inspiration"
             >

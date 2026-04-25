@@ -255,10 +255,10 @@ function App() {
   };
   const location = useLocation();
   useEffect(() => {
-    if (location.pathname === '/wardrobe') {
+    if (location.pathname === '/wardrobe' && user) {
       fetchWardrobe();
     }
-  }, [location.pathname]);
+  }, [location.pathname, user]);
 
   const getImageUrl = (path) => {
     if (!path) return '';
@@ -311,7 +311,6 @@ function App() {
 
       <Routes>
         <Route path="/" element={
-          !user ? <Navigate to="/auth" replace /> :
           <main className="max-w-7xl mx-auto">
             <div className="px-6 mb-4">
               <p className="text-xs text-gray-500">Tip: Click the camera to upload outfit inspiration and find similar items(Currently in active development).</p>
@@ -350,7 +349,7 @@ function App() {
           </main>
         } />
         
-        <Route path="/upload" element={<UploadForm />} />
+        <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/auth" replace />} />
         <Route path="/auth" element={<Auth onAuthed={setUser} />} />
         <Route path="/vendor/:name" element={
           <VendorPage 
@@ -447,7 +446,7 @@ function App() {
             )}
           </main>
         } />
-        <Route path="/wardrobe" element={
+        <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
             <div className="px-6 mb-4 flex items-center justify-between">
               <h2 className="text-xl font-serif font-bold">Wardrobe</h2>
@@ -471,7 +470,7 @@ function App() {
               </div>
             )}
           </main>
-        } />
+        ) : <Navigate to="/auth" replace />} />
       </Routes>
 
       <ProductModal 

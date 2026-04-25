@@ -2,15 +2,27 @@
 import React from 'react';
 import { X, MessageCircle, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) => {
+  const navigate = useNavigate();
   if (!isOpen || !item) return null;
+  
+  const handleProtectedAction = (action) => {
+    if (!user) {
+      onClose();
+      navigate('/auth');
+      return;
+    }
+    action();
+  };
+
   const imgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
+  
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
   };
@@ -30,31 +42,34 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) =>
   };
   
   const handleAddWardrobe = async () => {
-    if (!user) {
-      alert('Login to add items to your wardrobe');
-      return;
-    }
-    try {
-      await api.post(`/wardrobe/${item.id}`);
-      posthog.capture('item_added_to_wardrobe', {
-        item_id: item.id,
-        item_name: item.name,
-        price: item.price
-      });
-      onClose();
-    } catch (e) {
-      const msg = e?.response?.data?.detail || e?.message || 'Failed to add to wardrobe';
-      alert(msg);
-    }
+    handleProtectedAction(async () => {
+      try {
+        await api.post(`/wardrobe/${item.id}`);
+        posthog.capture('item_added_to_wardrobe', {
+          item_id: item.id,
+          item_name: item.name,
+          price: item.price
+        });
+        onClose();
+      } catch (e) {
+        const msg = e?.response?.data?.detail || e?.message || 'Failed to add to wardrobe';
+        alert(msg);
+      }
+    });
   };
 
-  const handleWhatsAppClick = () => {
+  const handleWhatsAppClick = (e) => {
+    if (!user) {
+      e.preventDefault();
+      onClose();
+      navigate('/auth');
+      return;
+    }
     posthog.capture('whatsapp_contact_clicked', {
       item_id: item.id,
       item_name: item.name,
       vendor_name: item.vendor_name
     });
-    onClose();
   };
 
   return (
