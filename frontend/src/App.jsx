@@ -5,7 +5,7 @@ import Navbar from './components/Navbar';
 import MasonryGrid from './components/MasonryGrid';
 import ProductModal from './components/ProductModal';
 import UploadForm from './components/UploadForm';
-import Auth from './components/Auth';
+import AuthModal from './components/AuthModal';
 import api from './api';
 import VendorPage from './components/VendorPage';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
@@ -19,6 +19,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [features, setFeatures] = useState({ outfit_builder: true });
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -30,6 +31,8 @@ function App() {
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
   const navigate = useNavigate();
+
+  const openAuthModal = () => setIsAuthModalOpen(true);
 
   const fetchItems = async (isNew = true, currentSeed = null) => {
     if (!isNew && (loadingMore || !hasMore)) return;
@@ -278,20 +281,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      {location.pathname === '/auth' ? (
-        <header className="py-10 flex justify-center mb-6">
-          <h1 className="text-4xl font-serif font-bold tracking-tight text-gray-900">Thrifter</h1>
-        </header>
-      ) : (
-        <Navbar 
-          onSearch={handleSearch} 
-          onImageSearchClick={handleImageSearchClick} 
-          onOutfitBuilderClick={() => builderInputRef.current.click()}
-          user={user}
-          onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
-          features={features}
-        />
-      )}
+      <Navbar 
+        onSearch={handleSearch} 
+        onImageSearchClick={handleImageSearchClick} 
+        onOutfitBuilderClick={() => builderInputRef.current.click()}
+        user={user}
+        onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
+        features={features}
+        openAuthModal={openAuthModal}
+      />
       
       {/* Hidden File Inputs */}
       <input 
@@ -349,8 +347,7 @@ function App() {
           </main>
         } />
         
-        <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/auth" replace />} />
-        <Route path="/auth" element={<Auth onAuthed={setUser} />} />
+        <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/" replace />} />
         <Route path="/vendor/:name" element={
           <VendorPage 
             setSelectedItem={setSelectedItem} 
@@ -470,8 +467,14 @@ function App() {
               </div>
             )}
           </main>
-        ) : <Navigate to="/auth" replace />} />
+        ) : <Navigate to="/" replace />} />
       </Routes>
+
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+        onAuthed={setUser}
+      />
 
       <ProductModal 
         item={selectedItem} 
@@ -480,6 +483,7 @@ function App() {
         user={user}
         onDeleted={() => { fetchItems(); }}
         isWardrobe={location.pathname === '/wardrobe'}
+        openAuthModal={openAuthModal}
       />
     </div>
   );

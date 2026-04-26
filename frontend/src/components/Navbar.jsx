@@ -3,18 +3,22 @@ import React from 'react';
 import { Search, PlusCircle, Camera, Heart, Sparkles } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout, features }) => {
+const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLogout, features, openAuthModal }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const isHomePage = location.pathname === '/';
   const showIcons = isHomePage;
 
-  const handleProtectedAction = (action) => {
+  const handleProtectedAction = (action, isPath = false) => {
     if (!user) {
-      navigate('/auth');
+      openAuthModal();
       return;
     }
-    action();
+    if (isPath) {
+      navigate(action);
+    } else {
+      action();
+    }
   };
 
   const handleLogoClick = (e) => {
@@ -61,34 +65,33 @@ const Navbar = ({ onSearch, onImageSearchClick, onOutfitBuilderClick, user, onLo
               <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
               <Camera className="w-3.5 h-3.5" />
             </button>
-            <Link 
-              to="/wardrobe" 
+            <button 
+              onClick={() => handleProtectedAction('/wardrobe', true)}
               className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
               title="Wardrobe"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
               <Heart className="w-3.5 h-3.5" />
-            </Link>
-            {!user && (
-              <Link 
-                to="/auth" 
-                className="flex flex-col items-center gap-1 bg-black text-white px-3 md:px-5 py-2 rounded-xl hover:bg-gray-800 transition-all font-medium text-sm"
-              >
-                Login
-              </Link>
-            )}
-            <Link 
-              to="/upload" 
+            </button>
+            <button 
+              onClick={() => handleProtectedAction('/upload', true)}
               className="flex flex-col items-center gap-1 bg-black text-white px-2 md:px-4 py-1.5 rounded-xl hover:bg-gray-800 transition-all font-medium"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Sell item</span>
               <PlusCircle className="w-3.5 h-3.5" />
-            </Link>
-            {user && (
-              <div className="flex flex-col items-center gap-1">
+            </button>
+            {user ? (
+              <div className="flex flex-col items-center gap-1 ml-2">
                 <span className="hidden lg:inline text-[10px] text-gray-500">{user.is_vendor ? 'Vendor' : 'User'}</span>
                 <button onClick={onLogout} className="px-2 py-1 bg-black text-white rounded-lg hover:bg-gray-800 text-[10px] transition-all">Logout</button>
               </div>
+            ) : (
+              <button 
+                onClick={openAuthModal}
+                className="bg-black text-white px-4 py-2 rounded-xl hover:bg-gray-800 transition-all font-bold text-sm ml-2"
+              >
+                Login
+              </button>
             )}
           </div>
         )}

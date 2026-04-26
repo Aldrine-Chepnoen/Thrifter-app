@@ -6,14 +6,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 
-const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) => {
-  const navigate = useNavigate();
+const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal }) => {
   if (!isOpen || !item) return null;
   
   const handleProtectedAction = (action) => {
     if (!user) {
       onClose();
-      navigate('/auth');
+      openAuthModal();
       return;
     }
     action();
@@ -62,7 +61,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe }) =>
     if (!user) {
       e.preventDefault();
       onClose();
-      navigate('/auth');
+      openAuthModal();
       return;
     }
     posthog.capture('whatsapp_contact_clicked', {
