@@ -22,6 +22,27 @@ const Navbar = ({
   const isHomePage = location.pathname === '/';
   const showIcons = isHomePage;
 
+  const [hiddenState, setHiddenState] = useState(false);
+  const [activeTag, setActiveTag] = useState(null);
+  const { scrollY } = useScroll();
+
+  const quickTags = [
+    { label: 'Tops', query: 'tops' },
+    { label: 'Bottoms', query: 'bottoms' },
+    { label: 'Dresses', query: 'dresses' },
+    { label: 'Shoes', query: 'shoes' },
+    { label: 'Bags', query: 'bags' }
+  ];
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious() ?? 0;
+    if (latest > previous && latest > 150) {
+      setHiddenState(true);
+    } else {
+      setHiddenState(false);
+    }
+  });
+
   // Check if current page is the user's own vendor profile
   const isOwnProfile = user?.is_vendor && location.pathname === `/vendor/${encodeURIComponent(user.vendor_name)}`;
 
@@ -41,6 +62,16 @@ const Navbar = ({
     if (location.pathname === '/') {
       e.preventDefault();
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleTagClick = (query) => {
+    if (activeTag === query) {
+      setActiveTag(null);
+      onSearch('');
+    } else {
+      setActiveTag(query);
+      onSearch(query);
     }
   };
 
@@ -169,6 +200,22 @@ const Navbar = ({
                 onChange={(e) => onSearch(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="flex justify-center gap-2 mt-3 overflow-x-auto no-scrollbar pb-1 px-4">
+            {quickTags.map((tag) => (
+              <button
+                key={tag.label}
+                onClick={() => handleTagClick(tag.query)}
+                className={`whitespace-nowrap px-3 py-1 border transition-all shadow-sm rounded-full text-[10px] md:text-xs font-medium ${
+                  activeTag === tag.query 
+                    ? 'bg-[#EAAD11] border-[#EAAD11] text-black scale-105' 
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                🏷️ {tag.label}
+              </button>
+            ))}
           </div>
 
           <div className="flex justify-center gap-8 mt-4 pt-2 border-t border-gray-100">
