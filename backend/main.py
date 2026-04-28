@@ -379,10 +379,11 @@ def read_items(
     limit: int = 100,
     vendor: Optional[str] = None,
     seed: Optional[float] = None,
+    sort: str = "random",
     db: Session = Depends(get_db)
 ):
-    # If seed is provided, set it for this transaction to ensure stable randomization
-    if seed is not None:
+    # If seed is provided and we are in random mode, set it for this transaction
+    if sort == "random" and seed is not None:
         # Postgres setseed expects a value between -1.0 and 1.0
         db.execute(text(f"SELECT setseed({seed})"))
         
@@ -390,8 +391,13 @@ def read_items(
     if vendor:
         q = q.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
     
-    # Use random order for the discovery feed
-    items = q.order_by(func.random()).offset(skip).limit(limit).all()
+    # Ordering logic
+    if sort == "latest":
+        items = q.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
+    else:
+        # Default to random order for the discovery feed
+        items = q.order_by(func.random()).offset(skip).limit(limit).all()
+        
     return [serialize_item(i) for i in items]
 
 @app.post("/upload", response_model=schemas.Item)

@@ -3,8 +3,16 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply text-gray-900 bg-gray-50;
+@layer utilities {
+  .item-card-shadow {
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
+    border-radius: 12px;
+  }
+  .item-card-inner {
+    border-radius: 12px;
+    @apply ring-1 ring-inset ring-[#EAAD11];
+  }
+  .input-shadow {
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
   }
 }

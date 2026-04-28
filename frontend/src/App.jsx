@@ -10,6 +10,7 @@ import api from './api';
 import VendorPage from './components/VendorPage';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
+import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 
 function App() {
   const [items, setItems] = useState([]);
@@ -25,6 +26,7 @@ function App() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedSeed, setFeedSeed] = useState(null);
+  const [feedType, setFeedType] = useState('random'); // 'random' (For You) or 'latest'
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
@@ -32,9 +34,22 @@ function App() {
   const requestIdRef = useRef(0);
   const navigate = useNavigate();
 
+  const [headerHidden, setHeaderHidden] = useState(false);
+  const { scrollY } = useScroll();
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious() ?? 0;
+    if (latest > previous && latest > 150) {
+      setHeaderHidden(true);
+    } else {
+      setHeaderHidden(false);
+    }
+  });
+
   const openAuthModal = () => setIsAuthModalOpen(true);
 
-  const fetchItems = async (isNew = true, currentSeed = null) => {
+  const fetchItems = async (isNew = true, currentSeed = null, type = null) => {
+    const activeType = type || feedType;
     if (!isNew && (loadingMore || !hasMore)) return;
 
     if (isNew && abortControllerRef.current) {
@@ -54,8 +69,8 @@ function App() {
     const activeSeed = currentSeed !== null ? currentSeed : feedSeed;
 
     try {
-      let url = `/items?skip=${currentPage * limit}&limit=${limit}`;
-      if (activeSeed !== null) url += `&seed=${activeSeed}`;
+      let url = `/items?skip=${currentPage * limit}&limit=${limit}&sort=${activeType}`;
+      if (activeType === 'random' && activeSeed !== null) url += `&seed=${activeSeed}`;
 
       const response = await api.get(url, {
         signal: isNew ? abortControllerRef.current.signal : undefined
@@ -82,6 +97,14 @@ function App() {
         setLoadingMore(false);
       }
     }
+  };
+
+  const handleFeedTypeChange = (newType) => {
+    if (newType === feedType) return;
+    setFeedType(newType);
+    setItems([]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    fetchItems(true, feedSeed, newType);
   };
 
   useEffect(() => {
@@ -289,6 +312,9 @@ function App() {
         onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
         features={features}
         openAuthModal={openAuthModal}
+        hidden={headerHidden}
+        feedType={feedType}
+        onFeedTypeChange={handleFeedTypeChange}
       />
       
       {/* Hidden File Inputs */}
@@ -310,23 +336,21 @@ function App() {
       <Routes>
         <Route path="/" element={
           <main className="max-w-7xl mx-auto">
-            <div className="px-6 mb-4">
-              <p className="text-xs text-gray-500">Tip: Click the camera to upload outfit inspiration and find similar items(Currently in active development).</p>
-            </div>
-
             {loading ? (
               <div className="flex justify-center py-20">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
               </div>
             ) : outfitResults ? (
               <>
-                <div className="px-6 mb-4">
+                <div className="px-6 mb-4 mt-4">
                   <h2 className="text-xl font-serif font-bold">Similar Items</h2>
                 </div>
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
               </>
             ) : items.length > 0 ? (              <>
-                <MasonryGrid items={items} onItemClick={setSelectedItem} />
+                <div className="mt-4">
+                  <MasonryGrid items={items} onItemClick={setSelectedItem} />
+                </div>
                 {loadingMore && (
                   <div className="flex justify-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
