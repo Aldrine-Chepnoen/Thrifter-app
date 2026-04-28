@@ -513,20 +513,38 @@ def list_vendors(db: Session = Depends(get_db)):
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")
 def search_items(request: Request, query: str, db: Session = Depends(get_db)):
-    logger.info(f"Search query: {query}")
+    logger.info(f"AI Search query: {query}")
     try:
-        results = db.query(models.Item).filter(
+        # 1. Get AI embedding for the text query
+        query_emb = search_engine.get_text_embedding(query)
+        
+        # 2. Vector search using pgvector (semantic/visual similarity)
+        # We find top 40 similar items
+        vector_results = db.query(models.Item).order_by(
+            models.Item.embedding.l2_distance(query_emb.tolist())
+        ).limit(40).all()
+        
+        # 3. Keyword search (exact matches)
+        keyword_results = db.query(models.Item).filter(
             or_(
                 models.Item.name.ilike(f"%{query}%"),
-                models.Item.description.ilike(f"%{query}%"),
-                models.Item.market.ilike(f"%{query}%"),
-                models.Item.size.ilike(f"%{query}%")
+                models.Item.description.ilike(f"%{query}%")
             )
         ).limit(20).all()
-        logger.info(f"Search returned {len(results)} results")
-        return [serialize_item(i) for i in results]
+        
+        # Combine results, prioritizing vector search but ensuring keywords are included
+        seen_ids = set()
+        combined = []
+        
+        for it in vector_results + keyword_results:
+            if it.id not in seen_ids:
+                combined.append(serialize_item(it))
+                seen_ids.add(it.id)
+                
+        logger.info(f"AI Search returned {len(combined)} combined results")
+        return combined[:30]
     except Exception as e:
-        logger.error(f"Search failed: {str(e)}", exc_info=True)
+        logger.error(f"AI Search failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Search failed")
 
 @app.post("/outfit-search")
