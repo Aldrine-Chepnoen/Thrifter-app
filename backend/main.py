@@ -680,6 +680,33 @@ def delete_item(
     db.commit()
     return Response(status_code=204)
 
+@app.put("/items/{item_id}", response_model=schemas.Item)
+def update_item(
+    item_id: int,
+    name: str = Form(...),
+    price: float = Form(...),
+    size: str = Form(...),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user)
+):
+    if not current or not current.is_vendor:
+        raise HTTPException(status_code=403, detail="Vendor account required")
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if current.vendor_id != item.vendor_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own items")
+    
+    item.name = name
+    item.price = price
+    item.size = size
+    item.description = description
+    
+    db.commit()
+    db.refresh(item)
+    return serialize_item(item)
+
 @app.get("/wardrobe", response_model=List[schemas.Item])
 def get_wardrobe(current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current:

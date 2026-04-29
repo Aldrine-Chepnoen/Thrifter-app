@@ -538,6 +538,10 @@ function App() {
         onClose={() => setSelectedItem(null)}
         user={user}
         onDeleted={() => { fetchItems(); }}
+        onUpdated={(updatedItem) => {
+          setSelectedItem(null);
+          fetchItems();
+        }}
         isWardrobe={location.pathname === '/wardrobe'}
         openAuthModal={openAuthModal}
       />
