@@ -117,7 +117,7 @@ const Navbar = ({
                 }
                 onOutfitBuilderClick();
               })}
-              className={`flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+              className={`flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
               title={features?.outfit_builder === false ? "Under Development" : "Outfit Builder"}
             >
               <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
@@ -125,7 +125,7 @@ const Navbar = ({
             </button>
             <button 
               onClick={() => handleProtectedAction(onImageSearchClick)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
               title="Upload outfit inspiration"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
@@ -133,7 +133,7 @@ const Navbar = ({
             </button>
             <button 
               onClick={() => handleProtectedAction('/wardrobe', true)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
               title="Wardrobe"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
@@ -144,7 +144,7 @@ const Navbar = ({
             {user?.is_vendor && !isOwnProfile && (
               <Link 
                 to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-                className="hidden md:flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+                className="hidden md:flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
                 title="My Shop"
               >
                 <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
@@ -157,7 +157,7 @@ const Navbar = ({
                 <span className="hidden lg:inline text-[10px] text-gray-500 font-medium">{user.is_vendor ? 'Vendor' : 'User'}</span>
                 <button 
                   onClick={onLogout} 
-                  className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow"
+                  className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow banner-text-shadow"
                 >
                   Logout
                 </button>
@@ -165,7 +165,7 @@ const Navbar = ({
             ) : (
               <button 
                 onClick={openAuthModal}
-                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow"
+                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow banner-text-shadow"
               >
                 Login
               </button>

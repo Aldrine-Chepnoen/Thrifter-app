@@ -348,6 +348,38 @@ function App() {
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
               </>
             ) : items.length > 0 ? (              <>
+                {/* Homepage Banner */}
+                <div className="px-4 md:px-6 mb-8 mt-2">
+                  <div className="relative h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
+                    {/* Left: Text Content */}
+                    <div className="z-10 max-w-[65%] banner-text-shadow">
+                      <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
+                        Secure your next fit.
+                      </h2>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[10px] md:text-xs text-white font-medium">
+                          Discover fashion around Kampala
+                        </p>
+                        <p className="text-[10px] md:text-xs text-white font-medium">
+                          Thrift stores, Clothing brands, Fashion Designers
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: Image Content */}
+                    <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
+                      <img 
+                        src="/Adobe Express - file.png" 
+                        alt="Fashion showcase" 
+                        className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
+                      />
+                    </div>
+                    
+                    {/* Decorative texture overlay */}
+                    <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
+                  </div>
+                </div>
+
                 <div className="mt-4">
                   <MasonryGrid items={items} onItemClick={setSelectedItem} />
                 </div>

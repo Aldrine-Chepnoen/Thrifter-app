@@ -34,12 +34,12 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
 
   return (
     <main className="max-w-7xl mx-auto px-6">
-      <div className="relative h-40 md:h-52 bg-gradient-to-r from-[#FAF6B5] via-[#F4BD13] to-[#D2850F] rounded-2xl overflow-hidden mb-8 shadow-inner input-shadow border border-[#EAAD11]/20">
+      <div className="relative h-40 md:h-52 bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden mb-8 shadow-inner input-shadow border border-[#EAAD11]/20">
         <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
         <div className="h-full w-full flex items-center justify-center">
-          <div className="px-6 md:px-8 text-center">
-            <h1 className="text-3xl md:text-4xl font-serif font-bold text-black tracking-tight">{name}</h1>
-            <p className="text-sm text-black mt-2 font-semibold opacity-80">
+          <div className="px-6 md:px-8 text-center banner-text-shadow">
+            <h1 className="text-3xl md:text-4xl font-serif font-bold text-white tracking-tight">{name}</h1>
+            <p className="text-sm text-white mt-2 font-semibold opacity-90">
               {items.length} curated item(s)
             </p>
           </div>
