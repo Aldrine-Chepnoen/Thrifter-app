@@ -2,11 +2,14 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
+import { getOptimizedCloudinaryUrl } from '../utils';
 
 const ItemCard = ({ item, onClick, onRemove }) => {
-  const imgSrc = item.image_path.startsWith('http') 
+  const rawImgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
+  
+  const imgSrc = getOptimizedCloudinaryUrl(rawImgSrc, 400);
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
   };

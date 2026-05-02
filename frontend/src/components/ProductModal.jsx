@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
+import { getOptimizedCloudinaryUrl } from '../utils';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated }) => {
   const [editMode, setEditMode] = useState(false);
@@ -39,9 +40,11 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     action();
   };
 
-  const imgSrc = item.image_path.startsWith('http') 
+  const rawImgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
+  
+  const imgSrc = getOptimizedCloudinaryUrl(rawImgSrc, 800);
   
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
