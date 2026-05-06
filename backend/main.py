@@ -198,6 +198,24 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     user = db.query(models.User).filter(models.User.id == payload.get("uid")).first()
     return user
 
+def get_optional_user(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[models.User]:
+    """Silently attempts to get user, returns None if auth fails or token is missing."""
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header.replace("Bearer ", "")
+        payload = parse_token(token, db)
+        user = db.query(models.User).filter(
+            models.User.id == payload.get("uid")
+        ).first()
+        return user
+    except Exception:
+        return None
+
 @app.post("/auth/logout")
 def logout(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -373,6 +391,110 @@ def serialize_item(item: models.Item) -> schemas.Item:
         whatsapp=vendor_whatsapp or None
     )
 
+def _personalised_feed(
+    db: Session,
+    wardrobe_items,
+    user_id: int,
+    skip: int,
+    limit: int,
+    seed: float,
+    base_query
+):
+    import numpy as np
+
+    # 1. Fetch wardrobe item embeddings
+    wardrobe_item_ids = [w.item_id for w in wardrobe_items]
+    
+    items_with_embeddings = (
+        db.query(models.Item)
+        .filter(models.Item.id.in_(wardrobe_item_ids))
+        .filter(models.Item.embedding.isnot(None))
+        .all()
+    )
+
+    if not items_with_embeddings:
+        # No embeddings available — fall back to random
+        db.execute(text(f"SELECT setseed({seed})"))
+        return base_query.order_by(func.random()).offset(skip).limit(limit).all()
+
+    # 2. Build weighted style profile (linear recency bias)
+    # wardrobe_items is ordered by id desc (most recent first)
+    n = len(items_with_embeddings)
+    
+    id_to_rank = {
+        w.item_id: (len(wardrobe_items) - idx)  # rank n down to 1
+        for idx, w in enumerate(wardrobe_items)
+    }
+
+    total_weight = 0.0
+    profile_vector = np.zeros(512, dtype=np.float64)
+
+    for item in items_with_embeddings:
+        weight = id_to_rank.get(item.id, 1)
+        emb = np.array(item.embedding, dtype=np.float64)
+        profile_vector += weight * emb
+        total_weight += weight
+
+    profile_vector /= total_weight
+
+    # Normalise the profile vector
+    norm = np.linalg.norm(profile_vector)
+    if norm > 0:
+        profile_vector /= norm
+
+    profile_str = "[" + ",".join(str(x) for x in profile_vector.tolist()) + "]"
+
+    # 3. Determine discovery mix ratio
+    # Gradual fade: page 1 = 90% similar, fades to 10% by page 10+
+    page = (skip // limit) + 1 if limit > 0 else 1
+    similar_ratio = max(0.1, 0.9 - (page - 1) * 0.08)
+    similar_count = round(limit * similar_ratio)
+    random_count = limit - similar_count
+
+    # 4. IDs to exclude
+    exclude_ids = set(wardrobe_item_ids)
+
+    # 5. Fetch similar items
+    similar_items = (
+        base_query
+        .filter(models.Item.embedding.isnot(None))
+        .filter(~models.Item.id.in_(exclude_ids))
+        .order_by(
+            text(f"embedding <=> '{profile_str}'::vector")
+        )
+        .offset(skip)
+        .limit(similar_count)
+        .all()
+    )
+
+    # 6. Fetch random discovery items
+    db.execute(text(f"SELECT setseed({seed})"))
+    random_items = (
+        base_query
+        .filter(~models.Item.id.in_(exclude_ids))
+        .order_by(func.random())
+        .offset(skip)
+        .limit(random_count)
+        .all()
+    )
+
+    # 7. Merge
+    result = similar_items + random_items
+
+    # 8. Infinite scroll safety net
+    if not result:
+        db.execute(text(f"SELECT setseed({seed})"))
+        result = (
+            base_query
+            .filter(~models.Item.id.in_(exclude_ids))
+            .order_by(func.random())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    return result
+
 @app.get("/items", response_model=List[schemas.Item])
 def read_items(
     skip: int = 0,
@@ -380,23 +502,46 @@ def read_items(
     vendor: Optional[str] = None,
     seed: Optional[float] = None,
     sort: str = "random",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user)
 ):
-    # If seed is provided and we are in random mode, set it for this transaction
-    if sort == "random" and seed is not None:
-        # Postgres setseed expects a value between -1.0 and 1.0
-        db.execute(text(f"SELECT setseed({seed})"))
-        
-    q = db.query(models.Item)
+    # Base query
+    query = db.query(models.Item)
     if vendor:
-        q = q.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
-    
-    # Ordering logic
+        query = query.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
+
+    # Personalized Recommendation Logic
+    if sort == "random" and current_user:
+        try:
+            wardrobe_items = (
+                db.query(models.Wardrobe)
+                .filter(models.Wardrobe.user_id == current_user.id)
+                .order_by(models.Wardrobe.id.desc())
+                .limit(15)
+                .all()
+            )
+
+            if wardrobe_items:
+                results = _personalised_feed(
+                    db=db,
+                    wardrobe_items=wardrobe_items,
+                    user_id=current_user.id,
+                    skip=skip,
+                    limit=limit,
+                    seed=seed or 0.5,
+                    base_query=query
+                )
+                return [serialize_item(i) for i in results]
+        except Exception as e:
+            logger.error(f"Personalized feed failed: {e}")
+
+    # Fallback ordering logic
     if sort == "latest":
-        items = q.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
+        items = query.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
     else:
         # Default to random order for the discovery feed
-        items = q.order_by(func.random()).offset(skip).limit(limit).all()
+        db.execute(text(f"SELECT setseed({seed if seed is not None else 0.5})"))
+        items = query.order_by(func.random()).offset(skip).limit(limit).all()
         
     return [serialize_item(i) for i in items]
 

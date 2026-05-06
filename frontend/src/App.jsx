@@ -363,6 +363,9 @@ function App() {
                         <p className="text-[10px] md:text-xs text-white font-medium">
                           Thrift stores, Clothing brands, Fashion Designers
                         </p>
+                        <p className="text-[9px] md:text-[10px] text-white/90 font-medium italic pt-1 border-t border-white/10 mt-1">
+                          Tip: Add items to your wardrobe for a personalized 'For You' feed.
+                        </p>
                       </div>
                     </div>
 
