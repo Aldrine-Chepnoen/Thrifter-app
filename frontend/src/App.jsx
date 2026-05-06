@@ -350,7 +350,7 @@ function App() {
             ) : items.length > 0 ? (              <>
                 {/* Homepage Banner */}
                 <div className="px-4 md:px-6 mb-8 mt-2">
-                  <div className="relative h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
+                  <div className="relative h-[150px] md:h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
                     {/* Left: Text Content */}
                     <div className="z-10 max-w-[65%] banner-text-shadow">
                       <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
