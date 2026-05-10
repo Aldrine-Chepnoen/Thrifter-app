@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, func
 import shutil
 import os
@@ -506,7 +506,7 @@ def read_items(
     current_user: Optional[models.User] = Depends(get_current_user)
 ):
     # Base query
-    query = db.query(models.Item)
+    query = db.query(models.Item).options(defer(models.Item.embedding))
     if vendor:
         query = query.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
 
@@ -670,7 +670,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         ).limit(40).all()
         
         # 3. Keyword search (exact matches)
-        keyword_results = db.query(models.Item).filter(
+        keyword_results = db.query(models.Item).options(defer(models.Item.embedding)).filter(
             or_(
                 models.Item.name.ilike(f"%{query}%"),
                 models.Item.description.ilike(f"%{query}%")
@@ -860,7 +860,7 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
     item_ids = [r.item_id for r in rows]
     if not item_ids:
         return []
-    items = db.query(models.Item).filter(models.Item.id.in_(item_ids)).all()
+    items = db.query(models.Item).options(defer(models.Item.embedding)).filter(models.Item.id.in_(item_ids)).all()
     return [serialize_item(i) for i in items]
 
 @app.post("/wardrobe/{item_id}", status_code=204)
