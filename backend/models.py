@@ -34,8 +34,22 @@ class Item(Base):
     description = Column(Text, nullable=True)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor", back_populates="items")
+
+    # Relationship to multiple images
+    images = relationship("ItemImage", back_populates="item", cascade="all, delete-orphan")
+
     # CLIP-ViT-B/32 produces 512-dimensional embeddings
     embedding = Column(Vector(512))
+
+class ItemImage(Base):
+    __tablename__ = "item_images"
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    image_path = Column(String, nullable=False)
+    cloudinary_public_id = Column(String, nullable=True)
+    is_primary = Column(Boolean, default=False)
+
+    item = relationship("Item", back_populates="images")
 
 class BlacklistedToken(Base):
     __tablename__ = "blacklisted_tokens"

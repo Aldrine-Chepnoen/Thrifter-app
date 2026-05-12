@@ -377,6 +377,25 @@ def me(current: models.User = Depends(get_current_user), db: Session = Depends(g
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
+
+    images = []
+    if hasattr(item, 'images'):
+        images = [
+            schemas.ItemImage(
+                id=img.id,
+                image_path=img.image_path,
+                cloudinary_public_id=img.cloudinary_public_id,
+                is_primary=img.is_primary
+            ) for img in item.images
+        ]
+
+    primary_image = next((img for img in images if img.is_primary), None)
+    if not primary_image and images:
+        primary_image = images[0]
+
+    display_image_path = primary_image.image_path if primary_image else item.image_path
+    display_cloudinary_id = primary_image.cloudinary_public_id if primary_image else item.cloudinary_public_id
+
     return schemas.Item(
         id=item.id,
         name=item.name,
@@ -385,7 +404,9 @@ def serialize_item(item: models.Item) -> schemas.Item:
         market=item.market,
         item_type=item.item_type or "top",
         description=item.description,
-        image_path=item.image_path,
+        image_path=display_image_path,
+        cloudinary_public_id=display_cloudinary_id,
+        images=images,
         vendor_name=vendor_name,
         vendor_whatsapp=vendor_whatsapp,
         whatsapp=vendor_whatsapp or None
@@ -555,7 +576,7 @@ async def upload_item(
     vendor_name: Optional[str] = Form(None),
     vendor_whatsapp: Optional[str] = Form(None),
     description: str = Form(None),
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -567,39 +588,31 @@ async def upload_item(
         logger.warning(f"User {current_user.id} is not a vendor, cannot upload")
         raise HTTPException(status_code=403, detail="Vendor account required")
 
-    # Validation: content type and size
-    if file.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
-        raise HTTPException(status_code=400, detail="Only JPG, PNG and WebP images are allowed")
-    content = await file.read()
-    max_size = 10 * 1024 * 1024 # 10MB
-    if len(content) > max_size:
-        raise HTTPException(status_code=400, detail="Image exceeds 10MB limit")
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    if len(files) > 3:
+        raise HTTPException(status_code=400, detail="Maximum 3 images allowed per item")
 
     if not current_user.vendor_id:
         if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
             raise HTTPException(status_code=400, detail="Invalid WhatsApp number format")
 
-    logger.info(f"Uploading item '{name}' for vendor {current_user.vendor_id or 'new'}")
+    logger.info(f"Uploading item '{name}' with {len(files)} images for vendor {current_user.vendor_id or 'new'}")
+
+    uploaded_assets = []
 
     try:
-        # 1. Generate Embedding FIRST (to fail early if AI model dies)
+        # 1. Process the primary image for embedding
+        primary_file = files[0]
+        if primary_file.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
+            raise HTTPException(status_code=400, detail=f"File {primary_file.filename} is not a valid image type")
+
+        content = await primary_file.read()
         image_stream = io.BytesIO(content)
         emb = search_engine.get_image_embedding_from_file(image_stream)
-        
-        # 2. Upload to Cloudinary with optimization
-        image_stream.seek(0)
-        upload_result = cloudinary.uploader.upload(
-            image_stream,
-            folder="thrifter_items",
-            transformation=[
-                {"width": 1000, "crop": "limit"}, # Resize if too large
-                {"quality": "auto"},              # Auto compression
-                {"fetch_format": "auto"}          # Auto WebP/AVIF
-            ]
-        )
-        image_url = upload_result.get("secure_url")
-        public_id = upload_result.get("public_id")
-        
+
+        # 2. Resolve vendor
         vendor = None
         if current_user.vendor_id:
             vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
@@ -609,7 +622,7 @@ async def upload_item(
                 db.add(vendor)
                 db.commit()
                 db.refresh(vendor)
-        
+
         if not vendor:
             if not vendor_name:
                 raise HTTPException(status_code=400, detail="Vendor name is required")
@@ -621,7 +634,7 @@ async def upload_item(
                 db.commit()
                 db.refresh(vendor)
 
-        # 3. Create DB Record with Vector
+        # 3. Create item record (image columns filled after upload)
         db_item = models.Item(
             name=name,
             price=price,
@@ -629,21 +642,61 @@ async def upload_item(
             market=market,
             item_type=item_type,
             description=description,
-            image_path=image_url,
-            cloudinary_public_id=public_id,
             vendor_id=vendor.id,
-            embedding=emb.tolist() # pgvector accepts list or np.array
+            embedding=emb.tolist()
         )
         db.add(db_item)
+        db.flush()
+
+        # 4. Upload each image to Cloudinary and create ItemImage records
+        for index, f in enumerate(files):
+            if index == 0:
+                image_stream.seek(0)
+            else:
+                if f.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
+                    raise HTTPException(status_code=400, detail=f"File {f.filename} is not a valid image type")
+                content = await f.read()
+                image_stream = io.BytesIO(content)
+
+            upload_result = cloudinary.uploader.upload(
+                image_stream,
+                folder="thrifter_items",
+                transformation=[
+                    {"width": 1000, "crop": "limit"},
+                    {"quality": "auto"},
+                    {"fetch_format": "auto"}
+                ]
+            )
+            public_id = upload_result.get("public_id")
+            uploaded_assets.append(public_id)
+            image_url = upload_result.get("secure_url")
+
+            db.add(models.ItemImage(
+                item_id=db_item.id,
+                image_path=image_url,
+                cloudinary_public_id=public_id,
+                is_primary=(index == 0)
+            ))
+
+            if index == 0:
+                db_item.image_path = image_url
+                db_item.cloudinary_public_id = public_id
+
         db.commit()
         db.refresh(db_item)
-        
-        logger.info(f"Item created successfully: {db_item.id}")
+        logger.info(f"Item {db_item.id} created successfully with {len(files)} images")
         return serialize_item(db_item)
-    except HTTPException:
-        raise
+
     except Exception as e:
+        db.rollback()
+        for asset_id in uploaded_assets:
+            try:
+                cloudinary.uploader.destroy(asset_id)
+            except Exception:
+                pass
         logger.error(f"Item upload failed: {str(e)}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=f"Server error during upload: {str(e)}")
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])

@@ -49,10 +49,20 @@ class ItemBase(BaseModel):
 class ItemCreate(ItemBase):
     pass
 
+class ItemImage(BaseModel):
+    id: int
+    image_path: str
+    cloudinary_public_id: Optional[str] = None
+    is_primary: bool
+
+    class Config:
+        from_attributes = True
+
 class Item(ItemBase):
     id: int
     image_path: str
     cloudinary_public_id: Optional[str] = None
+    images: List[ItemImage] = []
 
     class Config:
         from_attributes = True

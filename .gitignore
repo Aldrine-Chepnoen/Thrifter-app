@@ -20,6 +20,7 @@ backend/migrate_cloudinary.py
 venv/
 .venv/
 backend/.env
+docker-compose.yml
 
 # OS files
 .DS_Store
@@ -27,3 +28,4 @@ Thumbs.db
 
 # Logs
 *.log
+CLAUDE.md

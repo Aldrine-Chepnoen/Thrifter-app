@@ -16,9 +16,9 @@ const UploadForm = () => {
     vendor_name: '',
     vendor_whatsapp: '',
     description: '',
-    file: null
   });
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
   const [canUpload, setCanUpload] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
@@ -49,11 +49,16 @@ const UploadForm = () => {
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setFormData({ ...formData, file });
-      setPreview(URL.createObjectURL(file));
-    }
+    const selectedFiles = Array.from(e.target.files);
+    const newFiles = [...files, ...selectedFiles].slice(0, 3);
+    setFiles(newFiles);
+    setPreviews(newFiles.map(f => URL.createObjectURL(f)));
+  };
+
+  const removeFile = (index) => {
+    const newFiles = files.filter((_, i) => i !== index);
+    setFiles(newFiles);
+    setPreviews(newFiles.map(f => URL.createObjectURL(f)));
   };
 
   const handleSubmit = async (e) => {
@@ -63,12 +68,17 @@ const UploadForm = () => {
       navigate('/auth');
       return;
     }
+    if (files.length === 0) {
+      alert('Please upload at least one image');
+      return;
+    }
     setLoading(true);
 
     const data = new FormData();
     Object.keys(formData).forEach(key => {
       data.append(key, formData[key]);
     });
+    files.forEach(file => data.append('files', file));
 
     try {
       await api.post('/upload', data);
@@ -94,31 +104,37 @@ const UploadForm = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Image Upload */}
         <div className="w-full">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Item Photo</label>
-          <div className="relative border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors">
-            {preview ? (
-              <div className="relative">
-                <img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg" />
-                <button 
-                  type="button" 
-                  onClick={() => { setPreview(null); setFormData({ ...formData, file: null }); }}
-                  className="absolute top-2 right-2 bg-white p-1 rounded-full shadow-md"
+          <label className="block text-sm font-medium text-gray-700 mb-2">Item Photos (Up to 3)</label>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {previews.map((preview, index) => (
+              <div key={index} className="relative aspect-[4/5] bg-gray-100 rounded-xl overflow-hidden group">
+                <img src={preview} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-full shadow-md hover:bg-white transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
+                {index === 0 && (
+                  <span className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
+                    Primary
+                  </span>
+                )}
               </div>
-            ) : (
-              <>
-                <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-500">Click to upload or drag and drop</p>
-                <input 
-                  type="file" 
+            ))}
+            {files.length < 3 && (
+              <label className="relative aspect-[4/5] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors">
+                <Upload className="w-8 h-8 text-gray-400 mb-1" />
+                <span className="text-[11px] text-gray-500 font-medium">Add Photo</span>
+                <input
+                  type="file"
                   accept="image/*"
+                  multiple
                   onChange={handleFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  required
                 />
-              </>
+              </label>
             )}
           </div>
         </div>
