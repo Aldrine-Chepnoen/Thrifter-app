@@ -22,6 +22,7 @@ from database import get_db, engine, Base
 import models
 import schemas
 import search_engine
+import cache
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
@@ -190,13 +191,30 @@ def parse_token(token: str, db: Session) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> Optional[models.User]:
+def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if not authorization or not authorization.lower().startswith("bearer "):
         return None
     token = authorization.split(" ", 1)[1]
+    # Token validation + blacklist check always runs — never cached
     payload = parse_token(token, db)
-    user = db.query(models.User).filter(models.User.id == payload.get("uid")).first()
-    return user
+    uid = payload.get("uid")
+
+    cached = cache.user_get(uid)
+    if cached is not None:
+        return cached
+
+    user = db.query(models.User).filter(models.User.id == uid).first()
+    if user:
+        cached_user = cache.CachedUser(
+            id=user.id,
+            email=user.email,
+            is_vendor=user.is_vendor,
+            is_admin=user.is_admin,
+            vendor_id=user.vendor_id,
+        )
+        cache.user_set(uid, cached_user)
+        return cached_user
+    return None
 
 def require_admin(current_user: Optional[models.User] = Depends(get_current_user)) -> models.User:
     if not current_user or not current_user.is_admin:
@@ -367,9 +385,14 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
     return schemas.Token(access_token=token)
 
 @app.get("/auth/me", response_model=schemas.UserInfo)
-def me(current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def me(current = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    cached = cache.me_get(current.id)
+    if cached is not None:
+        return cached
+
     vendor_name = None
     vendor_whatsapp = None
     if current.vendor_id:
@@ -377,7 +400,14 @@ def me(current: models.User = Depends(get_current_user), db: Session = Depends(g
         if v:
             vendor_name = v.name
             vendor_whatsapp = v.whatsapp
-    return schemas.UserInfo(id=current.id, email=current.email, is_vendor=current.is_vendor, is_admin=current.is_admin, vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp)
+
+    result = schemas.UserInfo(
+        id=current.id, email=current.email,
+        is_vendor=current.is_vendor, is_admin=current.is_admin,
+        vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp
+    )
+    cache.me_set(current.id, result)
+    return result
 
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
@@ -529,8 +559,15 @@ def read_items(
     seed: Optional[float] = None,
     sort: str = "random",
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
+    # Check feed cache
+    user_segment = f"u{current_user.id}" if current_user else "anon"
+    feed_key = f"{user_segment}:{skip}:{limit}:{sort}:{vendor or ''}:{round(seed or 0.5, 6)}"
+    cached_feed = cache.feed_get(feed_key)
+    if cached_feed is not None:
+        return cached_feed
+
     # Base query
     query = db.query(models.Item).options(defer(models.Item.embedding))
 
@@ -574,7 +611,9 @@ def read_items(
                     seed=seed or 0.5,
                     base_query=query
                 )
-                return [serialize_item(i) for i in results]
+                response = [serialize_item(i) for i in results]
+                cache.feed_set(feed_key, response)
+                return response
         except Exception as e:
             logger.error(f"Personalized feed failed: {e}")
 
@@ -582,11 +621,29 @@ def read_items(
     if sort == "latest":
         items = query.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
     else:
-        # Default to random order for the discovery feed
         db.execute(text(f"SELECT setseed({seed if seed is not None else 0.5})"))
         items = query.order_by(func.random()).offset(skip).limit(limit).all()
-        
-    return [serialize_item(i) for i in items]
+
+    response = [serialize_item(i) for i in items]
+    cache.feed_set(feed_key, response)
+    return response
+
+@app.get("/items/{item_id}", response_model=schemas.Item)
+def read_item(item_id: int, db: Session = Depends(get_db)):
+    cached = cache.item_get(item_id)
+    if cached is not None:
+        return cached
+    item = (
+        db.query(models.Item)
+        .options(defer(models.Item.embedding))
+        .filter(models.Item.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    result = serialize_item(item)
+    cache.item_set(item_id, result)
+    return result
 
 @app.post("/upload", response_model=schemas.Item)
 async def upload_item(
@@ -707,6 +764,8 @@ async def upload_item(
         db.commit()
         db.refresh(db_item)
         logger.info(f"Item {db_item.id} created successfully with {len(files)} images")
+        cache.feed_invalidate_all()
+        cache.admin_stats_invalidate()
         return serialize_item(db_item)
 
     except Exception as e:
@@ -908,9 +967,11 @@ def delete_item(
     except Exception as e:
         print(f"Cloudinary delete error: {e}")
     
-    # Delete record
     db.delete(item)
     db.commit()
+    cache.feed_invalidate_all()
+    cache.item_invalidate(item_id)
+    cache.admin_stats_invalidate()
     return Response(status_code=204)
 
 @app.put("/items/{item_id}", response_model=schemas.Item)
@@ -938,6 +999,8 @@ def update_item(
     
     db.commit()
     db.refresh(item)
+    cache.feed_invalidate_all()
+    cache.item_invalidate(item_id)
     return serialize_item(item)
 
 @app.get("/wardrobe", response_model=List[schemas.Item])
@@ -964,10 +1027,11 @@ def add_wardrobe(item_id: int, current: models.User = Depends(get_current_user),
     row = models.Wardrobe(user_id=current.id, item_id=item_id)
     db.add(row)
     db.commit()
+    cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
 
 @app.delete("/wardrobe/{item_id}", status_code=204)
-def remove_wardrobe(item_id: int, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def remove_wardrobe(item_id: int, current = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current:
         raise HTTPException(status_code=401, detail="Unauthorized")
     row = db.query(models.Wardrobe).filter(models.Wardrobe.user_id == current.id, models.Wardrobe.item_id == item_id).first()
@@ -975,13 +1039,17 @@ def remove_wardrobe(item_id: int, current: models.User = Depends(get_current_use
         return Response(status_code=204)
     db.delete(row)
     db.commit()
+    cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
 
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)
 def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    return schemas.AdminStats(
+    cached = cache.admin_stats_get()
+    if cached is not None:
+        return cached
+    result = schemas.AdminStats(
         total_users=db.query(models.User).count(),
         total_vendors=db.query(models.Vendor).count(),
         total_items=db.query(models.Item).count(),
@@ -989,6 +1057,8 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
         active_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == True).count(),
         inactive_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == False).count(),
     )
+    cache.admin_stats_set(result)
+    return result
 
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
 def admin_list_users(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
@@ -1040,6 +1110,8 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     vendor.is_active = not vendor.is_active
     db.commit()
     db.refresh(vendor)
+    cache.feed_invalidate_all()
+    cache.admin_stats_invalidate()
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp, is_active=vendor.is_active,
         item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
@@ -1063,4 +1135,7 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
             pass
     db.delete(item)
     db.commit()
+    cache.feed_invalidate_all()
+    cache.item_invalidate(item_id)
+    cache.admin_stats_invalidate()
     return Response(status_code=204)

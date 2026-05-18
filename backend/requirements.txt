@@ -19,3 +19,4 @@ slowapi
 pyjwt
 pydantic-settings
 email-validator
+cachetools
