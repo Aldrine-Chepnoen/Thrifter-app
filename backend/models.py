@@ -10,6 +10,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_vendor = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor")
 
@@ -18,6 +19,7 @@ class Vendor(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     whatsapp = Column(String, index=True)
+    is_active = Column(Boolean, default=True)
     items = relationship("Item", back_populates="vendor")
 
 class Item(Base):

@@ -1,6 +1,6 @@
 // This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React, { useState } from 'react';
-import { Search, PlusCircle, Camera, Heart, Sparkles, User } from 'lucide-react';
+import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -22,27 +22,6 @@ const Navbar = ({
   const isHomePage = location.pathname === '/';
   const showIcons = isHomePage;
 
-  const [hiddenState, setHiddenState] = useState(false);
-  const [activeTag, setActiveTag] = useState(null);
-  const { scrollY } = useScroll();
-
-  const quickTags = [
-    { label: 'Tops', query: 'tops' },
-    { label: 'Bottoms', query: 'bottoms' },
-    { label: 'Dresses', query: 'dresses' },
-    { label: 'Shoes', query: 'shoes' },
-    { label: 'Bags', query: 'bags' }
-  ];
-
-  useMotionValueEvent(scrollY, "change", (latest) => {
-    const previous = scrollY.getPrevious() ?? 0;
-    if (latest > previous && latest > 150) {
-      setHiddenState(true);
-    } else {
-      setHiddenState(false);
-    }
-  });
-
   // Check if current page is the user's own vendor profile
   const isOwnProfile = user?.is_vendor && location.pathname === `/vendor/${encodeURIComponent(user.vendor_name)}`;
 
@@ -62,16 +41,6 @@ const Navbar = ({
     if (location.pathname === '/') {
       e.preventDefault();
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const handleTagClick = (query) => {
-    if (activeTag === query) {
-      setActiveTag(null);
-      onSearch('');
-    } else {
-      setActiveTag(query);
-      onSearch(query);
     }
   };
 
@@ -117,7 +86,7 @@ const Navbar = ({
                 }
                 onOutfitBuilderClick();
               })}
-              className={`flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+              className={`flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
               title={features?.outfit_builder === false ? "Under Development" : "Outfit Builder"}
             >
               <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
@@ -125,7 +94,7 @@ const Navbar = ({
             </button>
             <button 
               onClick={() => handleProtectedAction(onImageSearchClick)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
+              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
               title="Upload outfit inspiration"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
@@ -133,7 +102,7 @@ const Navbar = ({
             </button>
             <button 
               onClick={() => handleProtectedAction('/wardrobe', true)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
+              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
               title="Wardrobe"
             >
               <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
@@ -144,7 +113,7 @@ const Navbar = ({
             {user?.is_vendor && !isOwnProfile && (
               <Link 
                 to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-                className="hidden md:flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
+                className="hidden md:flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
                 title="My Shop"
               >
                 <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
@@ -152,11 +121,22 @@ const Navbar = ({
               </Link>
             )}
 
+            {user?.is_admin && (
+              <Link
+                to="/admin"
+                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
+                title="Admin Dashboard"
+              >
+                <span className="text-[10px] md:text-xs tracking-tight">Admin</span>
+                <Shield className="w-3.5 h-3.5" />
+              </Link>
+            )}
+
             {user ? (
               <div className="flex flex-col items-center gap-1 ml-2">
                 <span className="hidden lg:inline text-[10px] text-gray-500 font-medium">{user.is_vendor ? 'Vendor' : 'User'}</span>
-                <button 
-                  onClick={onLogout} 
+                <button
+                  onClick={onLogout}
                   className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow banner-text-shadow"
                 >
                   Logout
@@ -165,7 +145,7 @@ const Navbar = ({
             ) : (
               <button 
                 onClick={openAuthModal}
-                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow banner-text-shadow"
+                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow"
               >
                 Login
               </button>
@@ -195,27 +175,11 @@ const Navbar = ({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input 
                 type="text" 
-                placeholder="Search items..." 
+                placeholder="Search items or categories..." 
                 className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
                 onChange={(e) => onSearch(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="flex justify-center gap-2 mt-3 overflow-x-auto no-scrollbar pb-1 px-4">
-            {quickTags.map((tag) => (
-              <button
-                key={tag.label}
-                onClick={() => handleTagClick(tag.query)}
-                className={`whitespace-nowrap px-3 py-1 border transition-all shadow-sm rounded-full text-[10px] md:text-xs font-medium ${
-                  activeTag === tag.query 
-                    ? 'bg-[#EAAD11] border-[#EAAD11] text-black scale-105' 
-                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                🏷️ {tag.label}
-              </button>
-            ))}
           </div>
 
           <div className="flex justify-center gap-8 mt-4 pt-2 border-t border-gray-100">

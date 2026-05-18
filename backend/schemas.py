@@ -29,6 +29,7 @@ class UserInfo(BaseModel):
     id: int
     email: EmailStr
     is_vendor: bool
+    is_admin: bool = False
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
 
@@ -63,6 +64,47 @@ class Item(ItemBase):
     image_path: str
     cloudinary_public_id: Optional[str] = None
     images: List[ItemImage] = []
+
+    class Config:
+        from_attributes = True
+
+class AdminStats(BaseModel):
+    total_users: int
+    total_vendors: int
+    total_items: int
+    total_wardrobe_saves: int
+    active_vendors: int
+    inactive_vendors: int
+
+class AdminUser(BaseModel):
+    id: int
+    email: str
+    is_vendor: bool
+    is_admin: bool
+    vendor_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class AdminVendor(BaseModel):
+    id: int
+    name: str
+    whatsapp: Optional[str] = None
+    is_active: bool
+    item_count: int
+
+    class Config:
+        from_attributes = True
+
+class AdminItem(BaseModel):
+    id: int
+    name: str
+    price: float
+    size: str
+    market: str
+    image_path: str
+    item_type: Optional[str] = None
+    vendor_name: Optional[str] = None
 
     class Config:
         from_attributes = True

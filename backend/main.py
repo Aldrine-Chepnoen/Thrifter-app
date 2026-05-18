@@ -198,6 +198,11 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     user = db.query(models.User).filter(models.User.id == payload.get("uid")).first()
     return user
 
+def require_admin(current_user: Optional[models.User] = Depends(get_current_user)) -> models.User:
+    if not current_user or not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
 def get_optional_user(
     request: Request,
     db: Session = Depends(get_db)
@@ -372,7 +377,7 @@ def me(current: models.User = Depends(get_current_user), db: Session = Depends(g
         if v:
             vendor_name = v.name
             vendor_whatsapp = v.whatsapp
-    return schemas.UserInfo(id=current.id, email=current.email, is_vendor=current.is_vendor, vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp)
+    return schemas.UserInfo(id=current.id, email=current.email, is_vendor=current.is_vendor, is_admin=current.is_admin, vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp)
 
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
@@ -528,8 +533,25 @@ def read_items(
 ):
     # Base query
     query = db.query(models.Item).options(defer(models.Item.embedding))
+
     if vendor:
+        # Allow a vendor to see their own items even when their account is hidden
+        is_own_vendor = bool(
+            current_user and current_user.vendor_id and
+            db.query(models.Vendor).filter(
+                models.Vendor.id == current_user.vendor_id,
+                models.Vendor.name.ilike(f"%{vendor}%")
+            ).first()
+        )
         query = query.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
+        if not is_own_vendor:
+            query = query.filter(models.Vendor.is_active == True)
+    else:
+        # General feed — hide items from inactive vendors
+        query = (query
+            .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
+            .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+        )
 
     # Personalized Recommendation Logic
     if sort == "random" and current_user:
@@ -718,17 +740,30 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         
         # 2. Vector search using pgvector (semantic/visual similarity)
         # We find top 40 similar items
-        vector_results = db.query(models.Item).order_by(
-            models.Item.embedding.l2_distance(query_emb.tolist())
-        ).limit(40).all()
-        
+        vector_results = (
+            db.query(models.Item)
+            .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
+            .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+            .order_by(models.Item.embedding.l2_distance(query_emb.tolist()))
+            .limit(40)
+            .all()
+        )
+
         # 3. Keyword search (exact matches)
-        keyword_results = db.query(models.Item).options(defer(models.Item.embedding)).filter(
-            or_(
-                models.Item.name.ilike(f"%{query}%"),
-                models.Item.description.ilike(f"%{query}%")
+        keyword_results = (
+            db.query(models.Item)
+            .options(defer(models.Item.embedding))
+            .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
+            .filter(
+                or_(models.Item.vendor_id == None, models.Vendor.is_active == True),
+                or_(
+                    models.Item.name.ilike(f"%{query}%"),
+                    models.Item.description.ilike(f"%{query}%")
+                )
             )
-        ).limit(20).all()
+            .limit(20)
+            .all()
+        )
         
         # Combine results, prioritizing vector search but ensuring keywords are included
         seen_ids = set()
@@ -939,5 +974,93 @@ def remove_wardrobe(item_id: int, current: models.User = Depends(get_current_use
     if not row:
         return Response(status_code=204)
     db.delete(row)
+    db.commit()
+    return Response(status_code=204)
+
+# ── Admin endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/admin/stats", response_model=schemas.AdminStats)
+def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    return schemas.AdminStats(
+        total_users=db.query(models.User).count(),
+        total_vendors=db.query(models.Vendor).count(),
+        total_items=db.query(models.Item).count(),
+        total_wardrobe_saves=db.query(models.Wardrobe).count(),
+        active_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == True).count(),
+        inactive_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == False).count(),
+    )
+
+@app.get("/admin/users", response_model=List[schemas.AdminUser])
+def admin_list_users(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    users = db.query(models.User).order_by(models.User.id.desc()).all()
+    result = []
+    for u in users:
+        vendor_name = None
+        if u.vendor_id:
+            v = db.query(models.Vendor).filter(models.Vendor.id == u.vendor_id).first()
+            if v:
+                vendor_name = v.name
+        result.append(schemas.AdminUser(
+            id=u.id, email=u.email, is_vendor=u.is_vendor,
+            is_admin=u.is_admin, vendor_name=vendor_name
+        ))
+    return result
+
+@app.get("/admin/vendors", response_model=List[schemas.AdminVendor])
+def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = db.query(models.Vendor).order_by(models.Vendor.id.desc()).all()
+    return [
+        schemas.AdminVendor(
+            id=v.id, name=v.name, whatsapp=v.whatsapp, is_active=v.is_active,
+            item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+        )
+        for v in vendors
+    ]
+
+@app.get("/admin/items", response_model=List[schemas.AdminItem])
+def admin_list_items(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    items = db.query(models.Item).options(defer(models.Item.embedding)).order_by(models.Item.id.desc()).all()
+    result = []
+    for item in items:
+        primary = next((img for img in item.images if img.is_primary), None) if item.images else None
+        result.append(schemas.AdminItem(
+            id=item.id, name=item.name, price=item.price, size=item.size,
+            market=item.market,
+            image_path=(primary.image_path if primary else item.image_path) or '',
+            item_type=item.item_type,
+            vendor_name=item.vendor.name if item.vendor else None
+        ))
+    return result
+
+@app.patch("/admin/vendors/{vendor_id}/toggle", response_model=schemas.AdminVendor)
+def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    vendor.is_active = not vendor.is_active
+    db.commit()
+    db.refresh(vendor)
+    return schemas.AdminVendor(
+        id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp, is_active=vendor.is_active,
+        item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
+    )
+
+@app.delete("/admin/items/{item_id}", status_code=204)
+def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    for img in (item.images or []):
+        if img.cloudinary_public_id:
+            try:
+                cloudinary.uploader.destroy(img.cloudinary_public_id)
+            except Exception:
+                pass
+    if item.cloudinary_public_id:
+        try:
+            cloudinary.uploader.destroy(item.cloudinary_public_id)
+        except Exception:
+            pass
+    db.delete(item)
     db.commit()
     return Response(status_code=204)

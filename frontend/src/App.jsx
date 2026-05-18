@@ -8,6 +8,7 @@ import UploadForm from './components/UploadForm';
 import AuthModal from './components/AuthModal';
 import api from './api';
 import VendorPage from './components/VendorPage';
+import AdminDashboard from './components/AdminDashboard';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
@@ -501,6 +502,11 @@ function App() {
               </div>
             )}
           </main>
+        } />
+        <Route path="/admin" element={
+          user?.is_admin
+            ? <AdminDashboard user={user} />
+            : <Navigate to="/" replace />
         } />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">

@@ -6,8 +6,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend:/app
       - ./images:/app/images
       - ./backend/embeddings.json:/app/embeddings.json
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - UPLOAD_PASSWORD=thrifter-admin-2024
 
