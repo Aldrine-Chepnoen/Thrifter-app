@@ -558,12 +558,15 @@ def read_items(
     vendor: Optional[str] = None,
     seed: Optional[float] = None,
     sort: str = "random",
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     # Check feed cache
     user_segment = f"u{current_user.id}" if current_user else "anon"
-    feed_key = f"{user_segment}:{skip}:{limit}:{sort}:{vendor or ''}:{round(seed or 0.5, 6)}"
+    price_key = f"{int(min_price) if min_price is not None else ''}_{int(max_price) if max_price is not None else ''}"
+    feed_key = f"{user_segment}:{skip}:{limit}:{sort}:{vendor or ''}:{round(seed or 0.5, 6)}:{price_key}"
     cached_feed = cache.feed_get(feed_key)
     if cached_feed is not None:
         return cached_feed
@@ -589,6 +592,12 @@ def read_items(
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
         )
+
+    # Price range filter
+    if min_price is not None:
+        query = query.filter(models.Item.price >= min_price)
+    if max_price is not None:
+        query = query.filter(models.Item.price <= max_price)
 
     # Personalized Recommendation Logic
     if sort == "random" and current_user:

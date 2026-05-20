@@ -9,6 +9,7 @@ import AuthModal from './components/AuthModal';
 import api from './api';
 import VendorPage from './components/VendorPage';
 import AdminDashboard from './components/AdminDashboard';
+import FilterSheet from './components/FilterSheet';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
@@ -28,6 +29,9 @@ function App() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedSeed, setFeedSeed] = useState(null);
   const [feedType, setFeedType] = useState('random'); // 'random' (For You) or 'latest'
+  const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const activeFiltersRef = useRef({ minPrice: null, maxPrice: null });
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
@@ -72,6 +76,9 @@ function App() {
     try {
       let url = `/items?skip=${currentPage * limit}&limit=${limit}&sort=${activeType}`;
       if (activeType === 'random' && activeSeed !== null) url += `&seed=${activeSeed}`;
+      const { minPrice, maxPrice } = activeFiltersRef.current;
+      if (minPrice !== null) url += `&min_price=${minPrice}`;
+      if (maxPrice !== null) url += `&max_price=${maxPrice}`;
 
       const response = await api.get(url, {
         signal: isNew ? abortControllerRef.current.signal : undefined
@@ -106,6 +113,14 @@ function App() {
     setItems([]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     fetchItems(true, feedSeed, newType);
+  };
+
+  const handleFiltersApply = (filters) => {
+    activeFiltersRef.current = filters;
+    setActiveFilters(filters);
+    setItems([]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    fetchItems(true, feedSeed, feedType);
   };
 
   useEffect(() => {
@@ -305,9 +320,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      <Navbar 
-        onSearch={handleSearch} 
-        onImageSearchClick={handleImageSearchClick} 
+      <Navbar
+        onSearch={handleSearch}
+        onImageSearchClick={handleImageSearchClick}
         onOutfitBuilderClick={() => builderInputRef.current.click()}
         user={user}
         onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
@@ -316,6 +331,8 @@ function App() {
         hidden={headerHidden}
         feedType={feedType}
         onFeedTypeChange={handleFeedTypeChange}
+        onFilterClick={() => setIsFilterSheetOpen(true)}
+        hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
       />
       
       {/* Hidden File Inputs */}
@@ -535,10 +552,17 @@ function App() {
         ) : <Navigate to="/" replace />} />
       </Routes>
 
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={() => setIsAuthModalOpen(false)} 
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
         onAuthed={setUser}
+      />
+
+      <FilterSheet
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        activeFilters={activeFilters}
+        onApply={handleFiltersApply}
       />
 
       <ProductModal 

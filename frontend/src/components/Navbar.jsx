@@ -1,21 +1,23 @@
 // This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React, { useState } from 'react';
-import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield } from 'lucide-react';
+import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield, SlidersHorizontal } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
 
-const Navbar = ({ 
-  onSearch, 
-  onImageSearchClick, 
-  onOutfitBuilderClick, 
-  user, 
-  onLogout, 
-  features, 
-  openAuthModal, 
+const Navbar = ({
+  onSearch,
+  onImageSearchClick,
+  onOutfitBuilderClick,
+  user,
+  onLogout,
+  features,
+  openAuthModal,
   hidden,
   feedType,
-  onFeedTypeChange
+  onFeedTypeChange,
+  onFilterClick,
+  hasActiveFilters,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -155,14 +157,26 @@ const Navbar = ({
 
         {isHomePage && (
           <div className="w-full md:hidden mt-1">
-            <div className="relative input-shadow rounded-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input 
-                type="text" 
-                placeholder="Search items or categories..." 
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
-                onChange={(e) => onSearch(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 input-shadow rounded-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search items or categories..."
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
+                  onChange={(e) => onSearch(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={onFilterClick}
+                className="relative flex-shrink-0 p-2.5 bg-white border border-gray-200 rounded-full input-shadow hover:border-gray-400 transition-all"
+                title="Filter"
+              >
+                <SlidersHorizontal className={`w-4 h-4 ${hasActiveFilters ? 'text-black' : 'text-gray-500'}`} />
+                {hasActiveFilters && (
+                  <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#EAAD11] rounded-full" />
+                )}
+              </button>
             </div>
           </div>
         )}
@@ -170,16 +184,26 @@ const Navbar = ({
 
       {isHomePage && (
         <>
-          <div className="max-w-7xl mx-auto hidden md:block mt-3 md:mt-4">
+          <div className="max-w-7xl mx-auto hidden md:flex md:items-center md:gap-2 mt-3 md:mt-4">
             <div className="relative flex-1 input-shadow rounded-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input 
-                type="text" 
-                placeholder="Search items or categories..." 
+              <input
+                type="text"
+                placeholder="Search items or categories..."
                 className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
                 onChange={(e) => onSearch(e.target.value)}
               />
             </div>
+            <button
+              onClick={onFilterClick}
+              className="relative flex-shrink-0 p-2.5 bg-white border border-gray-200 rounded-full input-shadow hover:border-gray-400 transition-all"
+              title="Filter"
+            >
+              <SlidersHorizontal className={`w-4 h-4 ${hasActiveFilters ? 'text-black' : 'text-gray-500'}`} />
+              {hasActiveFilters && (
+                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#EAAD11] rounded-full" />
+              )}
+            </button>
           </div>
 
           <div className="flex justify-center gap-8 mt-4 pt-2 border-t border-gray-100">
