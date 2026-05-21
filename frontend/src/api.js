@@ -17,9 +17,6 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('thrifter_token');
-      if (!window.location.pathname.includes('/auth')) {
-        window.location.href = '/auth';
-      }
     }
     return Promise.reject(error);
   }

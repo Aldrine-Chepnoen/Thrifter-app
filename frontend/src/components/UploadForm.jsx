@@ -65,7 +65,7 @@ const UploadForm = () => {
     e.preventDefault();
     if (!canUpload) {
       alert('Login with a business account to list items');
-      navigate('/auth');
+      navigate('/');
       return;
     }
     if (files.length === 0) {

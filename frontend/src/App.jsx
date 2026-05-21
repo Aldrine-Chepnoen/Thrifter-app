@@ -525,6 +525,7 @@ function App() {
             ? <AdminDashboard user={user} />
             : <Navigate to="/" replace />
         } />
+        <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
             <div className="px-6 mb-4 flex items-center justify-between">
