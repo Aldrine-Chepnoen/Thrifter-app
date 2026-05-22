@@ -46,6 +46,34 @@ const Navbar = ({
     }
   };
 
+  const [activeTag, setActiveTag] = useState(null);
+
+  const quickTags = [
+    { label: 'Jerseys',   query: 'jersey'   },
+    { label: 'Shirts',    query: 'shirt'    },
+    { label: 'Jeans',     query: 'jeans'    },
+    { label: 'Sneakers',  query: 'sneakers' },
+    { label: 'Jackets',   query: 'jacket'   },
+    { label: 'Hoodies',   query: 'hoodie'   },
+    { label: 'Dresses',   query: 'dress'    },
+    { label: 'Handbags',  query: 'handbag'  },
+  ];
+
+  const handleTagClick = (query) => {
+    if (activeTag === query) {
+      setActiveTag(null);
+      onSearch('');
+    } else {
+      setActiveTag(query);
+      onSearch(query);
+    }
+  };
+
+  const handleSearchInput = (value) => {
+    if (activeTag) setActiveTag(null);
+    onSearch(value);
+  };
+
   return (
     <motion.nav 
       variants={{
@@ -164,7 +192,7 @@ const Navbar = ({
                   type="text"
                   placeholder="Search items or categories..."
                   className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
-                  onChange={(e) => onSearch(e.target.value)}
+                  onChange={(e) => handleSearchInput(e.target.value)}
                 />
               </div>
               <button
@@ -191,7 +219,7 @@ const Navbar = ({
                 type="text"
                 placeholder="Search items or categories..."
                 className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
-                onChange={(e) => onSearch(e.target.value)}
+                onChange={(e) => handleSearchInput(e.target.value)}
               />
             </div>
             <button
@@ -206,7 +234,23 @@ const Navbar = ({
             </button>
           </div>
 
-          <div className="flex justify-center gap-8 mt-4 pt-2 border-t border-gray-100">
+          <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar pb-1">
+            {quickTags.map((tag) => (
+              <button
+                key={tag.label}
+                onClick={() => handleTagClick(tag.query)}
+                className={`whitespace-nowrap flex-shrink-0 px-3 py-1 rounded-full border text-[10px] md:text-xs font-medium transition-all ${
+                  activeTag === tag.query
+                    ? 'bg-[#EAAD11] border-[#EAAD11] text-black'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                }`}
+              >
+                {tag.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex justify-center gap-8 mt-3 pt-2 border-t border-gray-100">
             <button
               onClick={() => onFeedTypeChange('random')}
               className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'random' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
