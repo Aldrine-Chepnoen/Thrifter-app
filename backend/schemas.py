@@ -91,6 +91,7 @@ class AdminVendor(BaseModel):
     name: str
     whatsapp: Optional[str] = None
     is_active: bool
+    is_pinned: bool = False
     item_count: int
 
     class Config:

@@ -255,15 +255,7 @@ const Navbar = ({
               onClick={() => onFeedTypeChange('random')}
               className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'random' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
             >
-              <RoughNotation
-                type="underline"
-                show={feedType === 'random'}
-                color="#EAAD11"
-                strokeWidth={3}
-                iterations={3}
-                padding={2}
-                animationDuration={600}
-              >
+              <RoughNotation type="underline" show={feedType === 'random'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                 For You
               </RoughNotation>
             </button>
@@ -271,18 +263,20 @@ const Navbar = ({
               onClick={() => onFeedTypeChange('latest')}
               className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'latest' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
             >
-              <RoughNotation
-                type="underline"
-                show={feedType === 'latest'}
-                color="#EAAD11"
-                strokeWidth={3}
-                iterations={3}
-                padding={2}
-                animationDuration={600}
-              >
+              <RoughNotation type="underline" show={feedType === 'latest'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                 Latest
               </RoughNotation>
             </button>
+            {features?.promo_10k_enabled && (
+              <button
+                onClick={() => onFeedTypeChange('promo')}
+                className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'promo' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <RoughNotation type="underline" show={feedType === 'promo'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
+                  10k Promotion
+                </RoughNotation>
+              </button>
+            )}
           </div>
         </>
       )}

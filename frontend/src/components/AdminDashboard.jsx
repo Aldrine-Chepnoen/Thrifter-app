@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 
@@ -11,6 +11,8 @@ const AdminDashboard = ({ user }) => {
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [promoEnabled, setPromoEnabled] = useState(false);
+  const [promoToggling, setPromoToggling] = useState(false);
 
   useEffect(() => {
     if (!user?.is_admin) {
@@ -19,7 +21,17 @@ const AdminDashboard = ({ user }) => {
     }
     loadStats();
     loadVendors();
+    loadFeatures();
   }, [user]);
+
+  const loadFeatures = async () => {
+    try {
+      const res = await api.get('/features');
+      setPromoEnabled(res.data.promo_10k_enabled ?? false);
+    } catch (e) {
+      console.error('Failed to load features', e);
+    }
+  };
 
   const loadStats = async () => {
     try {
@@ -82,6 +94,30 @@ const AdminDashboard = ({ user }) => {
     }
   };
 
+  const pinVendor = async (vendorId) => {
+    try {
+      const res = await api.patch(`/admin/vendors/${vendorId}/pin`);
+      setVendors(prev => {
+        const updated = prev.map(v => v.id === vendorId ? res.data : v);
+        return [...updated].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0));
+      });
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to update pin');
+    }
+  };
+
+  const togglePromo = async () => {
+    setPromoToggling(true);
+    try {
+      const res = await api.patch('/admin/features/promo_10k');
+      setPromoEnabled(res.data.promo_10k_enabled);
+    } catch (e) {
+      alert('Failed to toggle promotion: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setPromoToggling(false);
+    }
+  };
+
   const deleteItem = async (itemId) => {
     if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
     try {
@@ -123,75 +159,127 @@ const AdminDashboard = ({ user }) => {
 
       {/* Overview */}
       {activeTab === 'overview' && (
-        stats ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <StatCard icon={<Users />} label="Total Users" value={stats.total_users} />
-            <StatCard icon={<Store />} label="Total Vendors" value={stats.total_vendors} />
-            <StatCard icon={<Package />} label="Total Items" value={stats.total_items} />
-            <StatCard icon={<Heart />} label="Wardrobe Saves" value={stats.total_wardrobe_saves} />
-            <StatCard icon={<Store />} label="Active Vendors" value={stats.active_vendors} color="green" />
-            <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
+        <>
+          {stats ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+              <StatCard icon={<Users />} label="Total Users" value={stats.total_users} />
+              <StatCard icon={<Store />} label="Total Vendors" value={stats.total_vendors} />
+              <StatCard icon={<Package />} label="Total Items" value={stats.total_items} />
+              <StatCard icon={<Heart />} label="Wardrobe Saves" value={stats.total_wardrobe_saves} />
+              <StatCard icon={<Store />} label="Active Vendors" value={stats.active_vendors} color="green" />
+              <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
+            </div>
+          ) : <Spinner />}
+
+          <div>
+            <h2 className="text-base font-bold mb-4">Site Settings</h2>
+            <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+              <div className="flex items-center justify-between px-6 py-4">
+                <div>
+                  <p className="text-sm font-medium">10k Promotion Tab</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Shows a feed of items priced at 10,000 UGX or under</p>
+                </div>
+                <button
+                  onClick={togglePromo}
+                  disabled={promoToggling}
+                  className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-medium transition-colors ${
+                    promoEnabled
+                      ? 'bg-[#EAAD11] text-black hover:opacity-90'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  } disabled:opacity-50`}
+                >
+                  {promoEnabled
+                    ? <><ToggleRight className="w-4 h-4" /> On</>
+                    : <><ToggleLeft className="w-4 h-4" /> Off</>
+                  }
+                </button>
+              </div>
+            </div>
           </div>
-        ) : <Spinner />
+        </>
       )}
 
       {/* Vendors */}
       {activeTab === 'vendors' && (
         loading ? <Spinner /> : (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
-            <table className="w-full text-sm min-w-[600px]">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Items</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
-                  <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {vendors.map(vendor => (
-                  <tr key={vendor.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium">
-                      <Link
-                        to={`/vendor/${encodeURIComponent(vendor.name)}`}
-                        className="hover:underline flex items-center gap-1.5"
-                      >
-                        {vendor.name}
-                        <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">{vendor.whatsapp || '—'}</td>
-                    <td className="px-6 py-4 text-gray-500">{vendor.item_count}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        vendor.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                      }`}>
-                        {vendor.is_active ? 'Visible' : 'Hidden'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={() => toggleVendor(vendor.id)}
-                        className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                          vendor.is_active
-                            ? 'bg-red-50 text-red-700 hover:bg-red-100'
-                            : 'bg-green-50 text-green-700 hover:bg-green-100'
-                        }`}
-                      >
-                        {vendor.is_active
-                          ? <><ToggleRight className="w-4 h-4" /> Hide</>
-                          : <><ToggleLeft className="w-4 h-4" /> Show</>
-                        }
-                      </button>
-                    </td>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs text-gray-400">
+                {vendors.filter(v => v.is_pinned).length}/5 vendors pinned
+              </p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+              <table className="w-full text-sm min-w-[680px]">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Items</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {vendors.length === 0 && (
-              <p className="text-center py-12 text-gray-400 text-sm">No vendors found.</p>
-            )}
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {vendors.map(vendor => (
+                    <tr key={vendor.id} className={`hover:bg-gray-50/50 transition-colors ${vendor.is_pinned ? 'bg-amber-50/40' : ''}`}>
+                      <td className="px-6 py-4 font-medium">
+                        <Link
+                          to={`/vendor/${encodeURIComponent(vendor.name)}`}
+                          className="hover:underline flex items-center gap-1.5"
+                        >
+                          {vendor.is_pinned && <Pin className="w-3 h-3 text-[#EAAD11] shrink-0" />}
+                          {vendor.name}
+                          <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 text-gray-500">{vendor.whatsapp || '—'}</td>
+                      <td className="px-6 py-4 text-gray-500">{vendor.item_count}</td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          vendor.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                        }`}>
+                          {vendor.is_active ? 'Visible' : 'Hidden'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleVendor(vendor.id)}
+                            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                              vendor.is_active
+                                ? 'bg-red-50 text-red-700 hover:bg-red-100'
+                                : 'bg-green-50 text-green-700 hover:bg-green-100'
+                            }`}
+                          >
+                            {vendor.is_active
+                              ? <><ToggleRight className="w-4 h-4" /> Hide</>
+                              : <><ToggleLeft className="w-4 h-4" /> Show</>
+                            }
+                          </button>
+                          <button
+                            onClick={() => pinVendor(vendor.id)}
+                            title={vendor.is_pinned ? 'Unpin vendor' : 'Pin vendor to top'}
+                            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                              vendor.is_pinned
+                                ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {vendor.is_pinned
+                              ? <><PinOff className="w-3.5 h-3.5" /> Unpin</>
+                              : <><Pin className="w-3.5 h-3.5" /> Pin</>
+                            }
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {vendors.length === 0 && (
+                <p className="text-center py-12 text-gray-400 text-sm">No vendors found.</p>
+              )}
+            </div>
           </div>
         )
       )}

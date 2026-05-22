@@ -20,7 +20,13 @@ class Vendor(Base):
     name = Column(String, unique=True, index=True)
     whatsapp = Column(String, index=True)
     is_active = Column(Boolean, default=True)
+    is_pinned = Column(Boolean, default=False)
     items = relationship("Item", back_populates="vendor")
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    key = Column(String, primary_key=True)
+    value_bool = Column(Boolean, default=False, nullable=False)
 
 class Item(Base):
     __tablename__ = "items"

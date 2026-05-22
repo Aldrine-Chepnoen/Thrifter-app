@@ -110,9 +110,11 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 @app.get("/features")
-def get_features():
+def get_features(db: Session = Depends(get_db)):
+    promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
-        "outfit_builder": settings.FEATURE_OUTFIT_BUILDER_ENABLED
+        "outfit_builder": settings.FEATURE_OUTFIT_BUILDER_ENABLED,
+        "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
     }
 
 # Mount images directory
@@ -593,7 +595,9 @@ def read_items(
             .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
         )
 
-    # Price range filter
+    # Price range filter (also caps promo tab to ≤ 10 000 UGX)
+    if sort == "promo":
+        query = query.filter(models.Item.price <= 10000)
     if min_price is not None:
         query = query.filter(models.Item.price >= min_price)
     if max_price is not None:
@@ -627,7 +631,7 @@ def read_items(
             logger.error(f"Personalized feed failed: {e}")
 
     # Fallback ordering logic
-    if sort == "latest":
+    if sort in ("latest", "promo"):
         items = query.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
     else:
         db.execute(text(f"SELECT setseed({seed if seed is not None else 0.5})"))
@@ -1087,10 +1091,13 @@ def admin_list_users(db: Session = Depends(get_db), _: models.User = Depends(req
 
 @app.get("/admin/vendors", response_model=List[schemas.AdminVendor])
 def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    vendors = db.query(models.Vendor).order_by(models.Vendor.id.desc()).all()
+    vendors = (db.query(models.Vendor)
+        .order_by(models.Vendor.is_pinned.desc(), models.Vendor.id.desc())
+        .all())
     return [
         schemas.AdminVendor(
-            id=v.id, name=v.name, whatsapp=v.whatsapp, is_active=v.is_active,
+            id=v.id, name=v.name, whatsapp=v.whatsapp,
+            is_active=v.is_active, is_pinned=v.is_pinned,
             item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
         )
         for v in vendors
@@ -1122,9 +1129,40 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     cache.feed_invalidate_all()
     cache.admin_stats_invalidate()
     return schemas.AdminVendor(
-        id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp, is_active=vendor.is_active,
+        id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
+        is_active=vendor.is_active, is_pinned=vendor.is_pinned,
         item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
     )
+
+@app.patch("/admin/vendors/{vendor_id}/pin", response_model=schemas.AdminVendor)
+def admin_pin_vendor(vendor_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    if not vendor.is_pinned:
+        pinned_count = db.query(models.Vendor).filter(models.Vendor.is_pinned == True).count()
+        if pinned_count >= 5:
+            raise HTTPException(status_code=400, detail="Maximum of 5 vendors can be pinned")
+    vendor.is_pinned = not vendor.is_pinned
+    db.commit()
+    db.refresh(vendor)
+    return schemas.AdminVendor(
+        id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
+        is_active=vendor.is_active, is_pinned=vendor.is_pinned,
+        item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
+    )
+
+@app.patch("/admin/features/promo_10k")
+def admin_toggle_promo(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
+    if not setting:
+        setting = models.AppSetting(key="promo_10k_enabled", value_bool=True)
+        db.add(setting)
+    else:
+        setting.value_bool = not setting.value_bool
+    db.commit()
+    db.refresh(setting)
+    return {"promo_10k_enabled": setting.value_bool}
 
 @app.delete("/admin/items/{item_id}", status_code=204)
 def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
