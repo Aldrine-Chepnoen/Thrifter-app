@@ -57,6 +57,7 @@ const Navbar = ({
     { label: 'Hoodies',   query: 'hoodie'   },
     { label: 'Dresses',   query: 'dress'    },
     { label: 'Handbags',  query: 'handbag'  },
+    { label: 'Accessories', query: 'accessories' },
   ];
 
   const handleTagClick = (query) => {
