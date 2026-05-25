@@ -4,6 +4,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
+import { Skeleton } from 'boneyard-js/react';
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
   const { name } = useParams();
@@ -59,17 +60,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
       )}
 
       <div>
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-        </div>
-      ) : items.length > 0 ? (
-        <MasonryGrid items={items} onItemClick={setSelectedItem} />
-      ) : (
-        <div className="text-center py-20 text-gray-500">
-          <p>No items from this vendor yet.</p>
-        </div>
-      )}
+        <Skeleton name="vendor-feed" loading={loading}>
+          {items.length > 0 ? (
+            <MasonryGrid items={items} onItemClick={setSelectedItem} />
+          ) : !loading ? (
+            <div className="text-center py-20 text-gray-500">
+              <p>No items from this vendor yet.</p>
+            </div>
+          ) : null}
+        </Skeleton>
       </div>
     </main>
   );

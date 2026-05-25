@@ -10,6 +10,7 @@ import api from './api';
 import VendorPage from './components/VendorPage';
 import AdminDashboard from './components/AdminDashboard';
 import FilterSheet from './components/FilterSheet';
+import { Skeleton } from 'boneyard-js/react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
@@ -354,72 +355,68 @@ function App() {
       <Routes>
         <Route path="/" element={
           <main className="max-w-7xl mx-auto">
-            {loading ? (
-              <div className="flex justify-center py-20">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-              </div>
-            ) : outfitResults ? (
+            {outfitResults ? (
               <>
                 <div className="px-6 mb-4 mt-4">
                   <h2 className="text-xl font-serif font-bold">Similar Items</h2>
                 </div>
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
               </>
-            ) : items.length > 0 ? (              <>
-                {/* Homepage Banner */}
-                <div className="px-4 md:px-6 mb-8 mt-2">
-                  <div className="relative h-[150px] md:h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
-                    {/* Left: Text Content */}
-                    <div className="z-10 max-w-[65%] banner-text-shadow">
-                      <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
-                        Secure your next fit.
-                      </h2>
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Discover fashion around Kampala
-                        </p>
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Thrift stores, Clothing brands, Fashion Designers
-                        </p>
-                        <p className="text-[9px] md:text-[10px] text-white/90 font-medium italic pt-1 border-t border-white/10 mt-1">
-                          Tip: Add items to your wardrobe for a personalized 'For You' feed.
-                        </p>
+            ) : (
+              <Skeleton name="item-feed" loading={loading}>
+                {items.length > 0 ? (
+                  <>
+                    {/* Homepage Banner */}
+                    <div className="px-4 md:px-6 mb-8 mt-2">
+                      <div className="relative h-[150px] md:h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
+                        <div className="z-10 max-w-[65%] banner-text-shadow">
+                          <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
+                            Secure your next fit.
+                          </h2>
+                          <div className="mt-2 space-y-1">
+                            <p className="text-[10px] md:text-xs text-white font-medium">
+                              Discover fashion around Kampala
+                            </p>
+                            <p className="text-[10px] md:text-xs text-white font-medium">
+                              Thrift stores, Clothing brands, Fashion Designers
+                            </p>
+                            <p className="text-[9px] md:text-[10px] text-white/90 font-medium italic pt-1 border-t border-white/10 mt-1">
+                              Tip: Add items to your wardrobe for a personalized 'For You' feed.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
+                          <img
+                            src="/Adobe Express - file.png"
+                            alt="Fashion showcase"
+                            className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
+                          />
+                        </div>
+                        <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
                       </div>
                     </div>
 
-                    {/* Right: Image Content */}
-                    <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
-                      <img 
-                        src="/Adobe Express - file.png" 
-                        alt="Fashion showcase" 
-                        className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
-                      />
+                    <div className="mt-4">
+                      <MasonryGrid items={items} onItemClick={setSelectedItem} />
                     </div>
-                    
-                    {/* Decorative texture overlay */}
-                    <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
+                    {loadingMore && (
+                      <div className="flex justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                      </div>
+                    )}
+                    {!hasMore && items.length > 5 && (
+                      <div className="text-center py-12 text-gray-400">
+                        <p className="text-sm font-serif italic">You've reached the end of the collection.</p>
+                      </div>
+                    )}
+                  </>
+                ) : !loading ? (
+                  <div className="text-center py-20 text-gray-500">
+                    <p className="mb-2">No items found.</p>
+                    <p className="text-sm">Try searching by style or brand, upload an inspiration image, or browse vendors above.</p>
                   </div>
-                </div>
-
-                <div className="mt-4">
-                  <MasonryGrid items={items} onItemClick={setSelectedItem} />
-                </div>
-                {loadingMore && (
-                  <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-                  </div>
-                )}
-                {!hasMore && items.length > 5 && (
-                  <div className="text-center py-12 text-gray-400">
-                    <p className="text-sm font-serif italic">You've reached the end of the collection.</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-20 text-gray-500">
-                <p className="mb-2">No items found.</p>
-                <p className="text-sm">Try searching by style or brand, upload an inspiration image, or browse vendors above.</p>
-              </div>
+                ) : null}
+              </Skeleton>
             )}
           </main>
         } />
