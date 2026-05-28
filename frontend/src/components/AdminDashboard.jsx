@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
+import ThrifterLoader from './ThrifterLoader';
 
 const AdminDashboard = ({ user }) => {
   const navigate = useNavigate();
@@ -169,7 +170,7 @@ const AdminDashboard = ({ user }) => {
               <StatCard icon={<Store />} label="Active Vendors" value={stats.active_vendors} color="green" />
               <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
             </div>
-          ) : <Spinner />}
+          ) : <ThrifterLoader />}
 
           <div>
             <h2 className="text-base font-bold mb-4">Site Settings</h2>
@@ -201,7 +202,7 @@ const AdminDashboard = ({ user }) => {
 
       {/* Vendors */}
       {activeTab === 'vendors' && (
-        loading ? <Spinner /> : (
+        loading ? <ThrifterLoader /> : (
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs text-gray-400">
@@ -286,7 +287,7 @@ const AdminDashboard = ({ user }) => {
 
       {/* Items */}
       {activeTab === 'items' && (
-        loading ? <Spinner /> : (
+        loading ? <ThrifterLoader /> : (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
@@ -349,7 +350,7 @@ const AdminDashboard = ({ user }) => {
 
       {/* Users */}
       {activeTab === 'users' && (
-        loading ? <Spinner /> : (
+        loading ? <ThrifterLoader /> : (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
@@ -421,11 +422,5 @@ const Badge = ({ color, label }) => {
     </span>
   );
 };
-
-const Spinner = () => (
-  <div className="flex justify-center py-20">
-    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-black dark:border-white" />
-  </div>
-);
 
 export default AdminDashboard;
