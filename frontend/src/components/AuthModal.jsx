@@ -82,28 +82,28 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
+          className="relative bg-white dark:bg-gray-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
         >
           {/* Handle for mobile pull-down visual */}
-          <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-6 sm:hidden" />
+          <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-6 sm:hidden" />
           
           <button 
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="absolute top-4 right-4 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
           >
             <X className="w-5 h-5 text-gray-500" />
           </button>
 
-          <div className="flex gap-4 mb-8 border-b border-gray-100">
+          <div className="flex gap-4 mb-8 border-b border-gray-100 dark:border-gray-800">
             <button
               onClick={() => setMode('login')}
-              className={`pb-3 text-lg font-bold transition-all ${mode === 'login' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
+              className={`pb-3 text-lg font-bold transition-all ${mode === 'login' ? 'text-black dark:text-white border-b-2 border-black dark:border-white' : 'text-gray-400'}`}
             >
               Login
             </button>
             <button
               onClick={() => setMode('register')}
-              className={`pb-3 text-lg font-bold transition-all ${mode === 'register' ? 'text-black border-b-2 border-black' : 'text-gray-400'}`}
+              className={`pb-3 text-lg font-bold transition-all ${mode === 'register' ? 'text-black dark:text-white border-b-2 border-black dark:border-white' : 'text-gray-400'}`}
             >
               Sign up
             </button>
@@ -111,25 +111,25 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
 
           <div className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                className="w-full p-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-1 focus:ring-black outline-none transition-all"
+                className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full p-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-1 focus:ring-black outline-none pr-12 transition-all"
+                  className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none pr-12 transition-all"
                 />
                 <button
                   type="button"
@@ -155,28 +155,28 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                     onChange={(e) => setIsVendor(e.target.checked)}
                     className="w-5 h-5 rounded border-gray-300 text-black focus:ring-black cursor-pointer"
                   />
-                  <label htmlFor="isVendor" className="text-sm font-medium text-gray-700 cursor-pointer">I am a Business/Brand</label>
+                  <label htmlFor="isVendor" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">I am a Business/Brand</label>
                 </div>
 
                 {isVendor && (
                   <div className="grid grid-cols-1 gap-4 pt-1">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">Business/brand name</label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name</label>
                       <input
                         type="text"
                         value={vendorName}
                         onChange={(e) => setVendorName(e.target.value)}
-                        className="w-full p-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-1 focus:ring-black outline-none transition-all"
+                        className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1.5">Vendor WhatsApp</label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp</label>
                       <input
                         type="text"
                         value={vendorWhatsapp}
                         onChange={(e) => setVendorWhatsapp(e.target.value)}
                         placeholder="+256..."
-                        className="w-full p-3.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-1 focus:ring-black outline-none transition-all"
+                        className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
                       />
                     </div>
                   </div>

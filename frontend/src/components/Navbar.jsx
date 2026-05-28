@@ -1,6 +1,6 @@
 // This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React, { useState } from 'react';
-import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield, SlidersHorizontal } from 'lucide-react';
+import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield, SlidersHorizontal, Moon, Sun } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -18,6 +18,8 @@ const Navbar = ({
   onFeedTypeChange,
   onFilterClick,
   hasActiveFilters,
+  darkMode,
+  toggleDarkMode,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -83,7 +85,7 @@ const Navbar = ({
       }}
       animate={hidden ? "hidden" : "visible"}
       transition={{ duration: 0.35, ease: "easeInOut" }}
-      className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100 py-3 px-4 md:py-4 md:px-6"
+      className="sticky top-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 py-3 px-4 md:py-4 md:px-6"
     >
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
         <div className="relative flex items-center justify-center w-full md:w-auto">
@@ -174,13 +176,24 @@ const Navbar = ({
                 </button>
               </div>
             ) : (
-              <button 
+              <button
                 onClick={openAuthModal}
                 className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow"
               >
                 Login
               </button>
             )}
+
+            <button
+              onClick={toggleDarkMode}
+              className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all ml-1"
+              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {darkMode
+                ? <Sun className="w-4 h-4 text-[#EAAD11]" />
+                : <Moon className="w-4 h-4 text-gray-600" />
+              }
+            </button>
           </div>
         )}
 
@@ -192,13 +205,13 @@ const Navbar = ({
                 <input
                   type="text"
                   placeholder="Search items or categories..."
-                  className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                   onChange={(e) => handleSearchInput(e.target.value)}
                 />
               </div>
               <button
                 onClick={onFilterClick}
-                className="relative flex-shrink-0 p-2.5 bg-white border border-gray-200 rounded-full input-shadow hover:border-gray-400 transition-all"
+                className="relative flex-shrink-0 p-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full input-shadow hover:border-gray-400 dark:hover:border-gray-500 transition-all"
                 title="Filter"
               >
                 <SlidersHorizontal className={`w-4 h-4 ${hasActiveFilters ? 'text-black' : 'text-gray-500'}`} />
@@ -219,7 +232,7 @@ const Navbar = ({
               <input
                 type="text"
                 placeholder="Search items or categories..."
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full focus:outline-none focus:ring-1 focus:ring-black transition-all"
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                 onChange={(e) => handleSearchInput(e.target.value)}
               />
             </div>
@@ -243,7 +256,7 @@ const Navbar = ({
                 className={`whitespace-nowrap flex-shrink-0 px-3 py-1 rounded-full border text-[10px] md:text-xs font-medium transition-all ${
                   activeTag === tag.query
                     ? 'bg-[#EAAD11] border-[#EAAD11] text-black'
-                    : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
                 }`}
               >
                 {tag.label}
@@ -251,10 +264,10 @@ const Navbar = ({
             ))}
           </div>
 
-          <div className="flex justify-center gap-8 mt-3 pt-2 border-t border-gray-100">
+          <div className="flex justify-center gap-8 mt-3 pt-2 border-t border-gray-100 dark:border-gray-800">
             <button
               onClick={() => onFeedTypeChange('random')}
-              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'random' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'random' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
             >
               <RoughNotation type="underline" show={feedType === 'random'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                 For You
@@ -262,7 +275,7 @@ const Navbar = ({
             </button>
             <button
               onClick={() => onFeedTypeChange('latest')}
-              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'latest' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'latest' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
             >
               <RoughNotation type="underline" show={feedType === 'latest'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                 Latest
@@ -271,7 +284,7 @@ const Navbar = ({
             {features?.promo_10k_enabled && (
               <button
                 onClick={() => onFeedTypeChange('promo')}
-                className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'promo' ? 'text-black' : 'text-gray-400 hover:text-gray-600'}`}
+                className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'promo' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
               >
                 <RoughNotation type="underline" show={feedType === 'promo'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                   10k Promotion

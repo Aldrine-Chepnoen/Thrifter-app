@@ -104,10 +104,10 @@ const UploadForm = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Image Upload */}
         <div className="w-full">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Item Photos (Up to 3)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Item Photos (Up to 3)</label>
           <div className="grid grid-cols-3 gap-4 mb-4">
             {previews.map((preview, index) => (
-              <div key={index} className="relative aspect-[4/5] bg-gray-100 rounded-xl overflow-hidden group">
+              <div key={index} className="relative aspect-[4/5] bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden group">
                 <img src={preview} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" />
                 <button
                   type="button"
@@ -124,7 +124,7 @@ const UploadForm = () => {
               </div>
             ))}
             {files.length < 3 && (
-              <label className="relative aspect-[4/5] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors">
+              <label className="relative aspect-[4/5] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                 <Upload className="w-8 h-8 text-gray-400 mb-1" />
                 <span className="text-[11px] text-gray-500 font-medium">Add Photo</span>
                 <input
@@ -141,25 +141,25 @@ const UploadForm = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Name</label>
             <input 
               type="text" 
               name="name"
               value={formData.name} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Price (UGX)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UGX)</label>
             <input 
               type="number" 
               name="price"
               value={formData.price} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
@@ -168,36 +168,36 @@ const UploadForm = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Size</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size</label>
             <input 
               type="text" 
               name="size"
               value={formData.size} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Market / Location</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Market / Location</label>
             <input 
               type="text" 
               name="market"
               value={formData.market} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Item Category</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Category</label>
             <select 
               name="item_type"
               value={formData.item_type} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none bg-white"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none bg-white"
               required
               disabled={!canUpload}
             >
@@ -211,26 +211,26 @@ const UploadForm = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vendor Name</label>
             <input 
               type="text" 
               name="vendor_name"
               value={formData.vendor_name} 
               onChange={handleChange}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Vendor WhatsApp</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vendor WhatsApp</label>
             <input 
               type="text" 
               name="vendor_whatsapp"
               value={formData.vendor_whatsapp} 
               onChange={handleChange}
               placeholder="e.g. +2348012345678"
-              className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
               disabled={!canUpload}
             />
@@ -238,13 +238,13 @@ const UploadForm = () => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
           <textarea 
             name="description"
             value={formData.description} 
             onChange={handleChange}
             rows="4"
-            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-1 focus:ring-black outline-none"
+            className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
             disabled={!canUpload}
           />
         </div>

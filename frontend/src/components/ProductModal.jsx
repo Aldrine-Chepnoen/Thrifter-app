@@ -136,16 +136,16 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative bg-white rounded-2xl overflow-y-auto w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row shadow-2xl"
+          className="relative bg-white dark:bg-gray-900 rounded-2xl overflow-y-auto w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row shadow-2xl"
         >
           <button 
             onClick={onClose}
-            className="absolute top-4 right-4 z-10 p-2 bg-white/80 rounded-full hover:bg-white transition-colors"
+            className="absolute top-4 right-4 z-10 p-2 bg-white/80 dark:bg-gray-800/80 rounded-full hover:bg-white dark:hover:bg-gray-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="w-full md:w-1/2 bg-gray-100 max-h-[60vh] md:max-h-[80vh] flex flex-col">
+          <div className="w-full md:w-1/2 bg-gray-100 dark:bg-gray-800 max-h-[60vh] md:max-h-[80vh] flex flex-col">
             <div className="flex-1 flex items-center justify-center overflow-hidden">
               <img
                 src={mainImgSrc}
@@ -155,12 +155,12 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
             </div>
 
             {images.length > 1 && (
-              <div className="p-4 flex justify-center gap-3 bg-white/50 backdrop-blur-md">
+              <div className="p-4 flex justify-center gap-3 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md">
                 {images.map((img, idx) => (
                   <button
                     key={img.id}
                     onClick={() => setActiveImageIndex(idx)}
-                    className={`w-16 h-20 rounded-lg overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-black scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                    className={`w-16 h-20 rounded-lg overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-black dark:border-white scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
                   >
                     <img
                       src={getOptimizedCloudinaryUrl(getFullUrl(img.image_path), 150)}
@@ -175,7 +175,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
 
           <div className="w-full md:w-1/2 p-8 flex flex-col overflow-y-auto">
             <div className="mb-auto">
-              <span className="inline-block px-3 py-1 bg-gray-100 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
+              <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
                 {item.market}
               </span>
 
@@ -185,7 +185,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Item Name</label>
                     <input 
-                      className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black transition-all"
+                      className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                       value={editedData.name}
                       onChange={(e) => setEditedData({...editedData, name: e.target.value})}
                     />
@@ -195,7 +195,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                       <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX)</label>
                       <input 
                         type="number"
-                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black transition-all"
+                        className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.price}
                         onChange={(e) => setEditedData({...editedData, price: e.target.value})}
                       />
@@ -203,7 +203,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     <div>
                       <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size</label>
                       <input 
-                        className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black transition-all"
+                        className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.size}
                         onChange={(e) => setEditedData({...editedData, size: e.target.value})}
                       />
@@ -221,7 +221,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
               ) : (
                 <>
                   {item.vendor_name && (
-                    <p className="text-sm text-gray-600 mb-2">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                       Vendor: 
                       <Link 
                         to={`/vendor/${encodeURIComponent(item.vendor_name)}`} 
@@ -232,18 +232,18 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                       </Link>
                     </p>
                   )}
-                  <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">{item.name}</h2>
-                  <p className="text-2xl font-medium text-gray-900 mb-6">{formatUGX(item.price)}</p>
+                  <h2 className="text-3xl font-serif font-bold text-gray-900 dark:text-white mb-2">{item.name}</h2>
+                  <p className="text-2xl font-medium text-gray-900 dark:text-white mb-6">{formatUGX(item.price)}</p>
                   
                   <div className="space-y-4 mb-8">
                     <div>
-                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-1">Size</h3>
-                      <p className="text-gray-600">{item.size}</p>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wide mb-1">Size</h3>
+                      <p className="text-gray-600 dark:text-gray-400">{item.size}</p>
                     </div>
                     {item.description && (
                       <div>
-                        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-1">Description</h3>
-                        <p className="text-gray-600 leading-relaxed">{item.description}</p>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wide mb-1">Description</h3>
+                        <p className="text-gray-600 dark:text-gray-400 leading-relaxed">{item.description}</p>
                       </div>
                     )}
                   </div>
@@ -271,7 +271,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     </button>
                     <button
                       onClick={() => setEditMode(false)}
-                      className="w-full bg-gray-100 text-gray-600 py-3 px-6 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                      className="w-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 px-6 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                     >
                       Cancel
                     </button>

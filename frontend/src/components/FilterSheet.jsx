@@ -48,12 +48,12 @@ const FilterSheet = ({ isOpen, onClose, activeFilters, onApply }) => {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl px-6 pt-4 pb-10
+            className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 rounded-t-2xl px-6 pt-4 pb-10
                        md:left-1/2 md:-translate-x-1/2 md:w-[420px] md:bottom-auto md:top-1/2
                        md:-translate-y-1/2 md:rounded-2xl shadow-xl"
           >
             {/* Drag handle (mobile only) */}
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5 md:hidden" />
+            <div className="w-10 h-1 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-5 md:hidden" />
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -63,7 +63,7 @@ const FilterSheet = ({ isOpen, onClose, activeFilters, onApply }) => {
               </div>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-full hover:bg-gray-100 transition-all"
+                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -72,11 +72,11 @@ const FilterSheet = ({ isOpen, onClose, activeFilters, onApply }) => {
             {/* Price brackets */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-700">Price Range (UGX)</h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Price Range (UGX)</h3>
                 {selected !== null && (
                   <button
                     onClick={() => setSelected(null)}
-                    className="text-xs text-gray-400 hover:text-black transition-all"
+                    className="text-xs text-gray-400 hover:text-black dark:hover:text-white transition-all"
                   >
                     Clear
                   </button>
@@ -90,7 +90,7 @@ const FilterSheet = ({ isOpen, onClose, activeFilters, onApply }) => {
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${
                       selected === idx
                         ? 'bg-[#EAAD11] border-[#EAAD11] text-black'
-                        : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
                     }`}
                   >
                     {bracket.label}

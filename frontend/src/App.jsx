@@ -33,6 +33,13 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('thrifter_dark_mode');
+    const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (isDark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    return isDark;
+  });
   const activeFiltersRef = useRef({ minPrice: null, maxPrice: null });
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
@@ -52,6 +59,16 @@ function App() {
       setHeaderHidden(false);
     }
   });
+
+  const toggleDarkMode = () => {
+    setDarkMode(prev => {
+      const next = !prev;
+      if (next) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+      localStorage.setItem('thrifter_dark_mode', String(next));
+      return next;
+    });
+  };
 
   const openAuthModal = () => setIsAuthModalOpen(true);
 
@@ -314,14 +331,14 @@ function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black dark:border-white"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100">
       <Navbar
         onSearch={handleSearch}
         onImageSearchClick={handleImageSearchClick}
@@ -335,6 +352,8 @@ function App() {
         onFeedTypeChange={handleFeedTypeChange}
         onFilterClick={() => setIsFilterSheetOpen(true)}
         hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
+        darkMode={darkMode}
+        toggleDarkMode={toggleDarkMode}
       />
       
       {/* Hidden File Inputs */}

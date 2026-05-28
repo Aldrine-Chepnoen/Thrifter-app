@@ -141,15 +141,15 @@ const AdminDashboard = ({ user }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-8 overflow-x-auto no-scrollbar">
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-8 overflow-x-auto no-scrollbar">
         {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
             className={`px-5 py-3 text-sm font-medium capitalize whitespace-nowrap transition-colors border-b-2 -mb-px ${
               activeTab === tab
-                ? 'border-black text-black'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-black dark:border-white text-black dark:text-white'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
           >
             {tab}
@@ -173,7 +173,7 @@ const AdminDashboard = ({ user }) => {
 
           <div>
             <h2 className="text-base font-bold mb-4">Site Settings</h2>
-            <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-700">
               <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <p className="text-sm font-medium">10k Promotion Tab</p>
@@ -185,7 +185,7 @@ const AdminDashboard = ({ user }) => {
                   className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-medium transition-colors ${
                     promoEnabled
                       ? 'bg-[#EAAD11] text-black hover:opacity-90'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                   } disabled:opacity-50`}
                 >
                   {promoEnabled
@@ -208,9 +208,9 @@ const AdminDashboard = ({ user }) => {
                 {vendors.filter(v => v.is_pinned).length}/5 vendors pinned
               </p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
               <table className="w-full text-sm min-w-[680px]">
-                <thead className="bg-gray-50 border-b border-gray-100">
+                <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
                   <tr>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
@@ -219,9 +219,9 @@ const AdminDashboard = ({ user }) => {
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                   {vendors.map(vendor => (
-                    <tr key={vendor.id} className={`hover:bg-gray-50/50 transition-colors ${vendor.is_pinned ? 'bg-amber-50/40' : ''}`}>
+                    <tr key={vendor.id} className={`hover:bg-gray-50/50 dark:hover:bg-gray-700/50 transition-colors ${vendor.is_pinned ? 'bg-amber-50/40 dark:bg-amber-900/20' : ''}`}>
                       <td className="px-6 py-4 font-medium">
                         <Link
                           to={`/vendor/${encodeURIComponent(vendor.name)}`}
@@ -262,7 +262,7 @@ const AdminDashboard = ({ user }) => {
                             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                               vendor.is_pinned
                                 ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                             }`}
                           >
                             {vendor.is_pinned
@@ -287,9 +287,9 @@ const AdminDashboard = ({ user }) => {
       {/* Items */}
       {activeTab === 'items' && (
         loading ? <Spinner /> : (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
                 <tr>
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Item</th>
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
@@ -298,15 +298,15 @@ const AdminDashboard = ({ user }) => {
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                 {items.map(item => (
-                  <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={item.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/50 transition-colors">
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
                         <img
                           src={item.image_path}
                           alt={item.name}
-                          className="w-10 h-12 object-cover rounded-lg bg-gray-100 shrink-0"
+                          className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0"
                         />
                         <span className="font-medium line-clamp-1">{item.name}</span>
                       </div>
@@ -350,18 +350,18 @@ const AdminDashboard = ({ user }) => {
       {/* Users */}
       {activeTab === 'users' && (
         loading ? <Spinner /> : (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
                 <tr>
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Email</th>
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Role</th>
                   <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
                 {users.map(u => (
-                  <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={u.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/50 transition-colors">
                     <td className="px-6 py-4 font-medium">{u.email}</td>
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-1.5">
@@ -396,11 +396,11 @@ const AdminDashboard = ({ user }) => {
 };
 
 const StatCard = ({ icon, label, value, color }) => (
-  <div className="bg-white rounded-xl border border-gray-100 p-6">
+  <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
     <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${
       color === 'green' ? 'bg-green-50 text-green-600' :
       color === 'red'   ? 'bg-red-50 text-red-600' :
-                          'bg-gray-50 text-gray-600'
+                          'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
     }`}>
       {React.cloneElement(icon, { className: 'w-5 h-5' })}
     </div>
@@ -413,7 +413,7 @@ const Badge = ({ color, label }) => {
   const styles = {
     purple: 'bg-purple-50 text-purple-700',
     blue:   'bg-blue-50 text-blue-700',
-    gray:   'bg-gray-100 text-gray-500',
+    gray:   'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[color]}`}>
@@ -424,7 +424,7 @@ const Badge = ({ color, label }) => {
 
 const Spinner = () => (
   <div className="flex justify-center py-20">
-    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-black" />
+    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-black dark:border-white" />
   </div>
 );
 
