@@ -32,6 +32,7 @@ function App() {
   const [feedType, setFeedType] = useState('random'); // 'random' (For You) or 'latest'
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
   const activeFiltersRef = useRef({ minPrice: null, maxPrice: null });
   const fileInputRef = useRef(null);
   const builderInputRef = useRef(null);
@@ -423,10 +424,11 @@ function App() {
         
         <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/" replace />} />
         <Route path="/vendor/:name" element={
-          <VendorPage 
-            setSelectedItem={setSelectedItem} 
-            user={user} 
-            onItemDeleted={fetchItems} 
+          <VendorPage
+            setSelectedItem={setSelectedItem}
+            user={user}
+            onItemDeleted={fetchItems}
+            refreshKey={vendorRefreshKey}
           />
         } />
         <Route path="/outfit-builder" element={
@@ -568,7 +570,7 @@ function App() {
         isOpen={!!selectedItem} 
         onClose={() => setSelectedItem(null)}
         user={user}
-        onDeleted={() => { fetchItems(); }}
+        onDeleted={() => { fetchItems(); setVendorRefreshKey(k => k + 1); }}
         onUpdated={(updatedItem) => {
           setSelectedItem(null);
           fetchItems();

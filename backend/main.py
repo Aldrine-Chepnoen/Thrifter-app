@@ -726,7 +726,20 @@ async def upload_item(
                 db.commit()
                 db.refresh(vendor)
 
-        # 3. Create item record (image columns filled after upload)
+        # 3. Guard against accidental double-upload (same name + price + size from same vendor)
+        existing = db.query(models.Item).filter(
+            models.Item.vendor_id == vendor.id,
+            models.Item.name == name,
+            models.Item.price == price,
+            models.Item.size == size,
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"You already have an item called '{name}' with the same price and size (ID {existing.id}). If this is intentional, edit the name slightly to distinguish them."
+            )
+
+        # 4. Create item record (image columns filled after upload)
         db_item = models.Item(
             name=name,
             price=price,
@@ -973,13 +986,21 @@ def delete_item(
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only delete your own items")
-    # Delete from Cloudinary
+    # Delete ItemImage Cloudinary assets and rows first to avoid FK constraint error
+    for img in (item.images or []):
+        try:
+            if img.cloudinary_public_id:
+                cloudinary.uploader.destroy(img.cloudinary_public_id)
+        except Exception:
+            pass
+        db.delete(img)
+    # Delete legacy Cloudinary asset
     try:
         if item.cloudinary_public_id:
             cloudinary.uploader.destroy(item.cloudinary_public_id)
     except Exception as e:
         print(f"Cloudinary delete error: {e}")
-    
+
     db.delete(item)
     db.commit()
     cache.feed_invalidate_all()

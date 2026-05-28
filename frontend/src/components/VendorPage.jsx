@@ -6,7 +6,7 @@ import MasonryGrid from './MasonryGrid';
 import api from '../api';
 import { Skeleton } from 'boneyard-js/react';
 
-const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
+const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey }) => {
   const { name } = useParams();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +31,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted }) => {
 
   useEffect(() => {
     fetchVendorItems();
-  }, [name]);
+  }, [name, refreshKey]);
 
   return (
     <main className="max-w-7xl mx-auto px-6">
