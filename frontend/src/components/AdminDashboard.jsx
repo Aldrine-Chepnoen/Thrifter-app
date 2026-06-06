@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff } from 'lucide-react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
 
-const AdminDashboard = ({ user }) => {
+const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState(null);
@@ -193,6 +193,19 @@ const AdminDashboard = ({ user }) => {
                     ? <><ToggleRight className="w-4 h-4" /> On</>
                     : <><ToggleLeft className="w-4 h-4" /> Off</>
                   }
+                </button>
+              </div>
+              <div className="flex items-center justify-between px-6 py-4">
+                <div>
+                  <p className="text-sm font-medium">Outfit Builder</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Upload an inspiration image to generate outfit combinations</p>
+                </div>
+                <button
+                  onClick={onOutfitBuilderClick}
+                  className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-medium bg-[#EAAD11] text-black hover:opacity-90 transition-colors"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Launch
                 </button>
               </div>
             </div>

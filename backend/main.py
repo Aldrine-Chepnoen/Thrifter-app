@@ -113,7 +113,6 @@ async def add_security_headers(request: Request, call_next):
 def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
-        "outfit_builder": settings.FEATURE_OUTFIT_BUILDER_ENABLED,
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
     }
 

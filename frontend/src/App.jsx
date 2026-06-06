@@ -24,7 +24,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [features, setFeatures] = useState({ outfit_builder: true });
+  const [features, setFeatures] = useState({});
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -342,7 +342,6 @@ function App() {
       <Navbar
         onSearch={handleSearch}
         onImageSearchClick={handleImageSearchClick}
-        onOutfitBuilderClick={() => builderInputRef.current.click()}
         user={user}
         onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
         features={features}
@@ -536,7 +535,7 @@ function App() {
         } />
         <Route path="/admin" element={
           user?.is_admin
-            ? <AdminDashboard user={user} />
+            ? <AdminDashboard user={user} onOutfitBuilderClick={() => builderInputRef.current.click()} />
             : <Navigate to="/" replace />
         } />
         <Route path="*" element={<Navigate to="/" replace />} />

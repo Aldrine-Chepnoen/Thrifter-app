@@ -1,6 +1,6 @@
 // This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
 import React, { useState } from 'react';
-import { Search, PlusCircle, Camera, Heart, Sparkles, User, Shield, SlidersHorizontal, Moon, Sun } from 'lucide-react';
+import { Search, PlusCircle, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -8,7 +8,6 @@ import { RoughNotation } from 'react-rough-notation';
 const Navbar = ({
   onSearch,
   onImageSearchClick,
-  onOutfitBuilderClick,
   user,
   onLogout,
   features,
@@ -111,21 +110,7 @@ const Navbar = ({
         
         {showIcons && (
           <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
-            <button 
-              onClick={() => handleProtectedAction(() => {
-                if (features?.outfit_builder === false) {
-                  alert("This feature is currently under development and will be back soon!");
-                  return;
-                }
-                onOutfitBuilderClick();
-              })}
-              className={`flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow ${features?.outfit_builder === false ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-              title={features?.outfit_builder === false ? "Under Development" : "Outfit Builder"}
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Outfit builder</span>
-              <Sparkles className="w-3.5 h-3.5" />
-            </button>
-            <button 
+            <button
               onClick={() => handleProtectedAction(onImageSearchClick)}
               className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
               title="Upload outfit inspiration"
