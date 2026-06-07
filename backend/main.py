@@ -1,5 +1,6 @@
 # This is the main application file for the Thrifter backend API. It sets up the FastAPI application, configures database connections, defines API endpoints for user authentication, item management, and search functionality. The application uses SQLAlchemy for database interactions, Cloudinary for image storage, and a custom search engine for generating image embeddings and performing similarity searches. The code also includes structured logging, error handling, and rate limiting to ensure a robust and secure API. Additionally, there are utility functions for password hashing, JWT token management, and seeding demo data for testing purposes. 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Header, Response, Request
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Header, Response, Request, BackgroundTasks
+import asyncio
 from fastapi.responses import JSONResponse
 import logging
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +19,7 @@ import re
 from PIL import Image, ImageDraw
 from sqlalchemy import text
 
-from database import get_db, engine, Base
+from database import get_db, engine, Base, SessionLocal
 import models
 import schemas
 import search_engine
@@ -657,8 +658,28 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
     cache.item_set(item_id, result)
     return result
 
+def _compute_and_store_embedding(item_id: int, image_bytes: bytes):
+    # Runs after the response is sent. Opens its own DB session so the
+    # request session is already closed and committed by the time this fires.
+    db = SessionLocal()
+    try:
+        item = db.query(models.Item).filter(models.Item.id == item_id).first()
+        if not item:
+            return
+        emb = search_engine.get_image_embedding_from_file(io.BytesIO(image_bytes))
+        item.embedding = emb.tolist()
+        db.commit()
+        cache.feed_invalidate_all()
+        logger.info(f"Embedding computed and stored for item {item_id}")
+    except Exception as e:
+        logger.error(f"Background embedding failed for item {item_id}: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
 @app.post("/upload", response_model=schemas.Item)
 async def upload_item(
+    background_tasks: BackgroundTasks,
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
@@ -691,19 +712,17 @@ async def upload_item(
 
     logger.info(f"Uploading item '{name}' with {len(files)} images for vendor {current_user.vendor_id or 'new'}")
 
+    # Read all file bytes upfront — UploadFile streams close after the request
+    file_contents = []
+    for f in files:
+        if f.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
+            raise HTTPException(status_code=400, detail=f"File {f.filename} is not a valid image type")
+        file_contents.append(await f.read())
+
     uploaded_assets = []
 
     try:
-        # 1. Process the primary image for embedding
-        primary_file = files[0]
-        if primary_file.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
-            raise HTTPException(status_code=400, detail=f"File {primary_file.filename} is not a valid image type")
-
-        content = await primary_file.read()
-        image_stream = io.BytesIO(content)
-        emb = search_engine.get_image_embedding_from_file(image_stream)
-
-        # 2. Resolve vendor
+        # 1. Resolve vendor
         vendor = None
         if current_user.vendor_id:
             vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
@@ -725,7 +744,7 @@ async def upload_item(
                 db.commit()
                 db.refresh(vendor)
 
-        # 3. Guard against accidental double-upload (same name + price + size from same vendor)
+        # 2. Guard against accidental double-upload (same name + price + size from same vendor)
         existing = db.query(models.Item).filter(
             models.Item.vendor_id == vendor.id,
             models.Item.name == name,
@@ -738,7 +757,9 @@ async def upload_item(
                 detail=f"You already have an item called '{name}' with the same price and size (ID {existing.id}). If this is intentional, edit the name slightly to distinguish them."
             )
 
-        # 4. Create item record (image columns filled after upload)
+        # 3. Create item with a zero-vector placeholder embedding.
+        # The real embedding is computed in the background after this response returns.
+        embedding_dim = 512
         db_item = models.Item(
             name=name,
             price=price,
@@ -747,23 +768,17 @@ async def upload_item(
             item_type=item_type,
             description=description,
             vendor_id=vendor.id,
-            embedding=emb.tolist()
+            embedding=[0.0] * embedding_dim
         )
         db.add(db_item)
         db.flush()
 
-        # 4. Upload each image to Cloudinary and create ItemImage records
-        for index, f in enumerate(files):
-            if index == 0:
-                image_stream.seek(0)
-            else:
-                if f.content_type not in ("image/jpeg", "image/png", "image/jpg", "image/webp"):
-                    raise HTTPException(status_code=400, detail=f"File {f.filename} is not a valid image type")
-                content = await f.read()
-                image_stream = io.BytesIO(content)
+        # 4. Upload all images to Cloudinary in parallel
+        loop = asyncio.get_event_loop()
 
-            upload_result = cloudinary.uploader.upload(
-                image_stream,
+        def _upload(image_bytes: bytes, is_primary: bool):
+            return cloudinary.uploader.upload(
+                io.BytesIO(image_bytes),
                 folder="thrifter_items",
                 transformation=[
                     {"width": 1000, "crop": "limit"},
@@ -771,6 +786,13 @@ async def upload_item(
                     {"fetch_format": "auto"}
                 ]
             )
+
+        upload_results = await asyncio.gather(
+            *[loop.run_in_executor(None, _upload, content, i == 0)
+              for i, content in enumerate(file_contents)]
+        )
+
+        for index, upload_result in enumerate(upload_results):
             public_id = upload_result.get("public_id")
             uploaded_assets.append(public_id)
             image_url = upload_result.get("secure_url")
@@ -791,6 +813,10 @@ async def upload_item(
         logger.info(f"Item {db_item.id} created successfully with {len(files)} images")
         cache.feed_invalidate_all()
         cache.admin_stats_invalidate()
+
+        # 5. Compute the real embedding in the background after the response is sent
+        background_tasks.add_task(_compute_and_store_embedding, db_item.id, file_contents[0])
+
         return serialize_item(db_item)
 
     except Exception as e:

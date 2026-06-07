@@ -4,9 +4,34 @@ import { Upload, X } from 'lucide-react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 
+const MAX_DIMENSION = 1200;
+const JPEG_QUALITY = 0.85;
+
+function resizeImage(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { width, height } = img;
+      const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
+        'image/jpeg',
+        JPEG_QUALITY
+      );
+    };
+    img.src = url;
+  });
+}
+
 const UploadForm = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState(null); // null | 'resizing' | 'uploading'
   const [formData, setFormData] = useState({
     name: '',
     price: '',
@@ -48,9 +73,10 @@ const UploadForm = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const selectedFiles = Array.from(e.target.files);
-    const newFiles = [...files, ...selectedFiles].slice(0, 3);
+    const resized = await Promise.all(selectedFiles.map(resizeImage));
+    const newFiles = [...files, ...resized].slice(0, 3);
     setFiles(newFiles);
     setPreviews(newFiles.map(f => URL.createObjectURL(f)));
   };
@@ -72,7 +98,7 @@ const UploadForm = () => {
       alert('Please upload at least one image');
       return;
     }
-    setLoading(true);
+    setUploadStatus('uploading');
 
     const data = new FormData();
     Object.keys(formData).forEach(key => {
@@ -88,7 +114,7 @@ const UploadForm = () => {
       const errorMsg = error.response?.data?.detail || 'Failed to upload item';
       alert(`Upload failed: ${errorMsg}`);
     } finally {
-      setLoading(false);
+      setUploadStatus(null);
     }
   };
 
@@ -249,12 +275,18 @@ const UploadForm = () => {
           />
         </div>
 
-        <button 
-          type="submit" 
-          disabled={loading || !canUpload}
-          className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-colors disabled:bg-gray-400"
+        <button
+          type="submit"
+          disabled={!!uploadStatus || !canUpload}
+          className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
         >
-          {loading ? 'Listing Item...' : 'List Item'}
+          {uploadStatus && (
+            <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          )}
+          {uploadStatus === 'uploading' ? 'Listing item...' : 'List Item'}
         </button>
       </form>
     </div>

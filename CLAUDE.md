@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Thrifter is a fashion discovery app (MVP) with AI-powered image/text search, a Pinterest-style masonry grid, and vendor item uploads. Focused on Kampala/Uganda market.
+Thrifter is a live, production fashion discovery platform targeting the Kampala/Uganda market. It has 1,200+ registered users and 600+ items uploaded. The immediate roadmap includes major feature improvements, a mobile app, and a payment system.
+
+Treat all changes with production-level care — real users are actively using this. Prefer safe, incremental changes over broad refactors, and flag anything that could affect data integrity or user-facing reliability.
 
 **Stack:** FastAPI + PostgreSQL (pgvector) backend, React + Vite + Tailwind CSS frontend, FashionCLIP for embeddings, Cloudinary for image storage.
 
@@ -44,7 +46,7 @@ CLOUDINARY_API_KEY=...
 CLOUDINARY_API_SECRET=...
 DEBUG=True
 SEED_DEMO=False
-FEATURE_OUTFIT_BUILDER_ENABLED=True
+JWT_EXP_SECONDS=2592000
 ```
 
 Create `frontend/.env` (optional):
