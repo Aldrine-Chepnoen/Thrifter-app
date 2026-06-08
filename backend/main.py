@@ -574,7 +574,11 @@ def read_items(
         return cached_feed
 
     # Base query
-    query = db.query(models.Item).options(defer(models.Item.embedding))
+    query = db.query(models.Item).options(
+        defer(models.Item.embedding),
+        selectinload(models.Item.images),
+        selectinload(models.Item.vendor),
+    )
 
     if vendor:
         # Allow a vendor to see their own items even when their account is hidden
@@ -1087,7 +1091,11 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
     item_ids = [r.item_id for r in rows]
     if not item_ids:
         return []
-    items = db.query(models.Item).options(defer(models.Item.embedding)).filter(models.Item.id.in_(item_ids)).all()
+    items = db.query(models.Item).options(
+        defer(models.Item.embedding),
+        selectinload(models.Item.images),
+        selectinload(models.Item.vendor),
+    ).filter(models.Item.id.in_(item_ids)).all()
     return [serialize_item(i) for i in items]
 
 @app.post("/wardrobe/{item_id}", status_code=204)
