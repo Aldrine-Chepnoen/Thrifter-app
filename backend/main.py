@@ -603,8 +603,15 @@ def read_items(
     if max_price is not None:
         query = query.filter(models.Item.price <= max_price)
 
-    # Personalized Recommendation Logic
-    if sort == "random" and current_user:
+    # Vendor pages don't need personalisation or random ordering — newest first
+    if vendor:
+        items = query.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
+        response = [serialize_item(i) for i in items]
+        cache.feed_set(feed_key, response)
+        return response
+
+    # Personalized feed — only when explicitly requested via sort=for_you
+    if sort == "for_you" and current_user:
         try:
             wardrobe_items = (
                 db.query(models.Wardrobe)
@@ -633,7 +640,7 @@ def read_items(
     # Fallback ordering logic
     if sort in ("latest", "promo"):
         items = query.order_by(models.Item.id.desc()).offset(skip).limit(limit).all()
-    else:
+    else:  # random or for_you (no wardrobe fallback) — seeded for consistent pagination
         db.execute(text(f"SELECT setseed({seed if seed is not None else 0.5})"))
         items = query.order_by(func.random()).offset(skip).limit(limit).all()
 
@@ -839,6 +846,16 @@ def list_vendors(db: Session = Depends(get_db)):
         count = db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
         result.append(schemas.VendorInfo(id=v.id, name=v.name, whatsapp=v.whatsapp, item_count=count))
     return result
+
+@app.get("/vendors/{name}", response_model=schemas.VendorProfile)
+def get_vendor(name: str, db: Session = Depends(get_db)):
+    vendor = db.query(models.Vendor).filter(models.Vendor.name.ilike(name)).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    item_count = db.query(func.count(models.Item.id)).filter(
+        models.Item.vendor_id == vendor.id
+    ).scalar()
+    return schemas.VendorProfile(id=vendor.id, name=vendor.name, item_count=item_count)
 
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")

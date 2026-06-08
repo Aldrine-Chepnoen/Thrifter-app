@@ -29,7 +29,7 @@ function App() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedSeed, setFeedSeed] = useState(null);
-  const [feedType, setFeedType] = useState('random'); // 'random' (For You) or 'latest'
+  const [feedType, setFeedType] = useState('for_you');
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
@@ -94,7 +94,7 @@ function App() {
 
     try {
       let url = `/items?skip=${currentPage * limit}&limit=${limit}&sort=${activeType}`;
-      if (activeType === 'random' && activeSeed !== null) url += `&seed=${activeSeed}`;
+      if ((activeType === 'random' || activeType === 'for_you') && activeSeed !== null) url += `&seed=${activeSeed}`;
       const { minPrice, maxPrice } = activeFiltersRef.current;
       if (minPrice !== null) url += `&min_price=${minPrice}`;
       if (maxPrice !== null) url += `&max_price=${maxPrice}`;

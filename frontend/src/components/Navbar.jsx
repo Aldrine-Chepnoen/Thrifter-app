@@ -251,10 +251,10 @@ const Navbar = ({
 
           <div className="flex justify-center gap-8 mt-3 pt-2 border-t border-gray-100 dark:border-gray-800">
             <button
-              onClick={() => onFeedTypeChange('random')}
-              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'random' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+              onClick={() => onFeedTypeChange('for_you')}
+              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'for_you' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
             >
-              <RoughNotation type="underline" show={feedType === 'random'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
+              <RoughNotation type="underline" show={feedType === 'for_you'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
                 For You
               </RoughNotation>
             </button>

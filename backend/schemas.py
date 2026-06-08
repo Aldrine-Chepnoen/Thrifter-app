@@ -118,3 +118,11 @@ class VendorInfo(BaseModel):
 
     class Config:
         from_attributes = True
+
+class VendorProfile(BaseModel):
+    id: int
+    name: str
+    item_count: int = 0
+
+    class Config:
+        from_attributes = True

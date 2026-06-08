@@ -17,11 +17,12 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey }) => {
   const fetchVendorItems = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/items?vendor=${encodeURIComponent(name)}`);
-      setItems(res.data || []);
-      const vres = await api.get('/vendors');
-      const info = (vres.data || []).find((v) => v.name?.toLowerCase() === name?.toLowerCase());
-      setVendorInfo(info || null);
+      const [itemsRes, vendorRes] = await Promise.all([
+        api.get(`/items?vendor=${encodeURIComponent(name)}`),
+        api.get(`/vendors/${encodeURIComponent(name)}`),
+      ]);
+      setItems(itemsRes.data || []);
+      setVendorInfo(vendorRes.data || null);
     } catch (e) {
       console.error('Failed to load vendor items', e);
     } finally {
