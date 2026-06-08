@@ -10,8 +10,12 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [stats, setStats] = useState(null);
   const [vendors, setVendors] = useState([]);
   const [items, setItems] = useState([]);
+  const [itemsPage, setItemsPage] = useState(0);
+  const [itemsHasMore, setItemsHasMore] = useState(true);
+  const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const ITEMS_PAGE_SIZE = 50;
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoToggling, setPromoToggling] = useState(false);
 
@@ -55,15 +59,18 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
-  const loadItems = async () => {
-    setLoading(true);
+  const loadItems = async (page = 0) => {
+    page === 0 ? setLoading(true) : setItemsLoadingMore(true);
     try {
-      const res = await api.get('/admin/items');
-      setItems(res.data);
+      const res = await api.get(`/admin/items?skip=${page * ITEMS_PAGE_SIZE}&limit=${ITEMS_PAGE_SIZE}`);
+      setItems(prev => page === 0 ? res.data : [...prev, ...res.data]);
+      setItemsPage(page);
+      setItemsHasMore(res.data.length === ITEMS_PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load items', e);
     } finally {
       setLoading(false);
+      setItemsLoadingMore(false);
     }
   };
 
@@ -301,6 +308,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       {/* Items */}
       {activeTab === 'items' && (
         loading ? <ThrifterLoader /> : (
+          <>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
@@ -358,6 +366,18 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <p className="text-center py-12 text-gray-400 text-sm">No items found.</p>
             )}
           </div>
+          {itemsHasMore && (
+            <div className="flex justify-center mt-4">
+              <button
+                onClick={() => loadItems(itemsPage + 1)}
+                disabled={itemsLoadingMore}
+                className="px-6 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              >
+                {itemsLoadingMore ? 'Loading...' : 'Load more'}
+              </button>
+            </div>
+          )}
+          </>
         )
       )}
 

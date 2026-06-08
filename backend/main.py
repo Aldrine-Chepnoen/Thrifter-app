@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session, defer
+from sqlalchemy.orm import Session, defer, selectinload
 from sqlalchemy import or_, func
 import shutil
 import os
@@ -1167,8 +1167,24 @@ def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(r
     ]
 
 @app.get("/admin/items", response_model=List[schemas.AdminItem])
-def admin_list_items(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    items = db.query(models.Item).options(defer(models.Item.embedding)).order_by(models.Item.id.desc()).all()
+def admin_list_items(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    items = (
+        db.query(models.Item)
+        .options(
+            defer(models.Item.embedding),
+            selectinload(models.Item.images),
+            selectinload(models.Item.vendor),
+        )
+        .order_by(models.Item.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     result = []
     for item in items:
         primary = next((img for img in item.images if img.is_primary), None) if item.images else None
