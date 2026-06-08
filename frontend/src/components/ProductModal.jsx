@@ -31,6 +31,15 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     setEditMode(false);
   }, [item, isOpen]);
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   if (!isOpen || !item) return null;
   
   const handleProtectedAction = (action) => {
@@ -132,18 +141,20 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
           className="absolute inset-0 bg-black/40 backdrop-blur-sm"
           onClick={onClose}
         />
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative bg-white dark:bg-gray-900 rounded-2xl overflow-y-auto w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row shadow-2xl"
+          className="relative bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl"
         >
-          <button 
+          <button
             onClick={onClose}
             className="absolute top-4 right-4 z-10 p-2 bg-white/80 dark:bg-gray-800/80 rounded-full hover:bg-white dark:hover:bg-gray-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
+
+          <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
 
           <div className="w-full md:w-1/2 bg-gray-100 dark:bg-gray-800 max-h-[60vh] md:max-h-[80vh] flex flex-col">
             <div className="flex-1 flex items-center justify-center overflow-hidden">
@@ -173,7 +184,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
             )}
           </div>
 
-          <div className="w-full md:w-1/2 p-8 flex flex-col overflow-y-auto">
+          <div className="w-full md:w-1/2 p-8 flex flex-col md:overflow-y-auto">
             <div className="mb-auto">
               <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
                 {item.market}
@@ -318,6 +329,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                 </a>
               </>
             )}
+          </div>
           </div>
         </motion.div>
       </div>
