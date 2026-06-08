@@ -138,7 +138,7 @@ const UploadForm = () => {
                 <button
                   type="button"
                   onClick={() => removeFile(index)}
-                  className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-full shadow-md hover:bg-white transition-colors"
+                  className="absolute top-2 right-2 bg-white/90 dark:bg-gray-800/90 p-1.5 rounded-full shadow-md hover:bg-white dark:hover:bg-gray-800 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>

@@ -223,7 +223,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Description</label>
                     <textarea 
-                      className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black min-h-[100px] transition-all"
+                      className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 min-h-[100px] transition-all"
                       value={editedData.description}
                       onChange={(e) => setEditedData({...editedData, description: e.target.value})}
                     />

@@ -451,7 +451,7 @@ function App() {
           <main className="max-w-7xl mx-auto px-6">
             <div className="mb-8">
               <h2 className="text-2xl font-serif font-bold mb-2">Outfit Builder</h2>
-              <p className="text-gray-600">Based on your inspiration, we've matched these pieces from our collection.</p>
+              <p className="text-gray-600 dark:text-gray-400">Based on your inspiration, we've matched these pieces from our collection.</p>
             </div>
 
             {loading ? (
@@ -459,7 +459,7 @@ function App() {
             ) : builderResults && builderResults.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {builderResults.map((outfit, idx) => (
-                  <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                  <div key={idx} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Option {idx + 1}</span>
                       <span className="text-xs bg-green-50 text-green-600 px-2 py-1 rounded-full">Match Score: {Math.round(outfit.score * 100)}%</span>
@@ -471,7 +471,7 @@ function App() {
                           onClick={() => setSelectedItem(outfit.top)}
                           className="cursor-pointer group"
                         >
-                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 mb-2">
+                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
                             <img 
                               src={getImageUrl(outfit.top.image_path)} 
                               alt={outfit.top.name}
@@ -490,7 +490,7 @@ function App() {
                           onClick={() => setSelectedItem(outfit.bottom)}
                           className="cursor-pointer group"
                         >
-                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 mb-2">
+                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
                             <img 
                               src={getImageUrl(outfit.bottom.image_path)} 
                               alt={outfit.bottom.name}
@@ -506,7 +506,7 @@ function App() {
                         onClick={() => setSelectedItem(outfit.item)}
                         className="cursor-pointer group"
                       >
-                        <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 mb-2">
+                        <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
                           <img 
                             src={getImageUrl(outfit.item.image_path)} 
                             alt={outfit.item.name}
@@ -541,14 +541,8 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
-            <div className="px-6 mb-4 flex items-center justify-between">
+            <div className="px-6 mb-4">
               <h2 className="text-xl font-serif font-bold">Wardrobe</h2>
-              <button 
-                onClick={fetchWardrobe}
-                className="px-3 py-2 border border-gray-200 rounded-full hover:bg-gray-100 transition-all text-sm"
-              >
-                Refresh
-              </button>
             </div>
             {loading ? (
               <ThrifterLoader />
