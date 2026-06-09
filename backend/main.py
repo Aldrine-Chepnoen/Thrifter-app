@@ -681,6 +681,7 @@ def _compute_and_store_embedding(item_id: int, image_bytes: bytes):
         item.embedding = emb.tolist()
         db.commit()
         cache.feed_invalidate_all()
+        cache.search_invalidate_all()
         logger.info(f"Embedding computed and stored for item {item_id}")
     except Exception as e:
         logger.error(f"Background embedding failed for item {item_id}: {e}", exc_info=True)
@@ -823,6 +824,7 @@ async def upload_item(
         db.refresh(db_item)
         logger.info(f"Item {db_item.id} created successfully with {len(files)} images")
         cache.feed_invalidate_all()
+        cache.search_invalidate_all()
         cache.admin_stats_invalidate()
 
         # 5. Compute the real embedding in the background after the response is sent
@@ -866,13 +868,17 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
 def search_items(request: Request, query: str, db: Session = Depends(get_db)):
     logger.info(f"AI Search query: {query}")
     try:
+        cached = cache.search_get(query)
+        if cached is not None:
+            return cached
+
         # 1. Get AI embedding for the text query
         query_emb = search_engine.get_text_embedding(query)
-        
+
         # 2. Vector search using pgvector (semantic/visual similarity)
-        # We find top 40 similar items
         vector_results = (
             db.query(models.Item)
+            .options(defer(models.Item.embedding))
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
             .order_by(models.Item.embedding.l2_distance(query_emb.tolist()))
@@ -895,18 +901,20 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
             .limit(20)
             .all()
         )
-        
+
         # Combine results, prioritizing vector search but ensuring keywords are included
         seen_ids = set()
         combined = []
-        
+
         for it in vector_results + keyword_results:
             if it.id not in seen_ids:
                 combined.append(serialize_item(it))
                 seen_ids.add(it.id)
-                
-        logger.info(f"AI Search returned {len(combined)} combined results")
-        return combined[:30]
+
+        result = combined[:30]
+        cache.search_set(query, result)
+        logger.info(f"AI Search returned {len(result)} combined results")
+        return result
     except Exception as e:
         logger.error(f"AI Search failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Search failed")
@@ -1050,6 +1058,7 @@ def delete_item(
     db.delete(item)
     db.commit()
     cache.feed_invalidate_all()
+    cache.search_invalidate_all()
     cache.item_invalidate(item_id)
     cache.admin_stats_invalidate()
     return Response(status_code=204)
@@ -1080,6 +1089,7 @@ def update_item(
     db.commit()
     db.refresh(item)
     cache.feed_invalidate_all()
+    cache.search_invalidate_all()
     cache.item_invalidate(item_id)
     return serialize_item(item)
 
@@ -1214,6 +1224,7 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     db.commit()
     db.refresh(vendor)
     cache.feed_invalidate_all()
+    cache.search_invalidate_all()
     cache.admin_stats_invalidate()
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
@@ -1270,6 +1281,7 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
     db.delete(item)
     db.commit()
     cache.feed_invalidate_all()
+    cache.search_invalidate_all()
     cache.item_invalidate(item_id)
     cache.admin_stats_invalidate()
     return Response(status_code=204)

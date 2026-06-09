@@ -17,22 +17,25 @@ from cachetools import TTLCache
 logger = logging.getLogger(__name__)
 
 # ── TTL constants (seconds) ────────────────────────────────────────────────────
-FEED_TTL  = 300   # 5 min  — public feed, item details, user profile
-ADMIN_TTL =  60   # 1 min  — admin stats
+FEED_TTL   = 300   # 5 min  — public feed, item details, user profile
+ADMIN_TTL  =  60   # 1 min  — admin stats
+SEARCH_TTL = 300   # 5 min  — search results (keyed by normalised query string)
 
 # ── Cache instances ────────────────────────────────────────────────────────────
-_feed_cache  = TTLCache(maxsize=512,  ttl=FEED_TTL)   # keyed by query-string key
-_item_cache  = TTLCache(maxsize=1024, ttl=FEED_TTL)   # keyed by item_id (int)
-_admin_cache = TTLCache(maxsize=1,    ttl=ADMIN_TTL)  # single "stats" entry
-_user_cache  = TTLCache(maxsize=512,  ttl=FEED_TTL)   # keyed by user_id — CachedUser
-_me_cache    = TTLCache(maxsize=512,  ttl=FEED_TTL)   # keyed by user_id — /auth/me payload
+_feed_cache   = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by query-string key
+_item_cache   = TTLCache(maxsize=1024, ttl=FEED_TTL)    # keyed by item_id (int)
+_admin_cache  = TTLCache(maxsize=1,    ttl=ADMIN_TTL)   # single "stats" entry
+_user_cache   = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by user_id — CachedUser
+_me_cache     = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by user_id — /auth/me payload
+_search_cache = TTLCache(maxsize=256,  ttl=SEARCH_TTL)  # keyed by normalised query string
 
 # ── Thread locks (one per cache) ───────────────────────────────────────────────
-_feed_lock  = Lock()
-_item_lock  = Lock()
-_admin_lock = Lock()
-_user_lock  = Lock()
-_me_lock    = Lock()
+_feed_lock   = Lock()
+_item_lock   = Lock()
+_admin_lock  = Lock()
+_user_lock   = Lock()
+_me_lock     = Lock()
+_search_lock = Lock()
 
 
 # ── Lightweight user dataclass ─────────────────────────────────────────────────
@@ -138,3 +141,15 @@ def me_get(user_id: int) -> Optional[Any]:
 
 def me_set(user_id: int, value: Any) -> None:
     _set(_me_cache, _me_lock, user_id, value)
+
+
+# ── Search results cache — GET /search ────────────────────────────────────────
+def search_get(query: str) -> Optional[Any]:
+    return _get(_search_cache, _search_lock, query.lower().strip(), "search")
+
+def search_set(query: str, value: Any) -> None:
+    _set(_search_cache, _search_lock, query.lower().strip(), value)
+
+def search_invalidate_all() -> None:
+    """Call after bulk item writes that could affect search results."""
+    _clear(_search_cache, _search_lock, "search")
