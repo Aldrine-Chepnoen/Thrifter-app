@@ -358,7 +358,11 @@ function App() {
         onSearch={handleSearch}
         onImageSearchClick={handleImageSearchClick}
         user={user}
-        onLogout={() => { localStorage.removeItem('thrifter_token'); setUser(null); }}
+        onLogout={() => {
+          if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
+          localStorage.removeItem('thrifter_token');
+          setUser(null);
+        }}
         features={features}
         openAuthModal={openAuthModal}
         hidden={headerHidden}
