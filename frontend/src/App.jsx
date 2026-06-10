@@ -198,11 +198,13 @@ function App() {
   useEffect(() => {
     if (!user?.id) return;
     if (localStorage.getItem(`survey_seen_${user.id}`)) return;
+    if (sessionStorage.getItem(`survey_dismissed_${user.id}`)) return;
     const t = setTimeout(() => setShowSurvey(true), 1000);
     return () => clearTimeout(t);
   }, [user?.id]);
 
   const handleSurveyDismiss = () => {
+    if (user?.id) sessionStorage.setItem(`survey_dismissed_${user.id}`, 'true');
     setShowSurvey(false);
   };
 
