@@ -203,7 +203,6 @@ function App() {
   }, [user?.id]);
 
   const handleSurveyDismiss = () => {
-    if (user?.id) localStorage.setItem(`survey_seen_${user.id}`, 'true');
     setShowSurvey(false);
   };
 

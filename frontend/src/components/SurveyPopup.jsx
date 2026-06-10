@@ -17,6 +17,7 @@ const SurveyPopup = ({ user, onDismiss }) => {
   }, [countdown]);
 
   const handleOpen = () => {
+    if (user?.id) localStorage.setItem(`survey_seen_${user.id}`, 'true');
     window.open(formUrl, '_blank', 'noopener,noreferrer');
     onDismiss();
   };
