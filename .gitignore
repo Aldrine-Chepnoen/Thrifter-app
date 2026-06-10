@@ -10,6 +10,8 @@ frontend/dist/
 backend/images/
 backend/embeddings.json
 images
+backend/cluster_items.py
+backend/clusters.html
 
 # Local databases
 *.db
@@ -30,3 +32,4 @@ Thumbs.db
 *.log
 CLAUDE.md
 APP_TRANSITION_PLAN.md
+.vscode/

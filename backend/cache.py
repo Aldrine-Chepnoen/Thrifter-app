@@ -17,16 +17,18 @@ from cachetools import TTLCache
 logger = logging.getLogger(__name__)
 
 # ── TTL constants (seconds) ────────────────────────────────────────────────────
-FEED_TTL   = 300   # 5 min  — public feed, item details, user profile
-ADMIN_TTL  =  60   # 1 min  — admin stats
-SEARCH_TTL = 300   # 5 min  — search results (keyed by normalised query string)
+FEED_TTL   =  300  # 5 min  — public feed
+ITEM_TTL   = 3600  # 1 hr   — item details (shared across all users by item_id)
+USER_TTL   = 1800  # 30 min — user/me profile (rarely changes, explicit invalidation covers writes)
+ADMIN_TTL  =  300  # 5 min  — admin stats
+SEARCH_TTL = 3600  # 1 hr   — search results (keyed by normalised query string)
 
 # ── Cache instances ────────────────────────────────────────────────────────────
 _feed_cache   = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by query-string key
-_item_cache   = TTLCache(maxsize=1024, ttl=FEED_TTL)    # keyed by item_id (int)
+_item_cache   = TTLCache(maxsize=1024, ttl=ITEM_TTL)    # keyed by item_id (int)
 _admin_cache  = TTLCache(maxsize=1,    ttl=ADMIN_TTL)   # single "stats" entry
-_user_cache   = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by user_id — CachedUser
-_me_cache     = TTLCache(maxsize=512,  ttl=FEED_TTL)    # keyed by user_id — /auth/me payload
+_user_cache   = TTLCache(maxsize=512,  ttl=USER_TTL)    # keyed by user_id — CachedUser
+_me_cache     = TTLCache(maxsize=512,  ttl=USER_TTL)    # keyed by user_id — /auth/me payload
 _search_cache = TTLCache(maxsize=256,  ttl=SEARCH_TTL)  # keyed by normalised query string
 
 # ── Thread locks (one per cache) ───────────────────────────────────────────────
