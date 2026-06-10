@@ -445,6 +445,7 @@ function App() {
             user={user}
             onItemDeleted={fetchItems}
             refreshKey={vendorRefreshKey}
+            onVendorRenamed={(newName) => setUser(prev => ({ ...prev, vendor_name: newName }))}
           />
         } />
         <Route path="/outfit-builder" element={
@@ -580,6 +581,7 @@ function App() {
         onUpdated={(updatedItem) => {
           setSelectedItem(null);
           fetchItems();
+          setVendorRefreshKey(k => k + 1);
         }}
         isWardrobe={location.pathname === '/wardrobe'}
         openAuthModal={openAuthModal}

@@ -1,9 +1,58 @@
-// This is the Navbar component for the Thrifter frontend application. It provides a navigation bar with links to different pages, a search input for filtering items, and buttons for uploading outfit inspiration, building outfits, and accessing the wardrobe. The component also displays user information and a logout button if the user is logged in. It uses Tailwind CSS for styling and Lucide icons for visual elements. The Navbar is designed to be responsive and sticky at the top of the page for easy access while browsing the application.
-import React, { useState } from 'react';
-import { Search, PlusCircle, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
+
+const TikTokIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.16 8.16 0 0 0 4.77 1.52V6.78a4.85 4.85 0 0 1-1-.09z" />
+  </svg>
+);
+
+const InstagramIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+  </svg>
+);
+
+const WhatsAppIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" />
+  </svg>
+);
+
+const ContactDropdown = ({ onClose }) => (
+  <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
+    <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+      Find us on
+    </p>
+    <a
+      href="https://www.tiktok.com/@thrifter_app?_r=1&_t=ZS-975gP5Z50Uf"
+      target="_blank" rel="noopener noreferrer"
+      onClick={onClose}
+      className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+    >
+      <TikTokIcon />TikTok
+    </a>
+    <a
+      href="https://www.instagram.com/thrifter.ug?igsh=OWRpa2h6dmRvYXUy"
+      target="_blank" rel="noopener noreferrer"
+      onClick={onClose}
+      className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+    >
+      <InstagramIcon />Instagram
+    </a>
+    <a
+      href="https://wa.me/256794185787"
+      target="_blank" rel="noopener noreferrer"
+      onClick={onClose}
+      className="flex items-center gap-3 px-4 pb-3 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+    >
+      <WhatsAppIcon />WhatsApp
+    </a>
+  </div>
+);
 
 const Navbar = ({
   onSearch,
@@ -25,8 +74,21 @@ const Navbar = ({
   const isHomePage = location.pathname === '/';
   const showIcons = isHomePage;
 
-  // Check if current page is the user's own vendor profile
   const isOwnProfile = user?.is_vendor && location.pathname === `/vendor/${encodeURIComponent(user.vendor_name)}`;
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const mobileMenuRef = useRef(null);
+  const desktopMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const outsideMobile = !mobileMenuRef.current?.contains(e.target);
+      const outsideDesktop = !desktopMenuRef.current?.contains(e.target);
+      if (outsideMobile && outsideDesktop) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const handleProtectedAction = (action, isPath = false) => {
     if (!user) {
@@ -50,14 +112,14 @@ const Navbar = ({
   const [activeTag, setActiveTag] = useState(null);
 
   const quickTags = [
-    { label: 'Jerseys',   query: 'jersey'   },
-    { label: 'Shirts',    query: 'shirt'    },
-    { label: 'Jeans',     query: 'jeans'    },
-    { label: 'Sneakers',  query: 'sneakers' },
-    { label: 'Jackets',   query: 'jacket'   },
-    { label: 'Hoodies',   query: 'hoodie'   },
-    { label: 'Dresses',   query: 'dress'    },
-    { label: 'Handbags',  query: 'handbag'  },
+    { label: 'Jerseys',     query: 'jersey'      },
+    { label: 'Shirts',      query: 'shirt'       },
+    { label: 'Jeans',       query: 'jeans'       },
+    { label: 'Sneakers',    query: 'sneakers'    },
+    { label: 'Jackets',     query: 'jacket'      },
+    { label: 'Hoodies',     query: 'hoodie'      },
+    { label: 'Dresses',     query: 'dress'       },
+    { label: 'Handbags',    query: 'handbag'     },
     { label: 'Accessories', query: 'accessories' },
   ];
 
@@ -77,7 +139,7 @@ const Navbar = ({
   };
 
   return (
-    <motion.nav 
+    <motion.nav
       variants={{
         visible: { y: 0 },
         hidden: { y: "-100%" },
@@ -88,26 +150,29 @@ const Navbar = ({
     >
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
         <div className="relative flex items-center justify-center w-full md:w-auto">
-          <Link 
-            to="/" 
+          <Link
+            to="/"
             onClick={handleLogoClick}
             className="text-xl md:text-2xl font-serif font-bold tracking-tight text-[#EAAD11]"
           >
             Thrifter
           </Link>
 
-          {/* Mobile Profile Button (Visible only to vendors not on their own profile) */}
-          {user?.is_vendor && !isOwnProfile && (
-            <Link 
-              to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-              className="absolute right-0 md:hidden p-2 bg-[#EAAD11] text-black rounded-full hover:opacity-90 transition-all input-shadow"
-              title="My Profile"
-            >
-              <User className="w-5 h-5" />
-            </Link>
+          {/* Mobile-only: hamburger top-right of logo row, homepage only */}
+          {isHomePage && (
+            <div ref={mobileMenuRef} className="absolute right-0 md:hidden">
+              <button
+                onClick={() => setMenuOpen(o => !o)}
+                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Contact & socials"
+              >
+                {menuOpen ? <X className="w-4 h-4 text-gray-600" /> : <Menu className="w-4 h-4 text-gray-600" />}
+              </button>
+              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
+            </div>
           )}
         </div>
-        
+
         {showIcons && (
           <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
             <button
@@ -118,7 +183,8 @@ const Navbar = ({
               <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
               <Camera className="w-3.5 h-3.5" />
             </button>
-            <button 
+
+            <button
               onClick={() => handleProtectedAction('/wardrobe', true)}
               className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
               title="Wardrobe"
@@ -126,18 +192,6 @@ const Navbar = ({
               <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
               <Heart className="w-3.5 h-3.5" />
             </button>
-
-            {/* Desktop Profile Button (Visible only if not on own profile) */}
-            {user?.is_vendor && !isOwnProfile && (
-              <Link 
-                to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-                className="hidden md:flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-                title="My Shop"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
-                <User className="w-3.5 h-3.5" />
-              </Link>
-            )}
 
             {user?.is_admin && (
               <Link
@@ -151,7 +205,7 @@ const Navbar = ({
             )}
 
             {user ? (
-              <div className="flex flex-col items-center gap-1 ml-2">
+              <div className="flex flex-col items-center gap-1 ml-1">
                 <span className="hidden lg:inline text-[10px] text-gray-500 font-medium">{user.is_vendor ? 'Vendor' : 'User'}</span>
                 <button
                   onClick={onLogout}
@@ -169,6 +223,17 @@ const Navbar = ({
               </button>
             )}
 
+            {user?.is_vendor && !isOwnProfile && (
+              <Link
+                to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
+                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+                title="My Shop"
+              >
+                <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
+                <User className="w-3.5 h-3.5" />
+              </Link>
+            )}
+
             <button
               onClick={toggleDarkMode}
               className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all ml-1"
@@ -179,6 +244,19 @@ const Navbar = ({
                 : <Moon className="w-4 h-4 text-gray-600" />
               }
             </button>
+
+            {/* Desktop-only: hamburger at far right of icons row */}
+            <div ref={desktopMenuRef} className="relative hidden md:block">
+              <button
+                onClick={() => setMenuOpen(o => !o)}
+                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Contact & socials"
+              >
+                {menuOpen ? <X className="w-4 h-4 text-gray-600 dark:text-gray-400" /> : <Menu className="w-4 h-4 text-gray-600 dark:text-gray-400" />}
+              </button>
+              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
+            </div>
+
           </div>
         )}
 

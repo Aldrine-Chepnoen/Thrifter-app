@@ -863,6 +863,46 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
     ).scalar()
     return schemas.VendorProfile(id=vendor.id, name=vendor.name, item_count=item_count)
 
+@app.put("/vendor/me", response_model=schemas.UserInfo)
+def update_vendor_profile(
+    body: schemas.VendorUpdate,
+    current=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current or not current.is_vendor:
+        raise HTTPException(status_code=403, detail="Vendor account required")
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    new_name = body.name.strip()
+    if new_name.lower() != vendor.name.lower():
+        taken = db.query(models.Vendor).filter(
+            models.Vendor.name.ilike(new_name),
+            models.Vendor.id != vendor.id
+        ).first()
+        if taken:
+            raise HTTPException(status_code=400, detail="Store name already taken")
+
+    formatted_whatsapp = format_whatsapp_number(body.whatsapp)
+    if not formatted_whatsapp:
+        raise HTTPException(status_code=400, detail="Invalid WhatsApp number")
+
+    vendor.name = new_name
+    vendor.whatsapp = formatted_whatsapp
+    db.commit()
+    db.refresh(vendor)
+
+    cache.user_invalidate(current.id)
+    cache.feed_invalidate_all()
+    cache.search_invalidate_all()
+
+    return schemas.UserInfo(
+        id=current.id, email=current.email,
+        is_vendor=current.is_vendor, is_admin=current.is_admin,
+        vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp
+    )
+
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")
 def search_items(request: Request, query: str, db: Session = Depends(get_db)):
@@ -1069,6 +1109,7 @@ def update_item(
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
+    market: str = Form(...),
     description: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user)
@@ -1080,10 +1121,11 @@ def update_item(
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only edit your own items")
-    
+
     item.name = name
     item.price = price
     item.size = size
+    item.market = market
     item.description = description
     
     db.commit()

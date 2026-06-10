@@ -25,6 +25,10 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+class VendorUpdate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    whatsapp: str
+
 class UserInfo(BaseModel):
     id: int
     email: EmailStr

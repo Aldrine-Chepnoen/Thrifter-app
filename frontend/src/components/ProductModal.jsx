@@ -13,6 +13,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     name: '',
     price: '',
     size: '',
+    market: '',
     description: ''
   });
   const [updating, setUpdating] = useState(false);
@@ -24,6 +25,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         name: item.name,
         price: item.price,
         size: item.size,
+        market: item.market || '',
         description: item.description || ''
       });
       setActiveImageIndex(0);
@@ -88,6 +90,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       formData.append('name', editedData.name);
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
+      formData.append('market', editedData.market);
       formData.append('description', editedData.description);
       
       const res = await api.put(`/items/${item.id}`, formData);
@@ -204,7 +207,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX)</label>
-                      <input 
+                      <input
                         type="number"
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.price}
@@ -213,12 +216,20 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     </div>
                     <div>
                       <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size</label>
-                      <input 
+                      <input
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.size}
                         onChange={(e) => setEditedData({...editedData, size: e.target.value})}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Location</label>
+                    <input
+                      className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
+                      value={editedData.market}
+                      onChange={(e) => { const v = e.target.value; setEditedData(prev => ({...prev, market: v})); }}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Description</label>
