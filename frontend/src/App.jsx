@@ -11,6 +11,7 @@ import VendorPage from './components/VendorPage';
 import AdminDashboard from './components/AdminDashboard';
 import FilterSheet from './components/FilterSheet';
 import ThrifterLoader from './components/ThrifterLoader';
+import SurveyPopup from './components/SurveyPopup';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
@@ -33,6 +34,7 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
+  const [showSurvey, setShowSurvey] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -192,6 +194,18 @@ function App() {
       setAuthLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (localStorage.getItem(`survey_seen_${user.id}`)) return;
+    const t = setTimeout(() => setShowSurvey(true), 1000);
+    return () => clearTimeout(t);
+  }, [user?.id]);
+
+  const handleSurveyDismiss = () => {
+    if (user?.id) localStorage.setItem(`survey_seen_${user.id}`, 'true');
+    setShowSurvey(false);
+  };
 
   const handleSearch = (query) => {
     if (searchTimeoutRef.current) {
@@ -571,6 +585,10 @@ function App() {
         activeFilters={activeFilters}
         onApply={handleFiltersApply}
       />
+
+      {showSurvey && (
+        <SurveyPopup user={user} onDismiss={handleSurveyDismiss} />
+      )}
 
       <ProductModal 
         item={selectedItem} 
