@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
 import StyleModal from './StyleModal';
@@ -8,6 +9,7 @@ import StyleModal from './StyleModal';
 const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+  const [stylesSubTab, setStylesSubTab] = useState('curated'); // 'curated' or 'library'
   const [stats, setStats] = useState(null);
   const [vendors, setVendors] = useState([]);
   const [items, setItems] = useState([]);
@@ -16,12 +18,16 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
   const [users, setUsers] = useState([]);
   const [styles, setStyles] = useState([]);
+  const [clusters, setClusters] = useState([]);
   const [loading, setLoading] = useState(false);
   const ITEMS_PAGE_SIZE = 50;
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoToggling, setPromoToggling] = useState(false);
   const [editingStyle, setEditingStyle] = useState(null);
   const [previewStyle, setPreviewStyle] = useState(null);
+  const [previewCluster, setPreviewCluster] = useState(null);
+  const [clusterPreviewItems, setClusterPreviewItems] = useState([]);
+  const [loadingClusterPreview, setLoadingClusterPreview] = useState(false);
 
   useEffect(() => {
     if (!user?.is_admin) {
@@ -102,13 +108,26 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
+  const loadClusters = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/admin/visual-clusters');
+      setClusters(res.data);
+    } catch (e) {
+      console.error('Failed to load clusters', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
 
   const runDiscovery = async () => {
     setDiscoveryLoading(true);
     try {
       await api.post('/admin/outfit-styles/discover');
-      alert('AI Style Discovery started! Refresh in a few seconds to see new pending styles.');
+      alert('AI Style Discovery started! Refresh in a few seconds to see new pending clusters.');
+      loadClusters();
     } catch (e) {
       alert('Failed to start discovery: ' + (e.response?.data?.detail || e.message));
     } finally {
@@ -120,7 +139,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     setActiveTab(tab);
     if (tab === 'items' && items.length === 0) loadItems();
     if (tab === 'users' && users.length === 0) loadUsers();
-    if (tab === 'styles' && styles.length === 0) loadStyles();
+    if (tab === 'styles') {
+      if (styles.length === 0) loadStyles();
+      if (clusters.length === 0) loadClusters();
+    }
   };
 
   const handleApproveStyle = async (id, data) => {
@@ -129,7 +151,41 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setStyles(prev => prev.map(s => s.id === id ? res.data : s));
       setEditingStyle(null);
     } catch (e) {
-      alert('Failed to approve style: ' + (e.response?.data?.detail || e.message));
+      alert('Failed to save style: ' + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const handleUpdateCluster = async (id, customName) => {
+    try {
+      const res = await api.patch(`/admin/visual-clusters/${id}`, { custom_name: customName });
+      setClusters(prev => prev.map(c => c.id === id ? res.data : c));
+      setPreviewCluster(prev => prev?.id === id ? res.data : prev);
+    } catch (e) {
+      alert('Failed to update cluster: ' + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const openClusterPreview = async (cluster) => {
+    setPreviewCluster(cluster);
+    setLoadingClusterPreview(true);
+    try {
+      const res = await api.get(`/admin/visual-clusters/${cluster.id}/items`);
+      setClusterPreviewItems(res.data);
+    } catch (e) {
+      console.error('Failed to load cluster items', e);
+    } finally {
+      setLoadingClusterPreview(false);
+    }
+  };
+
+  const handleDeleteStyle = async (id) => {
+    if (!window.confirm('Permanently delete this aesthetic? This cannot be undone.')) return;
+    try {
+      await api.delete(`/admin/outfit-styles/${id}`);
+      setStyles(prev => prev.filter(s => s.id !== id));
+      setEditingStyle(null);
+    } catch (e) {
+      alert('Failed to delete style: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -176,6 +232,14 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     } catch (e) {
       alert('Failed to delete item: ' + (e.response?.data?.detail || e.message));
     }
+  };
+
+  const getImageUrl = (path) => {
+    if (!path) return '';
+    if (path.startsWith('http')) return path;
+    const base = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+    const filename = path.split(/[\\/]/).pop();
+    return `${base}/images/${filename}`;
   };
 
   if (!user?.is_admin) return null;
@@ -261,124 +325,343 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
         </>
       )}
 
-      {/* Styles Discovery Tab */}
+      {/* Stylist Studio (Styles Tab) */}
       {activeTab === 'styles' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-serif font-bold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-[#EAAD11]" />
-              Discovered Aesthetics
-            </h2>
-            <button
-              onClick={runDiscovery}
-              disabled={discoveryLoading}
-              className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all disabled:opacity-50"
-            >
-              {discoveryLoading ? 'Discovery Running...' : 'Discover Styles Now'}
-            </button>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-serif font-bold flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[#EAAD11]" />
+                Stylist Studio
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Curate AI visual pools into beautiful aesthetics</p>
+            </div>
+            
+            <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl self-start">
+              <button
+                onClick={() => setStylesSubTab('curated')}
+                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  stylesSubTab === 'curated'
+                    ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Curated Styles
+              </button>
+              <button
+                onClick={() => setStylesSubTab('library')}
+                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                  stylesSubTab === 'library'
+                    ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Cluster Library
+              </button>
+            </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 font-medium">
-                <tr>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4">Name / Slug</th>
-                  <th className="px-6 py-4">Description</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-                {styles.map((style) => (
-                  <tr key={style.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer group" onClick={() => setPreviewStyle(style)}>
-                    <td className="px-6 py-4">
-                      {style.is_approved ? (
-                        <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Approved</span>
-                      ) : (
-                        <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Pending</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-bold group-hover:text-[#EAAD11] transition-colors">{style.name}</div>
-                      <div className="text-[10px] text-gray-400 font-mono">/{style.slug}</div>
-                    </td>
-                    <td className="px-6 py-4 max-w-xs truncate text-gray-500">
-                      {style.description || 'No description set'}
-                    </td>
-                    <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      <button 
-                        onClick={() => setEditingStyle({...style})}
-                        className="text-[#EAAD11] font-bold hover:underline"
+          {stylesSubTab === 'library' ? (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">AI Visual Pools ({clusters.length})</h3>
+                <button
+                  onClick={runDiscovery}
+                  disabled={discoveryLoading}
+                  className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all disabled:opacity-50"
+                >
+                  {discoveryLoading ? 'Discovery Running...' : 'Refresh AI Discovery'}
+                </button>
+              </div>
+
+              {loading ? <ThrifterLoader /> : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {clusters.map((cluster) => {
+                    const sampleIds = JSON.parse(cluster.sample_item_ids || '[]');
+                    return (
+                      <div 
+                        key={cluster.id} 
+                        onClick={() => openClusterPreview(cluster)}
+                        className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 hover:border-[#EAAD11] transition-all cursor-pointer group shadow-sm"
                       >
-                        {style.is_approved ? 'Edit' : 'Review'}
+                        <div className="flex gap-1 h-20 mb-3 overflow-hidden rounded-lg opacity-80 group-hover:opacity-100 transition-opacity">
+                          {sampleIds.slice(0, 3).map((id, idx) => (
+                            <div key={idx} className="flex-1 bg-gray-50 dark:bg-gray-900">
+                                <img 
+                                  src={`${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/api/items/${id}/image`}
+                                  alt="preview"
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => { e.target.src = '/placeholder.png' }}
+                                />
+                            </div>
+                          ))}
+                        </div>
+                        <h4 className="font-bold text-sm line-clamp-1">{cluster.custom_name || cluster.ai_label}</h4>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[10px] text-gray-400 font-mono italic">AI: {cluster.ai_label}</span>
+                          {cluster.custom_name && <Edit3 className="w-3 h-3 text-[#EAAD11]" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
+              <table className="w-full text-left text-sm min-w-[600px]">
+                <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 font-medium">
+                  <tr>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Aesthetic Name</th>
+                    <th className="px-6 py-4">Composition</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                  {styles.map((style) => (
+                    <tr key={style.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer group" onClick={() => setPreviewStyle(style)}>
+                      <td className="px-6 py-4">
+                        {style.is_approved ? (
+                          <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Live</span>
+                        ) : (
+                          <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Draft</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="font-bold group-hover:text-[#EAAD11] transition-colors">{style.name}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">/{style.slug}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          <span className={`px-2 py-0.5 rounded text-[10px] ${style.top_cluster ? 'bg-blue-50 text-blue-600' : 'bg-gray-50 text-gray-400'}`}>Tops</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] ${style.bottom_cluster ? 'bg-purple-50 text-purple-600' : 'bg-gray-50 text-gray-400'}`}>Bottoms</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                          onClick={() => setEditingStyle({...style})}
+                          className="text-[#EAAD11] font-bold hover:underline"
+                        >
+                          {style.is_approved ? 'Edit' : 'Review'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                    <td colSpan="4" className="px-6 py-6 text-center">
+                      <button 
+                        onClick={() => setEditingStyle({ name: '', slug: '', description: '', is_approved: false, sample_item_ids: '[]' })}
+                        className="inline-flex items-center gap-2 text-[#EAAD11] font-bold hover:opacity-80"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create New Aesthetic
                       </button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Edit Style Modal */}
+      {/* Cluster Horizontal Preview Modal */}
+      <AnimatePresence>
+        {previewCluster && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-10">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+              onClick={() => setPreviewCluster(null)} 
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-5xl bg-white dark:bg-gray-900 rounded-[2.5rem] overflow-hidden flex flex-col max-h-[85vh] shadow-2xl"
+            >
+              {/* Header */}
+              <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <input 
+                      type="text"
+                      className="text-2xl font-serif font-bold bg-transparent border-none focus:ring-0 p-0 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors w-full"
+                      defaultValue={previewCluster.custom_name || previewCluster.ai_label}
+                      placeholder="Give this pool a name..."
+                      onBlur={(e) => handleUpdateCluster(previewCluster.id, e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 uppercase tracking-widest font-bold">
+                    AI Identity: {previewCluster.ai_label} • {clusterPreviewItems.length} items matched
+                  </p>
+                </div>
+                <button onClick={() => setPreviewCluster(null)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Horizontal Scroll Content */}
+              <div className="flex-1 overflow-x-auto overflow-y-hidden no-scrollbar flex items-center p-8 gap-6 bg-gray-50/50 dark:bg-gray-950/50">
+                {loadingClusterPreview ? (
+                  <div className="w-full flex justify-center py-20"><ThrifterLoader /></div>
+                ) : (
+                  clusterPreviewItems.map((item, idx) => (
+                    <motion.div 
+                      key={item.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="flex-shrink-0 w-64 h-[400px] bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col group"
+                    >
+                      <img 
+                        src={getImageUrl(item.image_path)} 
+                        alt={item.name}
+                        className="w-full flex-1 object-cover"
+                      />
+                      <div className="p-4">
+                        <p className="font-bold text-sm line-clamp-1">{item.name}</p>
+                        <p className="text-xs text-gray-500 uppercase tracking-tighter">{item.item_type} • {item.size}</p>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+                <div className="flex-shrink-0 w-20 h-full" /> {/* Spacer */}
+              </div>
+
+              {/* Footer Actions */}
+              <div className="p-6 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
+                 <button 
+                  onClick={() => setPreviewCluster(null)}
+                  className="px-8 py-3 bg-black dark:bg-white text-white dark:text-black rounded-2xl font-bold hover:opacity-90 transition-all shadow-xl"
+                >
+                  Save & Back
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Style Modal / Composer */}
       {editingStyle && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditingStyle(null)} />
-          <div className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl">
-            <h3 className="text-xl font-serif font-bold mb-6">Review Aesthetic</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Display Name</label>
-                <input 
-                  type="text" 
-                  value={editingStyle.name}
-                  onChange={(e) => setEditingStyle({...editingStyle, name: e.target.value})}
-                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
-                />
+          <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <h3 className="text-2xl font-serif font-bold mb-8">Aesthetic Composer</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Basic Details */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-[#EAAD11]">1. Storytelling</h4>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Display Name</label>
+                  <input 
+                    type="text" 
+                    value={editingStyle.name}
+                    onChange={(e) => setEditingStyle({...editingStyle, name: e.target.value})}
+                    placeholder="e.g. Vintage Grunge"
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Slug (URL)</label>
+                  <input 
+                    type="text" 
+                    value={editingStyle.slug}
+                    onChange={(e) => setEditingStyle({...editingStyle, slug: e.target.value})}
+                    placeholder="vintage-grunge"
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Description</label>
+                  <textarea 
+                    value={editingStyle.description}
+                    onChange={(e) => setEditingStyle({...editingStyle, description: e.target.value})}
+                    rows={3}
+                    placeholder="Describe the vibe of this aesthetic..."
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Slug (URL)</label>
-                <input 
-                  type="text" 
-                  value={editingStyle.slug}
-                  onChange={(e) => setEditingStyle({...editingStyle, slug: e.target.value})}
-                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Description</label>
-                <textarea 
-                  value={editingStyle.description}
-                  onChange={(e) => setEditingStyle({...editingStyle, description: e.target.value})}
-                  rows={3}
-                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Sample Item IDs (JSON)</label>
-                <input 
-                  type="text" 
-                  value={editingStyle.sample_item_ids}
-                  onChange={(e) => setEditingStyle({...editingStyle, sample_item_ids: e.target.value})}
-                  placeholder="[1, 2, 3]"
-                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
-                />
+
+              {/* Cluster Composition */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-[#EAAD11]">2. Visual Pools</h4>
+                
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Tops Pool</label>
+                  <select 
+                    value={editingStyle.top_cluster_id || ''}
+                    onChange={(e) => setEditingStyle({...editingStyle, top_cluster_id: e.target.value ? parseInt(e.target.value) : null})}
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] outline-none"
+                  >
+                    <option value="">(Not Set)</option>
+                    {clusters.map(c => <option key={c.id} value={c.id}>{c.custom_name || c.ai_label}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Bottoms Pool</label>
+                  <select 
+                    value={editingStyle.bottom_cluster_id || ''}
+                    onChange={(e) => setEditingStyle({...editingStyle, bottom_cluster_id: e.target.value ? parseInt(e.target.value) : null})}
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] outline-none"
+                  >
+                    <option value="">(Not Set)</option>
+                    {clusters.map(c => <option key={c.id} value={c.id}>{c.custom_name || c.ai_label}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Accessories Pool</label>
+                  <select 
+                    value={editingStyle.accessory_cluster_id || ''}
+                    onChange={(e) => setEditingStyle({...editingStyle, accessory_cluster_id: e.target.value ? parseInt(e.target.value) : null})}
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] outline-none"
+                  >
+                    <option value="">(Not Set)</option>
+                    {clusters.map(c => <option key={c.id} value={c.id}>{c.custom_name || c.ai_label}</option>)}
+                  </select>
+                </div>
+
+                <div className="pt-2 border-t border-gray-50 dark:border-gray-800">
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1 italic">Preview Cover IDs (JSON)</label>
+                  <input 
+                    type="text" 
+                    value={editingStyle.sample_item_ids}
+                    onChange={(e) => setEditingStyle({...editingStyle, sample_item_ids: e.target.value})}
+                    placeholder="[1, 2, 3]"
+                    className="w-full bg-gray-50 dark:bg-gray-800 p-2 text-xs rounded-xl border border-gray-100 dark:border-gray-700 outline-none"
+                  />
+                </div>
               </div>
             </div>
-            <div className="mt-8 flex gap-3">
+
+            <div className="mt-10 flex gap-3">
               <button 
                 onClick={() => handleApproveStyle(editingStyle.id, editingStyle)}
-                className="flex-1 bg-black dark:bg-white text-white dark:text-black py-3 rounded-xl font-bold hover:opacity-90 transition-all"
+                className="flex-1 bg-black dark:bg-white text-white dark:text-black py-4 rounded-2xl font-bold hover:opacity-90 transition-all shadow-lg"
               >
-                Approve & Go Live
+                {editingStyle.id ? 'Save Changes & Go Live' : 'Create Aesthetic'}
               </button>
-              <button 
-                onClick={() => setEditingStyle(null)}
-                className="px-6 py-3 text-gray-500 font-medium hover:text-black dark:hover:text-white transition-all"
-              >
-                Cancel
-              </button>
+              {editingStyle.id ? (
+                <button 
+                  onClick={() => handleDeleteStyle(editingStyle.id)}
+                  className="px-8 py-4 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 rounded-2xl transition-all"
+                >
+                  Delete Aesthetic
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setEditingStyle(null)}
+                  className="px-8 py-4 text-gray-500 font-medium hover:text-black dark:hover:text-white transition-all"
+                >
+                  Discard
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -490,7 +773,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={item.image_path}
+                          src={getImageUrl(item.image_path)}
                           alt={item.name}
                           className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0"
                         />

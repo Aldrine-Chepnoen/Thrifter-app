@@ -25,8 +25,8 @@ import schemas
 import search_engine
 import cache
 
-# Create tables
-models.Base.metadata.create_all(bind=engine)
+# Tables are managed by Alembic migrations
+# models.Base.metadata.create_all(bind=engine)
 
 import cloudinary
 import cloudinary.uploader
@@ -387,13 +387,13 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
     if not style:
         raise HTTPException(status_code=404, detail="Style not found")
     
-    if not style.centroid_embedding:
-        return schemas.StyleCategoryItems(tops=[], bottoms=[], accessories=[])
-
-    # Convert centroid to pgvector format
-    centroid_str = "[" + ",".join(str(x) for x in style.centroid_embedding) + "]"
-    
-    def get_closest_items(item_type: str, limit: int = 8):
+    def get_closest_items(cluster: models.VisualCluster, item_type: str, limit: int = 8):
+        if not cluster or cluster.centroid_embedding is None:
+            return []
+            
+        # Convert centroid to pgvector format
+        centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
+        
         return (
             db.query(models.Item)
             .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
@@ -404,9 +404,9 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
             .all()
         )
 
-    tops = get_closest_items("top", 8)
-    bottoms = get_closest_items("bottom", 8)
-    accessories = get_closest_items("accessory", 8)
+    tops = get_closest_items(style.top_cluster, "top", 8)
+    bottoms = get_closest_items(style.bottom_cluster, "bottom", 8)
+    accessories = get_closest_items(style.accessory_cluster, "accessory", 8)
     
     # Also include dresses in tops or as a separate list? 
     # The user mentioned Tops, Bottoms, and Accessories. Let's stick to that.
@@ -433,10 +433,64 @@ def approve_style(
     style.description = data.description
     style.is_approved = True
     style.sample_item_ids = data.sample_item_ids
+    style.top_cluster_id = data.top_cluster_id
+    style.bottom_cluster_id = data.bottom_cluster_id
+    style.accessory_cluster_id = data.accessory_cluster_id
     
     db.commit()
     db.refresh(style)
     return style
+
+@app.delete("/admin/outfit-styles/{style_id}", status_code=204)
+def admin_delete_style(style_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Deletes a curated style aesthetic."""
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    
+    db.delete(style)
+    db.commit()
+    return Response(status_code=204)
+
+@app.get("/admin/visual-clusters", response_model=List[schemas.VisualCluster])
+def admin_get_clusters(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns all discovered visual clusters for the library."""
+    return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).all()
+
+@app.patch("/admin/visual-clusters/{cluster_id}", response_model=schemas.VisualCluster)
+def admin_update_cluster(
+    cluster_id: int, 
+    data: schemas.VisualClusterBase, 
+    db: Session = Depends(get_db), 
+    _: models.User = Depends(require_admin)
+):
+    """Updates a cluster's custom name or metadata."""
+    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
+    if not vc:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    
+    vc.custom_name = data.custom_name
+    db.commit()
+    db.refresh(vc)
+    return vc
+
+@app.get("/admin/visual-clusters/{cluster_id}/items", response_model=List[schemas.Item])
+def admin_get_cluster_items(cluster_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns all items matching a cluster's DNA (for the horizontal preview)."""
+    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
+    if not vc or vc.centroid_embedding is None:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+        
+    centroid_str = "[" + ",".join(str(x) for x in vc.centroid_embedding) + "]"
+    items = (
+        db.query(models.Item)
+        .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+        .filter(models.Item.embedding.isnot(None))
+        .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
+        .limit(30)
+        .all()
+    )
+    return [serialize_item(i) for i in items]
 
 @app.post("/admin/outfit-styles/discover")
 def trigger_style_discovery(background_tasks: BackgroundTasks, _: models.User = Depends(require_admin)):
@@ -774,6 +828,23 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
     result = serialize_item(item)
     cache.item_set(item_id, result)
     return result
+
+@app.get("/api/items/{item_id}/image")
+@app.get("/items/{item_id}/image")
+def get_item_image_redirect(item_id: int, db: Session = Depends(get_db)):
+    """Redirects to the actual image URL for an item ID. Useful for simple <img> tags."""
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item or not item.image_path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # If it's a Cloudinary URL or absolute path, redirect to it
+    if item.image_path.startswith('http'):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=item.image_path)
+    
+    # If it's a local path, we could serve it directly, but for simplicity let's stick to redirects if possible
+    # Given the project uses Cloudinary, this will handle 99% of cases.
+    raise HTTPException(status_code=404, detail="Local images not supported via redirect yet")
 
 def _compute_and_store_embedding(item_id: int, image_bytes: bytes):
     # Runs after the response is sent. Opens its own DB session so the

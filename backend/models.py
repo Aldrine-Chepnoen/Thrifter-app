@@ -15,13 +15,32 @@ class User(Base):
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor")
 
+class VisualCluster(Base):
+    __tablename__ = "visual_clusters"
+    id = Column(Integer, primary_key=True, index=True)
+    ai_label = Column(String)
+    custom_name = Column(String, nullable=True)
+    centroid_embedding = Column(Vector(512))
+    sample_item_ids = Column(Text, default="[]") # JSON list
+    created_at = Column(Float, default=time.time)
+
 class StyleCategory(Base):
     __tablename__ = "style_categories"
     id = Column(Integer, primary_key=True, index=True)
     slug = Column(String, unique=True, index=True)
     name = Column(String)
     description = Column(Text, nullable=True)
-    centroid_embedding = Column(Vector(512), nullable=True)
+    
+    # Foreign keys to visual clusters
+    top_cluster_id = Column(Integer, ForeignKey("visual_clusters.id"), nullable=True)
+    bottom_cluster_id = Column(Integer, ForeignKey("visual_clusters.id"), nullable=True)
+    accessory_cluster_id = Column(Integer, ForeignKey("visual_clusters.id"), nullable=True)
+
+    # Relationships
+    top_cluster = relationship("VisualCluster", foreign_keys=[top_cluster_id])
+    bottom_cluster = relationship("VisualCluster", foreign_keys=[bottom_cluster_id])
+    accessory_cluster = relationship("VisualCluster", foreign_keys=[accessory_cluster_id])
+
     is_approved = Column(Boolean, default=False)
     sample_item_ids = Column(Text, default="[]") # JSON list [id, id, ...]
     created_at = Column(Float, default=time.time)

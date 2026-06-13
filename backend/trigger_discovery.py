@@ -11,7 +11,9 @@ try:
     print(f"Items with embeddings: {count}")
     
     styles_count = db.query(models.StyleCategory).count()
+    clusters_count = db.query(models.VisualCluster).count()
     print(f"Current style categories: {styles_count}")
+    print(f"Current visual clusters: {clusters_count}")
 
     print("Forcing style discovery...")
     clustering.run_clustering(db, search_engine)
@@ -26,7 +28,9 @@ try:
     db.commit()
     
     new_styles_count = db.query(models.StyleCategory).count()
+    new_clusters_count = db.query(models.VisualCluster).count()
     print(f"New style categories count: {new_styles_count}")
+    print(f"New visual clusters count: {new_clusters_count}")
     
 finally:
     db.close()

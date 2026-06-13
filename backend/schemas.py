@@ -114,12 +114,30 @@ class AdminItem(BaseModel):
     class Config:
         from_attributes = True
 
+class VisualClusterBase(BaseModel):
+    ai_label: str
+    custom_name: Optional[str] = None
+    sample_item_ids: str = "[]"
+
+class VisualClusterCreate(VisualClusterBase):
+    pass
+
+class VisualCluster(VisualClusterBase):
+    id: int
+    created_at: float
+
+    class Config:
+        from_attributes = True
+
 class StyleCategoryBase(BaseModel):
     name: str
     slug: str
     description: Optional[str] = None
     is_approved: bool = False
     sample_item_ids: str = "[]"
+    top_cluster_id: Optional[int] = None
+    bottom_cluster_id: Optional[int] = None
+    accessory_cluster_id: Optional[int] = None
 
 class StyleCategoryCreate(StyleCategoryBase):
     pass
@@ -128,6 +146,10 @@ class StyleCategory(StyleCategoryBase):
     id: int
     created_at: float
     updated_at: float
+    
+    top_cluster: Optional[VisualCluster] = None
+    bottom_cluster: Optional[VisualCluster] = None
+    accessory_cluster: Optional[VisualCluster] = None
 
     class Config:
         from_attributes = True
