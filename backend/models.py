@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 from pgvector.sqlalchemy import Vector
+import time
 
 class User(Base):
     __tablename__ = "users"
@@ -13,6 +14,18 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor")
+
+class StyleCategory(Base):
+    __tablename__ = "style_categories"
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String, unique=True, index=True)
+    name = Column(String)
+    description = Column(Text, nullable=True)
+    centroid_embedding = Column(Vector(512), nullable=True)
+    is_approved = Column(Boolean, default=False)
+    sample_item_ids = Column(Text, default="[]") # JSON list [id, id, ...]
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time, onupdate=time.time)
 
 class Vendor(Base):
     __tablename__ = "vendors"
@@ -27,6 +40,8 @@ class AppSetting(Base):
     __tablename__ = "app_settings"
     key = Column(String, primary_key=True)
     value_bool = Column(Boolean, default=False, nullable=False)
+    value_float = Column(Float, nullable=True)
+    value_str = Column(String, nullable=True)
 
 class Item(Base):
     __tablename__ = "items"

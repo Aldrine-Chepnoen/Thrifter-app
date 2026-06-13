@@ -114,6 +114,29 @@ class AdminItem(BaseModel):
     class Config:
         from_attributes = True
 
+class StyleCategoryBase(BaseModel):
+    name: str
+    slug: str
+    description: Optional[str] = None
+    is_approved: bool = False
+    sample_item_ids: str = "[]"
+
+class StyleCategoryCreate(StyleCategoryBase):
+    pass
+
+class StyleCategory(StyleCategoryBase):
+    id: int
+    created_at: float
+    updated_at: float
+
+    class Config:
+        from_attributes = True
+
+class StyleCategoryItems(BaseModel):
+    tops: List[Item]
+    bottoms: List[Item]
+    accessories: List[Item]
+
 class VendorInfo(BaseModel):
     id: int
     name: str

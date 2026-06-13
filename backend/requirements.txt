@@ -20,3 +20,5 @@ pyjwt
 pydantic-settings
 email-validator
 cachetools
+umap-learn
+hdbscan

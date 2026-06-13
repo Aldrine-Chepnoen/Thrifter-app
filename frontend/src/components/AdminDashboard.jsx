@@ -3,6 +3,7 @@ import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleR
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
+import StyleModal from './StyleModal';
 
 const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const navigate = useNavigate();
@@ -14,10 +15,13 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [itemsHasMore, setItemsHasMore] = useState(true);
   const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
   const [users, setUsers] = useState([]);
+  const [styles, setStyles] = useState([]);
   const [loading, setLoading] = useState(false);
   const ITEMS_PAGE_SIZE = 50;
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoToggling, setPromoToggling] = useState(false);
+  const [editingStyle, setEditingStyle] = useState(null);
+  const [previewStyle, setPreviewStyle] = useState(null);
 
   useEffect(() => {
     if (!user?.is_admin) {
@@ -86,10 +90,47 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
+  const loadStyles = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/admin/outfit-styles');
+      setStyles(res.data);
+    } catch (e) {
+      console.error('Failed to load styles', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+
+  const runDiscovery = async () => {
+    setDiscoveryLoading(true);
+    try {
+      await api.post('/admin/outfit-styles/discover');
+      alert('AI Style Discovery started! Refresh in a few seconds to see new pending styles.');
+    } catch (e) {
+      alert('Failed to start discovery: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     if (tab === 'items' && items.length === 0) loadItems();
     if (tab === 'users' && users.length === 0) loadUsers();
+    if (tab === 'styles' && styles.length === 0) loadStyles();
+  };
+
+  const handleApproveStyle = async (id, data) => {
+    try {
+      const res = await api.post(`/admin/outfit-styles/${id}/approve`, data);
+      setStyles(prev => prev.map(s => s.id === id ? res.data : s));
+      setEditingStyle(null);
+    } catch (e) {
+      alert('Failed to approve style: ' + (e.response?.data?.detail || e.message));
+    }
   };
 
   const toggleVendor = async (vendorId) => {
@@ -139,7 +180,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
 
   if (!user?.is_admin) return null;
 
-  const tabs = ['overview', 'vendors', 'items', 'users'];
+  const tabs = ['overview', 'vendors', 'items', 'users', 'styles'];
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
@@ -205,7 +246,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <p className="text-sm font-medium">Outfit Builder</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Upload an inspiration image to generate outfit combinations</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Explore AI-discovered style aesthetics and curated item pools</p>
                 </div>
                 <button
                   onClick={onOutfitBuilderClick}
@@ -218,6 +259,129 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Styles Discovery Tab */}
+      {activeTab === 'styles' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-serif font-bold flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-[#EAAD11]" />
+              Discovered Aesthetics
+            </h2>
+            <button
+              onClick={runDiscovery}
+              disabled={discoveryLoading}
+              className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all disabled:opacity-50"
+            >
+              {discoveryLoading ? 'Discovery Running...' : 'Discover Styles Now'}
+            </button>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 font-medium">
+                <tr>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4">Name / Slug</th>
+                  <th className="px-6 py-4">Description</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                {styles.map((style) => (
+                  <tr key={style.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer group" onClick={() => setPreviewStyle(style)}>
+                    <td className="px-6 py-4">
+                      {style.is_approved ? (
+                        <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Approved</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Pending</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold group-hover:text-[#EAAD11] transition-colors">{style.name}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">/{style.slug}</div>
+                    </td>
+                    <td className="px-6 py-4 max-w-xs truncate text-gray-500">
+                      {style.description || 'No description set'}
+                    </td>
+                    <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        onClick={() => setEditingStyle({...style})}
+                        className="text-[#EAAD11] font-bold hover:underline"
+                      >
+                        {style.is_approved ? 'Edit' : 'Review'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Style Modal */}
+      {editingStyle && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditingStyle(null)} />
+          <div className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-2xl">
+            <h3 className="text-xl font-serif font-bold mb-6">Review Aesthetic</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Display Name</label>
+                <input 
+                  type="text" 
+                  value={editingStyle.name}
+                  onChange={(e) => setEditingStyle({...editingStyle, name: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Slug (URL)</label>
+                <input 
+                  type="text" 
+                  value={editingStyle.slug}
+                  onChange={(e) => setEditingStyle({...editingStyle, slug: e.target.value})}
+                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Description</label>
+                <textarea 
+                  value={editingStyle.description}
+                  onChange={(e) => setEditingStyle({...editingStyle, description: e.target.value})}
+                  rows={3}
+                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Sample Item IDs (JSON)</label>
+                <input 
+                  type="text" 
+                  value={editingStyle.sample_item_ids}
+                  onChange={(e) => setEditingStyle({...editingStyle, sample_item_ids: e.target.value})}
+                  placeholder="[1, 2, 3]"
+                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                />
+              </div>
+            </div>
+            <div className="mt-8 flex gap-3">
+              <button 
+                onClick={() => handleApproveStyle(editingStyle.id, editingStyle)}
+                className="flex-1 bg-black dark:bg-white text-white dark:text-black py-3 rounded-xl font-bold hover:opacity-90 transition-all"
+              >
+                Approve & Go Live
+              </button>
+              <button 
+                onClick={() => setEditingStyle(null)}
+                className="px-6 py-3 text-gray-500 font-medium hover:text-black dark:hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Vendors */}
@@ -424,6 +588,17 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
             )}
           </div>
         )
+      )}
+
+      {previewStyle && (
+        <StyleModal 
+          style={previewStyle}
+          onClose={() => setPreviewStyle(null)}
+          onBuild={(style) => {
+            // Navigate to outfit builder and pass the style to auto-start the builder
+            navigate('/outfit-builder', { state: { autoBuildStyle: style } });
+          }}
+        />
       )}
     </div>
   );

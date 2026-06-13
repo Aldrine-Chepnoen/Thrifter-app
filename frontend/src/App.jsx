@@ -16,10 +16,13 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import posthog from 'posthog-js';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 
+import StyleDiscovery from './components/StyleDiscovery';
+import StyleModal from './components/StyleModal';
+import StyleBuilder from './components/StyleBuilder';
+
 function App() {
   const [items, setItems] = useState([]);
   const [outfitResults, setOutfitResults] = useState(null);
-  const [builderResults, setBuilderResults] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
@@ -35,6 +38,10 @@ function App() {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
   const [showSurvey, setShowSurvey] = useState(false);
+  const [activeStyle, setActiveStyle] = useState(null);
+  const [isBuilderMode, setIsBuilderMode] = useState(false);
+  const [styleModalOpen, setStyleModalOpen] = useState(false);
+  const [activeStyleForModal, setActiveStyleForModal] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -44,11 +51,11 @@ function App() {
   });
   const activeFiltersRef = useRef({ minPrice: null, maxPrice: null });
   const fileInputRef = useRef(null);
-  const builderInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [headerHidden, setHeaderHidden] = useState(false);
   const { scrollY } = useScroll();
@@ -221,7 +228,6 @@ function App() {
 
       const rid = ++requestIdRef.current;
       setOutfitResults(null);
-      setBuilderResults(null);
       
       if (!query) {
         if (location.pathname !== '/') navigate('/');
@@ -262,7 +268,6 @@ function App() {
     formData.append('file', file);
 
     setLoading(true);
-    setBuilderResults(null);
     try {
       const response = await api.post('/outfit-search', formData);
       setOutfitResults(response.data);
@@ -279,31 +284,15 @@ function App() {
     }
   };
 
-  const handleBuilderUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    setLoading(true);
-    setOutfitResults(null);
-    try {
-      const response = await api.post('/outfit-builder', formData);
-      setBuilderResults(response.data.outfits);
-      posthog.capture('outfit_builder_performed', { 
-        outfit_count: response.data.outfits.length 
-      });
-      navigate('/outfit-builder');
-    } catch (error) {
-      console.error('Outfit builder failed:', error);
-      alert('Outfit builder failed');
-    } finally {
-      setLoading(false);
-      e.target.value = null;
+  useEffect(() => {
+    if (location.state?.autoBuildStyle) {
+      setActiveStyle(location.state.autoBuildStyle);
+      setIsBuilderMode(true);
+      // Clear state so it doesn't re-trigger on refresh
+      navigate(location.pathname, { replace: true, state: {} });
     }
-  };
-  
+  }, [location.state]);
+
   const [wardrobeItems, setWardrobeItems] = useState([]);
   const fetchWardrobe = async () => {
     setLoading(true);
@@ -329,12 +318,19 @@ function App() {
       setLoading(false);
     }
   };
-  const location = useLocation();
+  
   useEffect(() => {
     if (location.pathname === '/wardrobe' && user) {
       fetchWardrobe();
     }
-  }, [location.pathname, user]);
+    // Check if we navigated here from Admin with a specific style to build
+    if (location.pathname === '/outfit-builder' && location.state?.autoBuildStyle) {
+      setActiveStyle(location.state.autoBuildStyle);
+      setIsBuilderMode(true);
+      // Clear state so it doesn't re-trigger on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.pathname, user, location.state]);
 
   const getImageUrl = (path) => {
     if (!path) return '';
@@ -382,13 +378,6 @@ function App() {
         accept="image/*"
         onChange={handleImageUpload}
       />
-      <input 
-        type="file" 
-        ref={builderInputRef} 
-        className="hidden" 
-        accept="image/*"
-        onChange={handleBuilderUpload}
-      />
 
       <Routes>
         <Route path="/" element={
@@ -400,9 +389,7 @@ function App() {
                 </div>
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
               </>
-            ) : loading ? (
-              <ThrifterLoader />
-            ) : items.length > 0 ? (
+            ) : (
               <>
                 {/* Homepage Banner */}
                 <div className="px-4 md:px-6 mb-8 mt-2">
@@ -434,9 +421,19 @@ function App() {
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <MasonryGrid items={items} onItemClick={setSelectedItem} />
-                </div>
+                {loading && items.length === 0 ? (
+                  <ThrifterLoader />
+                ) : items.length > 0 ? (
+                  <div className="mt-4">
+                    <MasonryGrid items={items} onItemClick={setSelectedItem} />
+                  </div>
+                ) : (
+                  <div className="text-center py-20 text-gray-500">
+                    <p className="mb-2">No items found.</p>
+                    <p className="text-sm">Try searching by style or brand, upload an inspiration image, or browse vendors above.</p>
+                  </div>
+                )}
+                
                 {loadingMore && (
                   <div className="flex justify-center py-8">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#EAAD11]"></div>
@@ -448,11 +445,6 @@ function App() {
                   </div>
                 )}
               </>
-            ) : (
-              <div className="text-center py-20 text-gray-500">
-                <p className="mb-2">No items found.</p>
-                <p className="text-sm">Try searching by style or brand, upload an inspiration image, or browse vendors above.</p>
-              </div>
             )}
           </main>
         } />
@@ -468,94 +460,33 @@ function App() {
           />
         } />
         <Route path="/outfit-builder" element={
-          <main className="max-w-7xl mx-auto px-6">
-            <div className="mb-8">
-              <h2 className="text-2xl font-serif font-bold mb-2">Outfit Builder</h2>
-              <p className="text-gray-600 dark:text-gray-400">Based on your inspiration, we've matched these pieces from our collection.</p>
-            </div>
-
-            {loading ? (
-              <ThrifterLoader />
-            ) : builderResults && builderResults.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {builderResults.map((outfit, idx) => (
-                  <div key={idx} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Option {idx + 1}</span>
-                      <span className="text-xs bg-green-50 text-green-600 px-2 py-1 rounded-full">Match Score: {Math.round(outfit.score * 100)}%</span>
-                    </div>
-                    
-                    {outfit.type === 'combination' ? (
-                      <div className="space-y-4">
-                        <div 
-                          onClick={() => setSelectedItem(outfit.top)}
-                          className="cursor-pointer group"
-                        >
-                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
-                            <img 
-                              src={getImageUrl(outfit.top.image_path)} 
-                              alt={outfit.top.name}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            />
-                          </div>
-                          <p className="text-sm font-medium line-clamp-1">{outfit.top.name}</p>
-                          <p className="text-xs text-gray-500">Top • UGX{outfit.top.price.toLocaleString()}</p>
-                        </div>
-                        
-                        <div className="flex justify-center">
-                          <PlusCircle className="w-5 h-5 text-gray-300" />
-                        </div>
-
-                        <div 
-                          onClick={() => setSelectedItem(outfit.bottom)}
-                          className="cursor-pointer group"
-                        >
-                          <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
-                            <img 
-                              src={getImageUrl(outfit.bottom.image_path)} 
-                              alt={outfit.bottom.name}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                            />
-                          </div>
-                          <p className="text-sm font-medium line-clamp-1">{outfit.bottom.name}</p>
-                          <p className="text-xs text-gray-500">Bottom • UGX{outfit.bottom.price.toLocaleString()}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div 
-                        onClick={() => setSelectedItem(outfit.item)}
-                        className="cursor-pointer group"
-                      >
-                        <div className="aspect-[4/5] rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-700 mb-2">
-                          <img 
-                            src={getImageUrl(outfit.item.image_path)} 
-                            alt={outfit.item.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        </div>
-                        <p className="text-sm font-medium line-clamp-1">{outfit.item.name}</p>
-                        <p className="text-xs text-gray-500">Dress • UGX{outfit.item.price.toLocaleString()}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          <main className="max-w-7xl mx-auto">
+            {isBuilderMode && activeStyle ? (
+              <StyleBuilder 
+                style={activeStyle} 
+                onBack={() => setIsBuilderMode(false)}
+                onSelectItem={setSelectedItem}
+              />
             ) : (
-              <div className="text-center py-20 text-gray-500">
-                <p className="mb-4">Upload an inspiration image to build an outfit.</p>
-                <button 
-                  onClick={() => builderInputRef.current.click()}
-                  className="bg-black text-white px-6 py-3 rounded-full hover:bg-gray-800 transition-all font-medium"
-                >
-                  Upload Inspiration
-                </button>
+              <div className="px-6 py-8">
+                <div className="mb-10 text-center max-w-2xl mx-auto">
+                  <h2 className="text-3xl font-serif font-bold mb-3">Outfit Builder</h2>
+                  <p className="text-gray-600 dark:text-gray-400">Discover your next aesthetic. Our AI analyzes thousands of items to find the perfect style clusters for you.</p>
+                </div>
+                
+                <StyleDiscovery 
+                  onOpenModal={(style) => {
+                    setActiveStyleForModal(style);
+                    setStyleModalOpen(true);
+                  }} 
+                />
               </div>
             )}
           </main>
         } />
         <Route path="/admin" element={
           user?.is_admin
-            ? <AdminDashboard user={user} onOutfitBuilderClick={() => builderInputRef.current.click()} />
+            ? <AdminDashboard user={user} onOutfitBuilderClick={() => navigate('/outfit-builder')} />
             : <Navigate to="/" replace />
         } />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -593,6 +524,19 @@ function App() {
 
       {showSurvey && (
         <SurveyPopup user={user} onDismiss={handleSurveyDismiss} />
+      )}
+
+      {styleModalOpen && activeStyleForModal && (
+        <StyleModal 
+          style={activeStyleForModal} 
+          onClose={() => setStyleModalOpen(false)}
+          onBuild={(style) => {
+            setActiveStyle(style);
+            setIsBuilderMode(true);
+            setStyleModalOpen(false);
+            window.scrollTo(0,0);
+          }}
+        />
       )}
 
       <ProductModal 

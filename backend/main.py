@@ -335,12 +335,118 @@ def cleanup_demo_items(db: Session):
     except Exception as e:
         logger.error(f"Cleanup demo items failed: {e}")
 
+import clustering
+
+def _run_style_discovery_task():
+    db = SessionLocal()
+    try:
+        clustering.run_clustering(db, search_engine)
+        # Update last run timestamp
+        last_run = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
+        if not last_run:
+            last_run = models.AppSetting(key="last_style_discovery", value_float=time.time())
+            db.add(last_run)
+        else:
+            last_run.value_float = time.time()
+        db.commit()
+    except Exception as e:
+        logger.error(f"Style discovery task failed: {e}")
+    finally:
+        db.close()
+
 @app.on_event("startup")
 def startup_event():
     db = next(get_db())
     if SEED_DEMO:
         logger.info("Seeding demo data...")
         seed_demo_data(db)
+    
+    # Check if we should run style discovery (every 2 days)
+    last_run_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
+    now = time.time()
+    two_days_sec = 2 * 24 * 60 * 60
+    
+    if not last_run_setting or (now - (last_run_setting.value_float or 0)) > two_days_sec:
+        logger.info("Starting initial style discovery...")
+        # Run in a separate thread/task so startup isn't blocked
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, _run_style_discovery_task)
+
+@app.get("/outfit-styles", response_model=List[schemas.StyleCategory])
+def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_optional_user)):
+    """Returns approved styles for users, and all styles for admins."""
+    if current_user and current_user.is_admin:
+        return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
+    
+    return db.query(models.StyleCategory).filter(models.StyleCategory.is_approved == True).all()
+
+@app.get("/outfit-styles/{slug}/items", response_model=schemas.StyleCategoryItems)
+def get_style_items(slug: str, db: Session = Depends(get_db)):
+    """Returns curated pools of items (8 tops, 8 bottoms, accessories) for a style builder."""
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.slug == slug).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    
+    if not style.centroid_embedding:
+        return schemas.StyleCategoryItems(tops=[], bottoms=[], accessories=[])
+
+    # Convert centroid to pgvector format
+    centroid_str = "[" + ",".join(str(x) for x in style.centroid_embedding) + "]"
+    
+    def get_closest_items(item_type: str, limit: int = 8):
+        return (
+            db.query(models.Item)
+            .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+            .filter(models.Item.item_type == item_type)
+            .filter(models.Item.embedding.isnot(None))
+            .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
+            .limit(limit)
+            .all()
+        )
+
+    tops = get_closest_items("top", 8)
+    bottoms = get_closest_items("bottom", 8)
+    accessories = get_closest_items("accessory", 8)
+    
+    # Also include dresses in tops or as a separate list? 
+    # The user mentioned Tops, Bottoms, and Accessories. Let's stick to that.
+    
+    return schemas.StyleCategoryItems(
+        tops=[serialize_item(i) for i in tops],
+        bottoms=[serialize_item(i) for i in bottoms],
+        accessories=[serialize_item(i) for i in accessories]
+    )
+
+@app.post("/admin/outfit-styles/{style_id}/approve", response_model=schemas.StyleCategory)
+def approve_style(
+    style_id: int, 
+    data: schemas.StyleCategoryBase, 
+    db: Session = Depends(get_db), 
+    _: models.User = Depends(require_admin)
+):
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    
+    style.name = data.name
+    style.slug = data.slug
+    style.description = data.description
+    style.is_approved = True
+    style.sample_item_ids = data.sample_item_ids
+    
+    db.commit()
+    db.refresh(style)
+    return style
+
+@app.post("/admin/outfit-styles/discover")
+def trigger_style_discovery(background_tasks: BackgroundTasks, _: models.User = Depends(require_admin)):
+    """Triggers the style discovery background task manually."""
+    background_tasks.add_task(_run_style_discovery_task)
+    return {"message": "Style discovery started in background"}
+
+@app.get("/admin/outfit-styles", response_model=List[schemas.StyleCategory])
+def admin_get_styles(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
 
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
