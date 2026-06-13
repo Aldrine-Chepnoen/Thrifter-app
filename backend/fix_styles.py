@@ -15,7 +15,7 @@ def fix_missing_sample_item_ids():
         print(f"Checking {len(styles)} styles...")
         
         for style in styles:
-            if not style.centroid_embedding:
+            if style.centroid_embedding is None:
                 print(f"Skipping style {style.id}: no centroid.")
                 continue
                 
