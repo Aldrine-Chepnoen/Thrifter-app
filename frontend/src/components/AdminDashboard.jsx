@@ -407,7 +407,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                                   src={`${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/api/items/${id}/image`}
                                   alt="preview"
                                   className="w-full h-full object-cover"
-                                  onError={(e) => { e.target.src = '/placeholder.png' }}
+                                  onError={(e) => { e.target.src = '/placeholder.svg' }}
                                 />
                             </div>
                           ))}

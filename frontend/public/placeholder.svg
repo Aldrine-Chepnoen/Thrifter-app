@@ -1,0 +1,6 @@
+<svg width="400" height="500" viewBox="0 0 400 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="400" height="500" fill="#F3F4F6"/>
+  <path d="M170 220C170 203.431 183.431 190 200 190C216.569 190 230 203.431 230 220C230 236.569 216.569 250 200 250C183.431 250 170 236.569 170 220Z" stroke="#D1D5DB" stroke-width="2"/>
+  <path d="M140 320C140 297.909 157.909 280 180 280H220C242.091 280 260 297.909 260 320V340H140V320Z" stroke="#D1D5DB" stroke-width="2"/>
+  <text x="50%" y="380" dominant-baseline="middle" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="bold" fill="#9CA3AF" style="text-transform: uppercase; letter-spacing: 0.1em;">Preview Unavailable</text>
+</svg>

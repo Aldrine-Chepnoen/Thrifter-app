@@ -23,7 +23,7 @@ CATEGORIZED_LABELS = {
         "blazer", "coat", "trench coat", "hoodie", "sweatshirt", "bomber jacket",
         "windbreaker", "cardigan", "zip-up hoodie", "safari jacket", "suit jacket",
         "African print top", "African print jacket", "retro jacket", "second hand blazer",
-        "vintage shirt", "classic trench coat", "dress shirt"
+        "vintage shirt", "classic trench coat", "dress shirt", "jersey", "football jersey", "basketball jersey"
     ],
     "bottom": [
         "jeans", "denim jeans", "skinny jeans", "wide leg pants", "cargo pants",
@@ -92,7 +92,7 @@ def run_clustering(db: Session, se: SearchEngine):
     n_components = 25 # High dimensions for high specialization
     try:
         import umap
-        reducer = umap.UMAP(n_components=n_components, n_neighbors=15, min_dist=0.1, random_state=42)
+        reducer = umap.UMAP(n_components=n_components, n_neighbors=7, min_dist=0.0, random_state=42)
         coords_multi = reducer.fit_transform(embeddings)
     except Exception as e:
         logger.error(f"UMAP failed: {e}")
@@ -102,7 +102,7 @@ def run_clustering(db: Session, se: SearchEngine):
     try:
         import hdbscan
         # Lower min_cluster_size to 5 to allow smaller, more specialized groups to form
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=5, min_samples=3) 
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=4, min_samples=1) 
         labels = clusterer.fit_predict(coords_multi)
     except Exception as e:
         logger.error(f"HDBSCAN failed: {e}")
@@ -170,6 +170,13 @@ def run_clustering(db: Session, se: SearchEngine):
         # Confidence threshold: if similarity is too low, use a generic descriptive label
         if max_sim < 0.2:
             best_label = f"Misc {majority_type.capitalize()} Group"
+            
+        # Ensure global uniqueness across the entire run, including 'Misc' fallbacks
+        base_label = best_label
+        counter = 1
+        while best_label in used_labels_in_run:
+            best_label = f"{base_label} {counter}"
+            counter += 1
             
         used_labels_in_run.add(best_label)
 

@@ -387,7 +387,7 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
     if not style:
         raise HTTPException(status_code=404, detail="Style not found")
     
-    def get_cluster_items(cluster: models.VisualCluster, item_type: str, limit: int = 12):
+    def get_cluster_items(cluster: models.VisualCluster, item_type: str, limit: int = 8):
         if not cluster or cluster.centroid_embedding is None:
             return []
         
@@ -743,14 +743,16 @@ def get_item_image_redirect(item_id: int, db: Session = Depends(get_db)):
     if not item or not item.image_path:
         raise HTTPException(status_code=404, detail="Image not found")
     
+    from fastapi.responses import RedirectResponse
+    
     # If it's a Cloudinary URL or absolute path, redirect to it
     if item.image_path.startswith('http'):
-        from fastapi.responses import RedirectResponse
         return RedirectResponse(url=item.image_path)
     
-    # If it's a local path, we could serve it directly, but for simplicity let's stick to redirects if possible
-    # Given the project uses Cloudinary, this will handle 99% of cases.
-    raise HTTPException(status_code=404, detail="Local images not supported via redirect yet")
+    # If it's a local path, redirect to our static mount
+    # Note: filename only is usually stored for local, but we check if it's already a path
+    filename = os.path.basename(item.image_path)
+    return RedirectResponse(url=f"/images/{filename}")
 
 def _compute_and_store_embedding(item_id: int, image_bytes: bytes):
     # Runs after the response is sent. Opens its own DB session so the
@@ -1261,79 +1263,6 @@ def remove_wardrobe(item_id: int, current = Depends(get_current_user), db: Sessi
     cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
 
-import clustering
-
-def _run_style_discovery_task():
-    db = SessionLocal()
-    try:
-        clustering.run_clustering(db, search_engine)
-        # Update last run timestamp
-        last_run = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
-        if not last_run:
-            last_run = models.AppSetting(key="last_style_discovery", value_float=time.time())
-            db.add(last_run)
-        else:
-            last_run.value_float = time.time()
-        db.commit()
-    except Exception as e:
-        logger.error(f"Style discovery task failed: {e}")
-    finally:
-        db.close()
-
-@app.on_event("startup")
-def startup_event():
-    db = next(get_db())
-    if SEED_DEMO:
-        logger.info("Seeding demo data...")
-        seed_demo_data(db)
-    
-    # Check if we should run style discovery (every 2 days)
-    last_run_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
-    now = time.time()
-    two_days_sec = 2 * 24 * 60 * 60
-    
-    if not last_run_setting or (now - (last_run_setting.value_float or 0)) > two_days_sec:
-        logger.info("Starting initial style discovery...")
-        # Run in a separate thread/task so startup isn't blocked
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, _run_style_discovery_task)
-
-@app.get("/outfit-styles", response_model=List[schemas.StyleCategory])
-def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_optional_user)):
-    """Returns approved styles for users, and all styles for admins."""
-    if current_user and current_user.is_admin:
-        return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
-    
-    return db.query(models.StyleCategory).filter(models.StyleCategory.is_approved == True).all()
-
-@app.get("/outfit-styles/{slug}/items", response_model=schemas.StyleCategoryItems)
-def get_style_items(slug: str, db: Session = Depends(get_db)):
-    """Returns curated pools of items for a style builder based on linked clusters."""
-    style = db.query(models.StyleCategory).filter(models.StyleCategory.slug == slug).first()
-    if not style:
-        raise HTTPException(status_code=404, detail="Style not found")
-    
-    def get_cluster_items(cluster: models.VisualCluster, item_type: str, limit: int = 12):
-        if not cluster or cluster.centroid_embedding is None:
-            return []
-        
-        centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
-        return (
-            db.query(models.Item)
-            .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
-            .filter(models.Item.item_type == item_type)
-            .filter(models.Item.embedding.isnot(None))
-            .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
-            .limit(limit)
-            .all()
-        )
-
-    return schemas.StyleCategoryItems(
-        tops=[serialize_item(i) for i in get_cluster_items(style.top_cluster, "top")],
-        bottoms=[serialize_item(i) for i in get_cluster_items(style.bottom_cluster, "bottom")],
-        accessories=[serialize_item(i) for i in get_cluster_items(style.accessory_cluster, "accessory")]
-    )
-
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)
@@ -1519,7 +1448,7 @@ def admin_get_cluster_items(cluster_id: int, db: Session = Depends(get_db), _: m
         .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
         .filter(models.Item.embedding.isnot(None))
         .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
-        .limit(30)
+        .limit(8)
         .all()
     )
     return [serialize_item(i) for i in items]

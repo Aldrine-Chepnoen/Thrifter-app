@@ -95,12 +95,23 @@ const StyleTile = ({ style, onClick }) => {
                   src={sampleImages[0]} 
                   className={`w-full h-full object-cover ${sampleImages.length === 1 ? 'col-span-2' : ''}`}
                   alt=""
+                  onError={(e) => { e.target.src = '/placeholder.svg' }}
                 />
                 {sampleImages.length > 1 && (
                   <div className="grid grid-rows-2 gap-0.5">
-                    <img src={sampleImages[1]} className="w-full h-full object-cover" alt="" />
+                    <img 
+                      src={sampleImages[1]} 
+                      className="w-full h-full object-cover" 
+                      alt="" 
+                      onError={(e) => { e.target.src = '/placeholder.svg' }}
+                    />
                     {sampleImages.length > 2 ? (
-                      <img src={sampleImages[2]} className="w-full h-full object-cover" alt="" />
+                      <img 
+                        src={sampleImages[2]} 
+                        className="w-full h-full object-cover" 
+                        alt="" 
+                        onError={(e) => { e.target.src = '/placeholder.svg' }}
+                      />
                     ) : (
                       <div className="bg-gray-200 dark:bg-gray-700 w-full h-full" />
                     )}
