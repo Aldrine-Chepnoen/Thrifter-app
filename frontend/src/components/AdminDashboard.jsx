@@ -701,8 +701,9 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 </div>
 
                 <div className="pt-2 border-t border-gray-50 dark:border-gray-800">
-                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1 italic">Preview Item IDs (Legacy)</label>
-                  <input 
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1 italic">Preview Item IDs (Legacy) (Optional)</label>
+                  <input
+ 
                     type="text" 
                     value={editingStyle.sample_item_ids}
                     onChange={(e) => setEditingStyle({...editingStyle, sample_item_ids: e.target.value})}
