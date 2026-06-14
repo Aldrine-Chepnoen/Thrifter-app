@@ -382,18 +382,16 @@ def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_
 
 @app.get("/outfit-styles/{slug}/items", response_model=schemas.StyleCategoryItems)
 def get_style_items(slug: str, db: Session = Depends(get_db)):
-    """Returns curated pools of items (8 tops, 8 bottoms, accessories) for a style builder."""
+    """Returns curated pools of items for a style builder based on linked clusters."""
     style = db.query(models.StyleCategory).filter(models.StyleCategory.slug == slug).first()
     if not style:
         raise HTTPException(status_code=404, detail="Style not found")
     
-    def get_closest_items(cluster: models.VisualCluster, item_type: str, limit: int = 8):
+    def get_cluster_items(cluster: models.VisualCluster, item_type: str, limit: int = 12):
         if not cluster or cluster.centroid_embedding is None:
             return []
-            
-        # Convert centroid to pgvector format
-        centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
         
+        centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
         return (
             db.query(models.Item)
             .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
@@ -404,103 +402,11 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
             .all()
         )
 
-    tops = get_closest_items(style.top_cluster, "top", 8)
-    bottoms = get_closest_items(style.bottom_cluster, "bottom", 8)
-    accessories = get_closest_items(style.accessory_cluster, "accessory", 8)
-    
-    # Also include dresses in tops or as a separate list? 
-    # The user mentioned Tops, Bottoms, and Accessories. Let's stick to that.
-    
     return schemas.StyleCategoryItems(
-        tops=[serialize_item(i) for i in tops],
-        bottoms=[serialize_item(i) for i in bottoms],
-        accessories=[serialize_item(i) for i in accessories]
+        tops=[serialize_item(i) for i in get_cluster_items(style.top_cluster, "top")],
+        bottoms=[serialize_item(i) for i in get_cluster_items(style.bottom_cluster, "bottom")],
+        accessories=[serialize_item(i) for i in get_cluster_items(style.accessory_cluster, "accessory")]
     )
-
-@app.post("/admin/outfit-styles/{style_id}/approve", response_model=schemas.StyleCategory)
-def approve_style(
-    style_id: int, 
-    data: schemas.StyleCategoryBase, 
-    db: Session = Depends(get_db), 
-    _: models.User = Depends(require_admin)
-):
-    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
-    if not style:
-        raise HTTPException(status_code=404, detail="Style not found")
-    
-    style.name = data.name
-    style.slug = data.slug
-    style.description = data.description
-    style.is_approved = True
-    style.sample_item_ids = data.sample_item_ids
-    style.top_cluster_id = data.top_cluster_id
-    style.bottom_cluster_id = data.bottom_cluster_id
-    style.accessory_cluster_id = data.accessory_cluster_id
-    
-    db.commit()
-    db.refresh(style)
-    return style
-
-@app.delete("/admin/outfit-styles/{style_id}", status_code=204)
-def admin_delete_style(style_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    """Deletes a curated style aesthetic."""
-    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
-    if not style:
-        raise HTTPException(status_code=404, detail="Style not found")
-    
-    db.delete(style)
-    db.commit()
-    return Response(status_code=204)
-
-@app.get("/admin/visual-clusters", response_model=List[schemas.VisualCluster])
-def admin_get_clusters(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    """Returns all discovered visual clusters for the library."""
-    return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).all()
-
-@app.patch("/admin/visual-clusters/{cluster_id}", response_model=schemas.VisualCluster)
-def admin_update_cluster(
-    cluster_id: int, 
-    data: schemas.VisualClusterBase, 
-    db: Session = Depends(get_db), 
-    _: models.User = Depends(require_admin)
-):
-    """Updates a cluster's custom name or metadata."""
-    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
-    if not vc:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    
-    vc.custom_name = data.custom_name
-    db.commit()
-    db.refresh(vc)
-    return vc
-
-@app.get("/admin/visual-clusters/{cluster_id}/items", response_model=List[schemas.Item])
-def admin_get_cluster_items(cluster_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    """Returns all items matching a cluster's DNA (for the horizontal preview)."""
-    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
-    if not vc or vc.centroid_embedding is None:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-        
-    centroid_str = "[" + ",".join(str(x) for x in vc.centroid_embedding) + "]"
-    items = (
-        db.query(models.Item)
-        .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
-        .filter(models.Item.embedding.isnot(None))
-        .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
-        .limit(30)
-        .all()
-    )
-    return [serialize_item(i) for i in items]
-
-@app.post("/admin/outfit-styles/discover")
-def trigger_style_discovery(background_tasks: BackgroundTasks, _: models.User = Depends(require_admin)):
-    """Triggers the style discovery background task manually."""
-    background_tasks.add_task(_run_style_discovery_task)
-    return {"message": "Style discovery started in background"}
-
-@app.get("/admin/outfit-styles", response_model=List[schemas.StyleCategory])
-def admin_get_styles(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
 
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
@@ -1355,6 +1261,79 @@ def remove_wardrobe(item_id: int, current = Depends(get_current_user), db: Sessi
     cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
 
+import clustering
+
+def _run_style_discovery_task():
+    db = SessionLocal()
+    try:
+        clustering.run_clustering(db, search_engine)
+        # Update last run timestamp
+        last_run = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
+        if not last_run:
+            last_run = models.AppSetting(key="last_style_discovery", value_float=time.time())
+            db.add(last_run)
+        else:
+            last_run.value_float = time.time()
+        db.commit()
+    except Exception as e:
+        logger.error(f"Style discovery task failed: {e}")
+    finally:
+        db.close()
+
+@app.on_event("startup")
+def startup_event():
+    db = next(get_db())
+    if SEED_DEMO:
+        logger.info("Seeding demo data...")
+        seed_demo_data(db)
+    
+    # Check if we should run style discovery (every 2 days)
+    last_run_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "last_style_discovery").first()
+    now = time.time()
+    two_days_sec = 2 * 24 * 60 * 60
+    
+    if not last_run_setting or (now - (last_run_setting.value_float or 0)) > two_days_sec:
+        logger.info("Starting initial style discovery...")
+        # Run in a separate thread/task so startup isn't blocked
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, _run_style_discovery_task)
+
+@app.get("/outfit-styles", response_model=List[schemas.StyleCategory])
+def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_optional_user)):
+    """Returns approved styles for users, and all styles for admins."""
+    if current_user and current_user.is_admin:
+        return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
+    
+    return db.query(models.StyleCategory).filter(models.StyleCategory.is_approved == True).all()
+
+@app.get("/outfit-styles/{slug}/items", response_model=schemas.StyleCategoryItems)
+def get_style_items(slug: str, db: Session = Depends(get_db)):
+    """Returns curated pools of items for a style builder based on linked clusters."""
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.slug == slug).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    
+    def get_cluster_items(cluster: models.VisualCluster, item_type: str, limit: int = 12):
+        if not cluster or cluster.centroid_embedding is None:
+            return []
+        
+        centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
+        return (
+            db.query(models.Item)
+            .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+            .filter(models.Item.item_type == item_type)
+            .filter(models.Item.embedding.isnot(None))
+            .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
+            .limit(limit)
+            .all()
+        )
+
+    return schemas.StyleCategoryItems(
+        tops=[serialize_item(i) for i in get_cluster_items(style.top_cluster, "top")],
+        bottoms=[serialize_item(i) for i in get_cluster_items(style.bottom_cluster, "bottom")],
+        accessories=[serialize_item(i) for i in get_cluster_items(style.accessory_cluster, "accessory")]
+    )
+
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)
@@ -1448,7 +1427,7 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
         is_active=vendor.is_active, is_pinned=vendor.is_pinned,
-        item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
+        item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
     )
 
 @app.patch("/admin/vendors/{vendor_id}/pin", response_model=schemas.AdminVendor)
@@ -1504,3 +1483,139 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
     cache.item_invalidate(item_id)
     cache.admin_stats_invalidate()
     return Response(status_code=204)
+
+@app.get("/admin/visual-clusters", response_model=List[schemas.VisualCluster])
+def admin_get_clusters(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns all discovered visual clusters for the library."""
+    return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).all()
+
+@app.patch("/admin/visual-clusters/{cluster_id}", response_model=schemas.VisualCluster)
+def admin_update_cluster(
+    cluster_id: int, 
+    data: schemas.VisualClusterBase, 
+    db: Session = Depends(get_db), 
+    _: models.User = Depends(require_admin)
+):
+    """Updates a cluster's custom name or metadata."""
+    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
+    if not vc:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    
+    vc.custom_name = data.custom_name
+    db.commit()
+    db.refresh(vc)
+    return vc
+
+@app.get("/admin/visual-clusters/{cluster_id}/items", response_model=List[schemas.Item])
+def admin_get_cluster_items(cluster_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns all items matching a cluster's DNA (for the horizontal preview)."""
+    vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
+    if not vc or vc.centroid_embedding is None:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+        
+    centroid_str = "[" + ",".join(str(x) for x in vc.centroid_embedding) + "]"
+    items = (
+        db.query(models.Item)
+        .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+        .filter(models.Item.embedding.isnot(None))
+        .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
+        .limit(30)
+        .all()
+    )
+    return [serialize_item(i) for i in items]
+
+@app.get("/admin/outfit-styles", response_model=List[schemas.StyleCategory])
+def admin_get_styles(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns all style aesthetics for management."""
+    return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
+
+@app.post("/admin/outfit-styles/create", response_model=schemas.StyleCategory)
+def admin_create_style(
+    data: schemas.StyleCategoryBase, 
+    db: Session = Depends(get_db), 
+    _: models.User = Depends(require_admin)
+):
+    """Creates a new curated style aesthetic."""
+    new_style = models.StyleCategory(
+        name=data.name,
+        slug=data.slug,
+        description=data.description,
+        is_approved=True,
+        sample_item_ids=data.sample_item_ids,
+        cover_image_path=data.cover_image_path,
+        cover_cloudinary_id=data.cover_cloudinary_id,
+        top_cluster_id=data.top_cluster_id,
+        bottom_cluster_id=data.bottom_cluster_id,
+        accessory_cluster_id=data.accessory_cluster_id
+    )
+    db.add(new_style)
+    db.commit()
+    db.refresh(new_style)
+    return new_style
+
+@app.post("/admin/outfit-styles/{style_id}/approve", response_model=schemas.StyleCategory)
+def approve_style(
+    style_id: int, 
+    data: schemas.StyleCategoryBase, 
+    db: Session = Depends(get_db), 
+    _: models.User = Depends(require_admin)
+):
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    
+    style.name = data.name
+    style.slug = data.slug
+    style.description = data.description
+    style.is_approved = True
+    style.sample_item_ids = data.sample_item_ids
+    style.cover_image_path = data.cover_image_path
+    style.cover_cloudinary_id = data.cover_cloudinary_id
+    style.top_cluster_id = data.top_cluster_id
+    style.bottom_cluster_id = data.bottom_cluster_id
+    style.accessory_cluster_id = data.accessory_cluster_id
+    
+    db.commit()
+    db.refresh(style)
+    return style
+
+@app.post("/admin/outfit-styles/upload-cover")
+async def upload_style_cover(
+    file: UploadFile = File(...),
+    _: models.User = Depends(require_admin)
+):
+    """Uploads an image to Cloudinary for use as a style aesthetic cover."""
+    try:
+        content = await file.read()
+        result = cloudinary.uploader.upload(
+            io.BytesIO(content),
+            folder="thrifter_styles",
+            transformation=[
+                {"width": 1200, "crop": "limit"},
+                {"quality": "auto"},
+                {"fetch_format": "auto"}
+            ]
+        )
+        return {
+            "image_path": result.get("secure_url"),
+            "cloudinary_public_id": result.get("public_id")
+        }
+    except Exception as e:
+        logger.error(f"Style cover upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/admin/outfit-styles/{style_id}", status_code=204)
+def admin_delete_style(style_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Deletes a curated style aesthetic."""
+    style = db.query(models.StyleCategory).filter(models.StyleCategory.id == style_id).first()
+    if not style:
+        raise HTTPException(status_code=404, detail="Style not found")
+    db.delete(style)
+    db.commit()
+    return Response(status_code=204)
+
+@app.post("/admin/outfit-styles/discover")
+def trigger_style_discovery(background_tasks: BackgroundTasks, _: models.User = Depends(require_admin)):
+    """Triggers the style discovery background task manually."""
+    background_tasks.add_task(_run_style_discovery_task)
+    return {"message": "Style discovery started in background"}

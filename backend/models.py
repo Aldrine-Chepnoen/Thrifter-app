@@ -42,6 +42,8 @@ class StyleCategory(Base):
     accessory_cluster = relationship("VisualCluster", foreign_keys=[accessory_cluster_id])
 
     is_approved = Column(Boolean, default=False)
+    cover_image_path = Column(String, nullable=True)
+    cover_cloudinary_id = Column(String, nullable=True)
     sample_item_ids = Column(Text, default="[]") # JSON list [id, id, ...]
     created_at = Column(Float, default=time.time)
     updated_at = Column(Float, default=time.time, onupdate=time.time)

@@ -9,6 +9,8 @@ const StyleModal = ({ style, onClose, onBuild }) => {
 
   useEffect(() => {
     const fetchSamples = async () => {
+      // If we have a custom cover, we might still want the gallery, 
+      // but let's prioritize the custom cover as the first image.
       if (sampleIds.length === 0) return;
       try {
         const promises = sampleIds.map(id => api.get(`/items/${id}`));
@@ -40,7 +42,13 @@ const StyleModal = ({ style, onClose, onBuild }) => {
         >
           {/* Header Image Gallery */}
           <div className="h-64 md:h-80 relative bg-gray-100 dark:bg-gray-800 flex gap-1 overflow-x-auto no-scrollbar">
-            {sampleItems.length > 0 ? (
+            {style.cover_image_path ? (
+              <img 
+                src={style.cover_image_path} 
+                className="h-full w-full object-cover shrink-0"
+                alt={style.name}
+              />
+            ) : sampleItems.length > 0 ? (
               sampleItems.map((item, idx) => (
                 <img 
                   key={idx}
@@ -51,7 +59,7 @@ const StyleModal = ({ style, onClose, onBuild }) => {
               ))
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-400 italic font-serif">
-                cover photo
+                Aesthetic Preview
               </div>
             )}
             

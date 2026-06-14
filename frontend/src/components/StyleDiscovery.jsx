@@ -65,7 +65,8 @@ const StyleTile = ({ style, onClick }) => {
 
   useEffect(() => {
     const fetchSamples = async () => {
-      if (sampleIds.length === 0) return;
+      // If we have a custom cover, we don't need to fetch samples for the tile
+      if (style.cover_image_path || sampleIds.length === 0) return;
       try {
         // We only need the first 2-3 images for the tile preview
         const promises = sampleIds.slice(0, 3).map(id => api.get(`/items/${id}`));
@@ -76,35 +77,41 @@ const StyleTile = ({ style, onClick }) => {
       }
     };
     fetchSamples();
-  }, [style.sample_item_ids]);
+  }, [style.sample_item_ids, style.cover_image_path]);
 
   return (
     <button 
       onClick={onClick}
       className="flex-shrink-0 w-64 md:w-72 group relative aspect-[4/5] rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-800 transition-all hover:scale-[1.02] input-shadow border border-gray-100 dark:border-gray-800 text-left"
     >
-      <div className="absolute inset-0 grid grid-cols-2 gap-0.5">
-        {sampleImages.length > 0 ? (
-          <>
-            <img 
-              src={sampleImages[0]} 
-              className={`w-full h-full object-cover ${sampleImages.length === 1 ? 'col-span-2' : ''}`}
-              alt=""
-            />
-            {sampleImages.length > 1 && (
-              <div className="grid grid-rows-2 gap-0.5">
-                <img src={sampleImages[1]} className="w-full h-full object-cover" alt="" />
-                {sampleImages.length > 2 ? (
-                  <img src={sampleImages[2]} className="w-full h-full object-cover" alt="" />
-                ) : (
-                  <div className="bg-gray-200 dark:bg-gray-700 w-full h-full" />
+      <div className="absolute inset-0">
+        {style.cover_image_path ? (
+          <img src={style.cover_image_path} className="w-full h-full object-cover" alt="" />
+        ) : (
+          <div className="grid grid-cols-2 gap-0.5 h-full">
+            {sampleImages.length > 0 ? (
+              <>
+                <img 
+                  src={sampleImages[0]} 
+                  className={`w-full h-full object-cover ${sampleImages.length === 1 ? 'col-span-2' : ''}`}
+                  alt=""
+                />
+                {sampleImages.length > 1 && (
+                  <div className="grid grid-rows-2 gap-0.5">
+                    <img src={sampleImages[1]} className="w-full h-full object-cover" alt="" />
+                    {sampleImages.length > 2 ? (
+                      <img src={sampleImages[2]} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <div className="bg-gray-200 dark:bg-gray-700 w-full h-full" />
+                    )}
+                  </div>
                 )}
+              </>
+            ) : (
+              <div className="col-span-2 flex items-center justify-center bg-gray-200 dark:bg-gray-700">
+                <Sparkles className="w-8 h-8 text-gray-400 opacity-20" />
               </div>
             )}
-          </>
-        ) : (
-          <div className="col-span-2 flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-             <Sparkles className="w-8 h-8 text-gray-400 opacity-20" />
           </div>
         )}
       </div>

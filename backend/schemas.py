@@ -135,6 +135,8 @@ class StyleCategoryBase(BaseModel):
     description: Optional[str] = None
     is_approved: bool = False
     sample_item_ids: str = "[]"
+    cover_image_path: Optional[str] = None
+    cover_cloudinary_id: Optional[str] = None
     top_cluster_id: Optional[int] = None
     bottom_cluster_id: Optional[int] = None
     accessory_cluster_id: Optional[int] = None

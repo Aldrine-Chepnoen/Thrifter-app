@@ -39,6 +39,15 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     loadFeatures();
   }, [user]);
 
+  useEffect(() => {
+    if (activeTab === 'items' && items.length === 0) loadItems();
+    if (activeTab === 'users' && users.length === 0) loadUsers();
+    if (activeTab === 'styles') {
+      if (styles.length === 0) loadStyles();
+      if (clusters.length === 0) loadClusters();
+    }
+  }, [activeTab]);
+
   const loadFeatures = async () => {
     try {
       const res = await api.get('/features');
@@ -147,8 +156,15 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
 
   const handleApproveStyle = async (id, data) => {
     try {
-      const res = await api.post(`/admin/outfit-styles/${id}/approve`, data);
-      setStyles(prev => prev.map(s => s.id === id ? res.data : s));
+      if (id) {
+        // Update existing style
+        const res = await api.post(`/admin/outfit-styles/${id}/approve`, data);
+        setStyles(prev => prev.map(s => s.id === id ? res.data : s));
+      } else {
+        // Create new style
+        const res = await api.post('/admin/outfit-styles/create', data);
+        setStyles(prev => [res.data, ...prev]);
+      }
       setEditingStyle(null);
     } catch (e) {
       alert('Failed to save style: ' + (e.response?.data?.detail || e.message));
@@ -422,11 +438,22 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                   {styles.map((style) => (
                     <tr key={style.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer group" onClick={() => setPreviewStyle(style)}>
                       <td className="px-6 py-4">
-                        {style.is_approved ? (
-                          <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Live</span>
-                        ) : (
-                          <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Draft</span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-10 bg-gray-50 dark:bg-gray-900 rounded-md overflow-hidden shrink-0 border border-gray-100 dark:border-gray-800">
+                            {style.cover_image_path ? (
+                              <img src={style.cover_image_path} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                <ImageIcon className="w-4 h-4" />
+                              </div>
+                            )}
+                          </div>
+                          {style.is_approved ? (
+                            <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Live</span>
+                          ) : (
+                            <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-full text-[10px] font-bold uppercase tracking-wider">Draft</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-bold group-hover:text-[#EAAD11] transition-colors">{style.name}</div>
@@ -628,7 +655,53 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 </div>
 
                 <div className="pt-2 border-t border-gray-50 dark:border-gray-800">
-                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1 italic">Preview Cover IDs (JSON)</label>
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-2 italic">Custom Aesthetic Cover</label>
+                  <div className="flex items-center gap-4">
+                    {editingStyle.cover_image_path ? (
+                      <div className="relative w-20 h-24 rounded-lg overflow-hidden border border-gray-100">
+                        <img src={editingStyle.cover_image_path} alt="cover" className="w-full h-full object-cover" />
+                        <button 
+                          onClick={() => setEditingStyle({...editingStyle, cover_image_path: null, cover_cloudinary_id: null})}
+                          className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="w-20 h-24 rounded-lg border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-[#EAAD11] transition-all group">
+                        <Plus className="w-5 h-5 text-gray-300 group-hover:text-[#EAAD11]" />
+                        <span className="text-[8px] text-gray-400 font-bold uppercase mt-1">Upload</span>
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                              const res = await api.post('/admin/outfit-styles/upload-cover', formData);
+                              setEditingStyle({
+                                ...editingStyle, 
+                                cover_image_path: res.data.image_path,
+                                cover_cloudinary_id: res.data.cloudinary_public_id
+                              });
+                            } catch (err) {
+                              alert('Upload failed: ' + err.message);
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                    <div className="flex-1">
+                      <p className="text-[10px] text-gray-400 leading-tight">This image will be shown as the main card on the Outfit Builder page. If empty, item previews will be used instead.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-50 dark:border-gray-800">
+                  <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1 italic">Preview Item IDs (Legacy)</label>
                   <input 
                     type="text" 
                     value={editingStyle.sample_item_ids}
