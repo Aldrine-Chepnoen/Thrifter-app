@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus } from 'lucide-react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus, Check } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
@@ -28,6 +28,12 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [previewCluster, setPreviewCluster] = useState(null);
   const [clusterPreviewItems, setClusterPreviewItems] = useState([]);
   const [loadingClusterPreview, setLoadingClusterPreview] = useState(false);
+  const [createClusterOpen, setCreateClusterOpen] = useState(false);
+  const [newClusterName, setNewClusterName] = useState('');
+  const [pickerItems, setPickerItems] = useState([]);
+  const [loadingPickerItems, setLoadingPickerItems] = useState(false);
+  const [selectedPickerIds, setSelectedPickerIds] = useState(new Set());
+  const [creatingCluster, setCreatingCluster] = useState(false);
 
   useEffect(() => {
     if (!user?.is_admin) {
@@ -47,6 +53,23 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       if (clusters.length === 0) loadClusters();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!createClusterOpen) return;
+    setSelectedPickerIds(new Set());
+    const fetchPickerItems = async () => {
+      setLoadingPickerItems(true);
+      try {
+        const res = await api.get('/wardrobe');
+        setPickerItems(res.data);
+      } catch (e) {
+        console.error('Failed to load wardrobe items for picker', e);
+      } finally {
+        setLoadingPickerItems(false);
+      }
+    };
+    fetchPickerItems();
+  }, [createClusterOpen]);
 
   const loadFeatures = async () => {
     try {
@@ -169,6 +192,36 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     } catch (e) {
       alert('Failed to save style: ' + (e.response?.data?.detail || e.message));
     }
+  };
+
+  const handleCreateCluster = async () => {
+    if (!newClusterName.trim()) return;
+    const ids = [...selectedPickerIds];
+    if (ids.length === 0) {
+      alert('Select at least one item to seed the pool');
+      return;
+    }
+    setCreatingCluster(true);
+    try {
+      const res = await api.post('/admin/visual-clusters/create', { name: newClusterName.trim(), item_ids: ids });
+      setClusters(prev => [res.data, ...prev]);
+      setCreateClusterOpen(false);
+      setNewClusterName('');
+      setSelectedPickerIds(new Set());
+    } catch (e) {
+      alert('Failed to create cluster: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setCreatingCluster(false);
+    }
+  };
+
+  const togglePickerItem = (id) => {
+    setSelectedPickerIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleUpdateCluster = async (id, customName) => {
@@ -380,14 +433,23 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
           {stylesSubTab === 'library' ? (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">AI Visual Pools ({clusters.length})</h3>
-                <button
-                  onClick={runDiscovery}
-                  disabled={discoveryLoading}
-                  className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all disabled:opacity-50"
-                >
-                  {discoveryLoading ? 'Discovery Running...' : 'Refresh AI Discovery'}
-                </button>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-400">Visual Pools ({clusters.length})</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCreateClusterOpen(true)}
+                    className="flex items-center gap-2 bg-[#EAAD11] text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Manual Pool
+                  </button>
+                  <button
+                    onClick={runDiscovery}
+                    disabled={discoveryLoading}
+                    className="flex items-center gap-2 bg-black dark:bg-white text-white dark:text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition-all disabled:opacity-50"
+                  >
+                    {discoveryLoading ? 'Discovery Running...' : 'Refresh AI Discovery'}
+                  </button>
+                </div>
               </div>
 
               {loading ? <ThrifterLoader /> : (
@@ -550,6 +612,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                       <div className="p-4">
                         <p className="font-bold text-sm line-clamp-1">{item.name}</p>
                         <p className="text-xs text-gray-500 uppercase tracking-tighter">{item.item_type} • {item.size}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-1">ID: {item.id}</p>
                       </div>
                     </motion.div>
                   ))
@@ -947,8 +1010,116 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
         )
       )}
 
+      {/* Create Manual Cluster Modal */}
+      <AnimatePresence>
+        {createClusterOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setCreateClusterOpen(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-3xl shadow-2xl flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="p-8 pb-4">
+                <h3 className="text-xl font-serif font-bold mb-1">Create Manual Pool</h3>
+                <p className="text-xs text-gray-400">Select items from your wardrobe — their embeddings will be averaged to define this pool's visual identity.</p>
+              </div>
+
+              {/* Name input */}
+              <div className="px-8 pb-4">
+                <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Pool Name</label>
+                <input
+                  type="text"
+                  value={newClusterName}
+                  onChange={(e) => setNewClusterName(e.target.value)}
+                  placeholder="e.g. Elegant Evening Tops"
+                  className="w-full bg-gray-50 dark:bg-gray-800 p-3 rounded-xl border border-gray-100 dark:border-gray-700 focus:ring-2 ring-[#EAAD11] transition-all outline-none"
+                />
+              </div>
+
+              {/* Item picker grid */}
+              <div className="flex-1 overflow-y-auto px-8 pb-4 min-h-0">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-[10px] font-bold uppercase text-gray-400">
+                    Wardrobe Items — Tap to Select
+                  </label>
+                  {selectedPickerIds.size > 0 && (
+                    <span className="text-[10px] font-bold text-[#EAAD11] uppercase tracking-wider">{selectedPickerIds.size} selected</span>
+                  )}
+                </div>
+
+                {loadingPickerItems ? (
+                  <div className="flex justify-center py-12"><ThrifterLoader /></div>
+                ) : pickerItems.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 italic text-sm">
+                    Your wardrobe is empty — save some items first to use them as seeds.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+                    {pickerItems.map((item) => {
+                      const selected = selectedPickerIds.has(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => togglePickerItem(item.id)}
+                          className={`relative rounded-2xl overflow-hidden aspect-[3/4] group transition-all ${
+                            selected
+                              ? 'ring-2 ring-[#EAAD11] scale-[0.97]'
+                              : 'ring-1 ring-gray-100 dark:ring-gray-800 hover:ring-[#EAAD11]/50'
+                          }`}
+                        >
+                          <img
+                            src={getImageUrl(item.image_path)}
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.target.src = '/placeholder.svg'; }}
+                          />
+                          {/* Selection overlay */}
+                          {selected && (
+                            <div className="absolute inset-0 bg-[#EAAD11]/20 flex items-center justify-center">
+                              <div className="bg-[#EAAD11] rounded-full p-1">
+                                <Check className="w-4 h-4 text-black" />
+                              </div>
+                            </div>
+                          )}
+                          {/* Name tooltip on hover */}
+                          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="text-white text-[10px] font-medium line-clamp-1">{item.name}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-8 pt-4 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+                <button
+                  onClick={handleCreateCluster}
+                  disabled={creatingCluster || !newClusterName.trim() || selectedPickerIds.size === 0}
+                  className="flex-1 bg-black dark:bg-white text-white dark:text-black py-3 rounded-2xl font-bold text-sm hover:opacity-90 transition-all disabled:opacity-40"
+                >
+                  {creatingCluster ? 'Creating...' : `Create Pool${selectedPickerIds.size > 0 ? ` (${selectedPickerIds.size} items)` : ''}`}
+                </button>
+                <button
+                  onClick={() => setCreateClusterOpen(false)}
+                  className="px-6 py-3 text-gray-500 font-medium hover:text-black dark:hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {previewStyle && (
-        <StyleModal 
+        <StyleModal
           style={previewStyle}
           onClose={() => setPreviewStyle(null)}
           onBuild={(style) => {

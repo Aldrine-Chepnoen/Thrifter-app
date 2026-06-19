@@ -376,9 +376,41 @@ def startup_event():
 def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_optional_user)):
     """Returns approved styles for users, and all styles for admins."""
     if current_user and current_user.is_admin:
-        return db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
-    
-    return db.query(models.StyleCategory).filter(models.StyleCategory.is_approved == True).all()
+        styles = db.query(models.StyleCategory).order_by(models.StyleCategory.is_approved.asc(), models.StyleCategory.id.desc()).all()
+    else:
+        styles = db.query(models.StyleCategory).filter(models.StyleCategory.is_approved == True).all()
+
+    result = []
+    for style in styles:
+        sample_items = []
+        if not style.cover_image_path:
+            sample_ids = json.loads(style.sample_item_ids or '[]')[:3]
+            if sample_ids:
+                items_q = (
+                    db.query(models.Item)
+                    .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+                    .filter(models.Item.id.in_(sample_ids))
+                    .all()
+                )
+                item_map = {i.id: i for i in items_q}
+                sample_items = [serialize_item(item_map[sid]) for sid in sample_ids if sid in item_map]
+        result.append(schemas.StyleCategory(
+            id=style.id,
+            name=style.name,
+            slug=style.slug,
+            description=style.description,
+            is_approved=style.is_approved,
+            sample_item_ids=style.sample_item_ids,
+            cover_image_path=style.cover_image_path,
+            cover_cloudinary_id=style.cover_cloudinary_id,
+            top_cluster_id=style.top_cluster_id,
+            bottom_cluster_id=style.bottom_cluster_id,
+            accessory_cluster_id=style.accessory_cluster_id,
+            created_at=style.created_at,
+            updated_at=style.updated_at,
+            sample_items=sample_items,
+        ))
+    return result
 
 @app.get("/outfit-styles/{slug}/items", response_model=schemas.StyleCategoryItems)
 def get_style_items(slug: str, db: Session = Depends(get_db)):
@@ -1418,18 +1450,47 @@ def admin_get_clusters(db: Session = Depends(get_db), _: models.User = Depends(r
     """Returns all discovered visual clusters for the library."""
     return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).all()
 
-@app.patch("/admin/visual-clusters/{cluster_id}", response_model=schemas.VisualCluster)
-def admin_update_cluster(
-    cluster_id: int, 
-    data: schemas.VisualClusterBase, 
-    db: Session = Depends(get_db), 
+@app.post("/admin/visual-clusters/create", response_model=schemas.VisualCluster)
+def admin_create_manual_cluster(
+    data: schemas.ManualClusterCreate,
+    db: Session = Depends(get_db),
     _: models.User = Depends(require_admin)
 ):
-    """Updates a cluster's custom name or metadata."""
+    """Creates a manual cluster by averaging the embeddings of the provided item IDs."""
+    import numpy as np
+    items = (
+        db.query(models.Item)
+        .filter(models.Item.id.in_(data.item_ids), models.Item.embedding.isnot(None))
+        .all()
+    )
+    if not items:
+        raise HTTPException(status_code=400, detail="None of the provided items have embeddings")
+
+    centroid = np.mean([list(item.embedding) for item in items], axis=0).tolist()
+    found_ids = [item.id for item in items]
+    cluster = models.VisualCluster(
+        ai_label=f"manual:{data.name}",
+        custom_name=data.name,
+        centroid_embedding=centroid,
+        sample_item_ids=json.dumps(found_ids[:3])
+    )
+    db.add(cluster)
+    db.commit()
+    db.refresh(cluster)
+    return cluster
+
+@app.patch("/admin/visual-clusters/{cluster_id}", response_model=schemas.VisualCluster)
+def admin_update_cluster(
+    cluster_id: int,
+    data: schemas.VisualClusterUpdate,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    """Updates a cluster's custom name."""
     vc = db.query(models.VisualCluster).filter(models.VisualCluster.id == cluster_id).first()
     if not vc:
         raise HTTPException(status_code=404, detail="Cluster not found")
-    
+
     vc.custom_name = data.custom_name
     db.commit()
     db.refresh(vc)

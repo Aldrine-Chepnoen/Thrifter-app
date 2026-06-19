@@ -122,6 +122,13 @@ class VisualClusterBase(BaseModel):
 class VisualClusterCreate(VisualClusterBase):
     pass
 
+class VisualClusterUpdate(BaseModel):
+    custom_name: Optional[str] = None
+
+class ManualClusterCreate(BaseModel):
+    name: str
+    item_ids: List[int]
+
 class VisualCluster(VisualClusterBase):
     id: int
     created_at: float
@@ -148,10 +155,11 @@ class StyleCategory(StyleCategoryBase):
     id: int
     created_at: float
     updated_at: float
-    
+
     top_cluster: Optional[VisualCluster] = None
     bottom_cluster: Optional[VisualCluster] = None
     accessory_cluster: Optional[VisualCluster] = None
+    sample_items: List[Item] = []
 
     class Config:
         from_attributes = True

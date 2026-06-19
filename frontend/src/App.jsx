@@ -323,6 +323,9 @@ function App() {
     if (location.pathname === '/wardrobe' && user) {
       fetchWardrobe();
     }
+    if (location.pathname !== '/outfit-builder') {
+      setIsBuilderMode(false);
+    }
     // Check if we navigated here from Admin with a specific style to build
     if (location.pathname === '/outfit-builder' && location.state?.autoBuildStyle) {
       setActiveStyle(location.state.autoBuildStyle);
