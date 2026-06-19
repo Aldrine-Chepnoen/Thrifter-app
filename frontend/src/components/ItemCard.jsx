@@ -1,10 +1,11 @@
 // This is the ItemCard component for the Thrifter frontend application. It displays an individual item with its image, name, market, vendor name (if available), and price formatted in Ugandan Shillings (UGX). The component uses Framer Motion for smooth animations when items are added or removed from the view. It also includes a button to remove the item from the wardrobe if the onRemove prop is provided. The image source is determined based on whether the image_path is a full URL or a relative path, and it handles both cases accordingly.
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X, Heart } from 'lucide-react';
 import { getOptimizedCloudinaryUrl } from '../utils';
 
-const ItemCard = ({ item, onClick, onRemove }) => {
+const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds }) => {
+  const [saved, setSaved] = useState(() => wardrobeIds?.has(item.id) ?? false);
   const rawImgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
@@ -43,8 +44,25 @@ const ItemCard = ({ item, onClick, onRemove }) => {
           )}
         </div>
       </div>
-      <div className="mt-3 px-1">
-        <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate">{item.name}</h3>
+      <div className="relative mt-3 px-1">
+        {onAddToWardrobe && !onRemove && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = !saved;
+              setSaved(next);
+              onAddToWardrobe(item.id, saved).catch(() => setSaved(saved));
+            }}
+            className="absolute top-0 right-0 p-1"
+            title="Save to Wardrobe"
+          >
+            <Heart
+              className={`w-4 h-4 transition-colors duration-150 ${saved ? 'fill-[#EAAD11] text-[#EAAD11]' : 'text-gray-400 dark:text-gray-500 hover:text-[#EAAD11]'}`}
+            />
+          </button>
+        )}
+        <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate pr-6">{item.name}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">{item.market}</p>
         {item.vendor_name && (
           <p className="text-xs text-gray-500 dark:text-gray-400">{item.vendor_name}</p>

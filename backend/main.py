@@ -1256,7 +1256,7 @@ def update_item(
 def get_wardrobe(current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    rows = db.query(models.Wardrobe).filter(models.Wardrobe.user_id == current.id).all()
+    rows = db.query(models.Wardrobe).filter(models.Wardrobe.user_id == current.id).order_by(models.Wardrobe.id.desc()).all()
     item_ids = [r.item_id for r in rows]
     if not item_ids:
         return []
@@ -1265,7 +1265,8 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
         selectinload(models.Item.images),
         selectinload(models.Item.vendor),
     ).filter(models.Item.id.in_(item_ids)).all()
-    return [serialize_item(i) for i in items]
+    id_to_item = {i.id: i for i in items}
+    return [serialize_item(id_to_item[iid]) for iid in item_ids if iid in id_to_item]
 
 @app.post("/wardrobe/{item_id}", status_code=204)
 def add_wardrobe(item_id: int, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

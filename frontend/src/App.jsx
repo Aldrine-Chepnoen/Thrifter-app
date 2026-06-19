@@ -43,6 +43,7 @@ function App() {
   const [styleModalOpen, setStyleModalOpen] = useState(false);
   const [activeStyleForModal, setActiveStyleForModal] = useState(null);
   const [showWelcomeToast, setShowWelcomeToast] = useState(false);
+  const [wardrobeIds, setWardrobeIds] = useState(new Set());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -185,13 +186,15 @@ function App() {
         try {
           const me = await api.get('/auth/me');
           setUser(me.data);
-          // Identify user in PostHog
           if (me.data) {
             posthog.identify(me.data.id, {
               email: me.data.email,
               is_vendor: me.data.is_vendor,
               vendor_name: me.data.vendor_name
             });
+            api.get('/wardrobe').then(wr => {
+              setWardrobeIds(new Set(wr.data.map(i => i.id)));
+            }).catch(() => {});
           }
         } catch {
           setUser(null);
@@ -307,16 +310,33 @@ function App() {
       setLoading(false);
     }
   };
+  const fetchWardrobeIds = async () => {
+    try {
+      const res = await api.get('/wardrobe');
+      setWardrobeIds(new Set(res.data.map(item => item.id)));
+    } catch { /* ignore */ }
+  };
+
+  const addToWardrobe = async (id, isSaved) => {
+    if (!user) { openAuthModal(); throw new Error('not authed'); }
+    if (isSaved) {
+      await api.delete(`/wardrobe/${id}`);
+      setWardrobeIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    } else {
+      await api.post(`/wardrobe/${id}`);
+      setWardrobeIds(prev => new Set([...prev, id]));
+    }
+  };
+
   const removeFromWardrobe = async (id) => {
-    setLoading(true);
+    setWardrobeItems(prev => prev.filter(i => i.id !== id));
+    setWardrobeIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     try {
       await api.delete(`/wardrobe/${id}`);
-      setWardrobeItems((prev) => prev.filter((i) => i.id !== id));
     } catch (e) {
+      fetchWardrobe();
       const msg = e?.response?.data?.detail || 'Failed to remove from wardrobe';
       alert(msg);
-    } finally {
-      setLoading(false);
     }
   };
   
@@ -362,6 +382,7 @@ function App() {
           if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
           localStorage.removeItem('thrifter_token');
           setUser(null);
+          setWardrobeIds(new Set());
         }}
         features={features}
         openAuthModal={openAuthModal}
@@ -391,7 +412,7 @@ function App() {
                 <div className="px-6 mb-4 mt-4">
                   <h2 className="text-xl font-serif font-bold">Similar Items</h2>
                 </div>
-                <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} />
+                <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} onAddToWardrobe={addToWardrobe} wardrobeIds={wardrobeIds} />
               </>
             ) : (
               <>
@@ -429,7 +450,7 @@ function App() {
                   <ThrifterLoader />
                 ) : items.length > 0 ? (
                   <div className="mt-4">
-                    <MasonryGrid items={items} onItemClick={setSelectedItem} />
+                    <MasonryGrid items={items} onItemClick={setSelectedItem} onAddToWardrobe={addToWardrobe} wardrobeIds={wardrobeIds} />
                   </div>
                 ) : (
                   <div className="text-center py-20 text-gray-500">
@@ -518,6 +539,7 @@ function App() {
         onClose={() => setIsAuthModalOpen(false)}
         onAuthed={(userData) => {
           setUser(userData);
+          fetchWardrobeIds();
           setShowWelcomeToast(true);
           setTimeout(() => setShowWelcomeToast(false), 2000);
         }}
