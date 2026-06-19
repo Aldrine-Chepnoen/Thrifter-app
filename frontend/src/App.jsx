@@ -14,7 +14,7 @@ import ThrifterLoader from './components/ThrifterLoader';
 import SurveyPopup from './components/SurveyPopup';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import posthog from 'posthog-js';
-import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
+import { motion, AnimatePresence, useScroll, useMotionValueEvent } from 'framer-motion';
 
 import StyleDiscovery from './components/StyleDiscovery';
 import StyleModal from './components/StyleModal';
@@ -42,6 +42,7 @@ function App() {
   const [isBuilderMode, setIsBuilderMode] = useState(false);
   const [styleModalOpen, setStyleModalOpen] = useState(false);
   const [activeStyleForModal, setActiveStyleForModal] = useState(null);
+  const [showWelcomeToast, setShowWelcomeToast] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -515,8 +516,26 @@ function App() {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        onAuthed={setUser}
+        onAuthed={(userData) => {
+          setUser(userData);
+          setShowWelcomeToast(true);
+          setTimeout(() => setShowWelcomeToast(false), 2000);
+        }}
       />
+
+      <AnimatePresence>
+        {showWelcomeToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ duration: 0.3 }}
+            className="fixed bottom-6 left-0 right-0 mx-auto w-fit z-[200] bg-black dark:bg-white text-white dark:text-black text-sm font-semibold px-5 py-3 rounded-full shadow-xl"
+          >
+            Welcome back to Thrifter
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <FilterSheet
         isOpen={isFilterSheetOpen}
