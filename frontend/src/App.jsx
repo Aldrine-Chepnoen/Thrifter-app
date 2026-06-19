@@ -517,8 +517,19 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
-            <div className="px-6 mb-4">
+            <div className="px-6 mb-4 flex items-center justify-between">
               <h2 className="text-xl font-serif font-bold">Wardrobe</h2>
+              {!loading && wardrobeItems.length > 0 && (
+                <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                  <span><span className="font-semibold text-gray-900 dark:text-gray-100">{wardrobeItems.length}</span> items</span>
+                  <span className="w-px h-3 bg-gray-300 dark:bg-gray-600" />
+                  <span>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      UGX {wardrobeItems.reduce((sum, i) => sum + (Number(i.price) || 0), 0).toLocaleString('en-UG')}
+                    </span> total
+                  </span>
+                </div>
+              )}
             </div>
             {loading ? (
               <ThrifterLoader />
