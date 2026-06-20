@@ -769,20 +769,20 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/items/{item_id}/image")
 @app.get("/items/{item_id}/image")
-def get_item_image_redirect(item_id: int, db: Session = Depends(get_db)):
-    """Redirects to the actual image URL for an item ID. Useful for simple <img> tags."""
+def get_item_image_redirect(item_id: int, w: Optional[int] = None, db: Session = Depends(get_db)):
+    """Redirects to the actual image URL for an item ID. Pass ?w=N to get a Cloudinary thumbnail."""
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item or not item.image_path:
         raise HTTPException(status_code=404, detail="Image not found")
-    
+
     from fastapi.responses import RedirectResponse
-    
-    # If it's a Cloudinary URL or absolute path, redirect to it
+
     if item.image_path.startswith('http'):
-        return RedirectResponse(url=item.image_path)
-    
-    # If it's a local path, redirect to our static mount
-    # Note: filename only is usually stored for local, but we check if it's already a path
+        url = item.image_path
+        if w and 'cloudinary.com' in url:
+            url = url.replace('/upload/', f'/upload/w_{w},h_{w},c_fill,q_60/')
+        return RedirectResponse(url=url)
+
     filename = os.path.basename(item.image_path)
     return RedirectResponse(url=f"/images/{filename}")
 
@@ -1447,9 +1447,9 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
     return Response(status_code=204)
 
 @app.get("/admin/visual-clusters", response_model=List[schemas.VisualCluster])
-def admin_get_clusters(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    """Returns all discovered visual clusters for the library."""
-    return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).all()
+def admin_get_clusters(skip: int = 0, limit: int = 20, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Returns discovered visual clusters for the library, paginated."""
+    return db.query(models.VisualCluster).order_by(models.VisualCluster.id.desc()).offset(skip).limit(limit).all()
 
 @app.post("/admin/visual-clusters/create", response_model=schemas.VisualCluster)
 def admin_create_manual_cluster(

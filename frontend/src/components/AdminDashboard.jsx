@@ -19,8 +19,13 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [users, setUsers] = useState([]);
   const [styles, setStyles] = useState([]);
   const [clusters, setClusters] = useState([]);
+  const [clustersPage, setClustersPage] = useState(0);
+  const [clustersHasMore, setClustersHasMore] = useState(false);
+  const [clustersLoading, setClustersLoading] = useState(false);
+  const [clustersLoadingMore, setClustersLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const ITEMS_PAGE_SIZE = 50;
+  const CLUSTER_PAGE_SIZE = 20;
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoToggling, setPromoToggling] = useState(false);
   const [editingStyle, setEditingStyle] = useState(null);
@@ -140,15 +145,18 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
-  const loadClusters = async () => {
-    setLoading(true);
+  const loadClusters = async (page = 0) => {
+    page === 0 ? setClustersLoading(true) : setClustersLoadingMore(true);
     try {
-      const res = await api.get('/admin/visual-clusters');
-      setClusters(res.data);
+      const res = await api.get(`/admin/visual-clusters?skip=${page * CLUSTER_PAGE_SIZE}&limit=${CLUSTER_PAGE_SIZE}`);
+      setClusters(prev => page === 0 ? res.data : [...prev, ...res.data]);
+      setClustersPage(page);
+      setClustersHasMore(res.data.length === CLUSTER_PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load clusters', e);
     } finally {
-      setLoading(false);
+      setClustersLoading(false);
+      setClustersLoadingMore(false);
     }
   };
 
@@ -311,6 +319,11 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     return `${base}/images/${filename}`;
   };
 
+  const cloudinaryResize = (url, w, h) => {
+    if (!url || !url.includes('cloudinary.com/')) return url;
+    return url.replace('/upload/', `/upload/w_${w},h_${h},c_fill,q_70/`);
+  };
+
   if (!user?.is_admin) return null;
 
   const tabs = ['overview', 'vendors', 'items', 'users', 'styles'];
@@ -452,37 +465,51 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 </div>
               </div>
 
-              {loading ? <ThrifterLoader /> : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {clusters.map((cluster) => {
-                    const sampleIds = JSON.parse(cluster.sample_item_ids || '[]');
-                    return (
-                      <div 
-                        key={cluster.id} 
-                        onClick={() => openClusterPreview(cluster)}
-                        className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 hover:border-[#EAAD11] transition-all cursor-pointer group shadow-sm"
+              {clustersLoading ? <ThrifterLoader /> : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {clusters.map((cluster) => {
+                      const sampleIds = JSON.parse(cluster.sample_item_ids || '[]');
+                      return (
+                        <div
+                          key={cluster.id}
+                          onClick={() => openClusterPreview(cluster)}
+                          className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 hover:border-[#EAAD11] transition-all cursor-pointer group shadow-sm"
+                        >
+                          <div className="flex gap-1 h-20 mb-3 overflow-hidden rounded-lg opacity-80 group-hover:opacity-100 transition-opacity">
+                            {sampleIds.slice(0, 3).map((id, idx) => (
+                              <div key={idx} className="flex-1 bg-gray-50 dark:bg-gray-900">
+                                  <img
+                                    src={`${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/api/items/${id}/image?w=80`}
+                                    alt="preview"
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={(e) => { e.target.src = '/placeholder.svg' }}
+                                  />
+                              </div>
+                            ))}
+                          </div>
+                          <h4 className="font-bold text-sm line-clamp-1">{cluster.custom_name || cluster.ai_label}</h4>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-[10px] text-gray-400 font-mono italic">AI: {cluster.ai_label}</span>
+                            {cluster.custom_name && <Edit3 className="w-3 h-3 text-[#EAAD11]" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {clustersHasMore && (
+                    <div className="flex justify-center mt-4">
+                      <button
+                        onClick={() => loadClusters(clustersPage + 1)}
+                        disabled={clustersLoadingMore}
+                        className="px-6 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                       >
-                        <div className="flex gap-1 h-20 mb-3 overflow-hidden rounded-lg opacity-80 group-hover:opacity-100 transition-opacity">
-                          {sampleIds.slice(0, 3).map((id, idx) => (
-                            <div key={idx} className="flex-1 bg-gray-50 dark:bg-gray-900">
-                                <img 
-                                  src={`${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/api/items/${id}/image`}
-                                  alt="preview"
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => { e.target.src = '/placeholder.svg' }}
-                                />
-                            </div>
-                          ))}
-                        </div>
-                        <h4 className="font-bold text-sm line-clamp-1">{cluster.custom_name || cluster.ai_label}</h4>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className="text-[10px] text-gray-400 font-mono italic">AI: {cluster.ai_label}</span>
-                          {cluster.custom_name && <Edit3 className="w-3 h-3 text-[#EAAD11]" />}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                        {clustersLoadingMore ? 'Loading...' : 'Load more'}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -604,10 +631,11 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                       transition={{ delay: idx * 0.05 }}
                       className="flex-shrink-0 w-64 h-[400px] bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col group"
                     >
-                      <img 
-                        src={getImageUrl(item.image_path)} 
+                      <img
+                        src={cloudinaryResize(getImageUrl(item.image_path), 512, 800)}
                         alt={item.name}
                         className="w-full flex-1 object-cover"
+                        loading="lazy"
                       />
                       <div className="p-4">
                         <p className="font-bold text-sm line-clamp-1">{item.name}</p>

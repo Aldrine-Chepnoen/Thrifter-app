@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, ChevronRight } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
 
@@ -32,8 +32,8 @@ const StyleDiscovery = ({ onOpenModal }) => {
   }
 
   return (
-    <div className="py-8 px-4 md:px-6 max-w-7xl mx-auto">
-      <div className="flex flex-col gap-6 px-4 md:px-0">
+    <div className="pb-8">
+      <div className="grid grid-cols-2 gap-3 md:gap-4">
         {styles.map((style) => (
           <StyleTile
             key={style.id}
@@ -47,70 +47,37 @@ const StyleDiscovery = ({ onOpenModal }) => {
 };
 
 const StyleTile = ({ style, onClick }) => {
-  const sampleImages = (style.sample_items || []).map(item => item.image_path).filter(Boolean);
+  const coverImage = style.cover_image_path || style.sample_items?.[0]?.image_path || null;
 
   return (
     <button
       onClick={onClick}
-      className="w-full group relative h-48 md:h-64 rounded-[2rem] overflow-hidden bg-gray-100 dark:bg-gray-800 transition-all hover:scale-[1.01] input-shadow border border-gray-100 dark:border-gray-800 text-left flex"
+      className="relative aspect-[3/4] rounded-2xl md:rounded-3xl overflow-hidden bg-gray-200 dark:bg-gray-800 group"
     >
-      {/* Left Side: Image */}
-      <div className="w-1/3 md:w-2/5 h-full relative overflow-hidden shrink-0 border-r border-gray-100/10">
-        {style.cover_image_path ? (
-          <img src={style.cover_image_path} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="" />
-        ) : (
-          <div className="grid grid-cols-2 gap-0.5 h-full">
-            {sampleImages.length > 0 ? (
-              <>
-                <img
-                  src={sampleImages[0]}
-                  className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ${sampleImages.length === 1 ? 'col-span-2' : ''}`}
-                  alt=""
-                  onError={(e) => { e.target.src = '/placeholder.svg' }}
-                />
-                {sampleImages.length > 1 && (
-                  <div className="grid grid-rows-2 gap-0.5">
-                    <img
-                      src={sampleImages[1]}
-                      className="w-full h-full object-cover"
-                      alt=""
-                      onError={(e) => { e.target.src = '/placeholder.svg' }}
-                    />
-                    {sampleImages.length > 2 ? (
-                      <img
-                        src={sampleImages[2]}
-                        className="w-full h-full object-cover"
-                        alt=""
-                        onError={(e) => { e.target.src = '/placeholder.svg' }}
-                      />
-                    ) : (
-                      <div className="bg-gray-200 dark:bg-gray-700 w-full h-full" />
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="col-span-2 flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-                <Sparkles className="w-8 h-8 text-gray-400 opacity-20" />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Right Side: Content Area with Gradient */}
-      <div className="flex-1 relative flex items-center p-6 md:p-10">
-        <div className="absolute inset-0 bg-gradient-to-r from-black/5 to-transparent dark:from-black/40 group-hover:bg-black/5 transition-colors" />
-
-        <div className="relative z-10 max-w-lg">
-          <h3 className="text-gray-900 dark:text-white font-serif font-bold text-2xl md:text-3xl leading-tight mb-2 group-hover:text-[#EAAD11] transition-colors">{style.name}</h3>
-          <p className="text-gray-500 dark:text-white/60 text-sm md:text-base line-clamp-2 md:line-clamp-3 font-medium mb-6">{style.description}</p>
-
-          <div className="flex items-center text-[#EAAD11] text-xs font-bold uppercase tracking-wider gap-2 group-hover:gap-3 transition-all">
-            Explore Aesthetic
-            <ChevronRight className="w-5 h-5" />
-          </div>
+      {coverImage ? (
+        <img
+          src={coverImage}
+          alt={style.name}
+          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Sparkles className="w-10 h-10 text-gray-400 opacity-20" />
         </div>
+      )}
+
+      {/* Gradient scrim */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+
+      {/* Name at bottom */}
+      <div className="absolute bottom-0 inset-x-0 p-4">
+        <h3 className="text-white font-serif font-bold text-lg md:text-xl leading-tight drop-shadow-sm">
+          {style.name}
+        </h3>
+        <p className="text-[#EAAD11] text-[10px] font-bold uppercase tracking-widest mt-1 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200">
+          Explore →
+        </p>
       </div>
     </button>
   );
