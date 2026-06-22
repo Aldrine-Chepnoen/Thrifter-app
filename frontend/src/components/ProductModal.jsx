@@ -39,7 +39,13 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   useEffect(() => {
     if (!isOpen || !item) { setViewStats(null); return; }
     const isOwnerNow = !!(user?.is_vendor && user?.vendor_name && item?.vendor_name && user.vendor_name === item.vendor_name);
-    if (!isOwnerNow) api.post(`/items/${item.id}/view`).catch(() => {});
+    if (!isOwnerNow) {
+      const sessionKey = `viewed_${item.id}`;
+      if (!sessionStorage.getItem(sessionKey)) {
+        api.post(`/items/${item.id}/view`).catch(() => {});
+        sessionStorage.setItem(sessionKey, '1');
+      }
+    }
     if (isOwnerNow && isOnOwnVendorPage) {
       api.get(`/items/${item.id}/views`).then(res => setViewStats(res.data)).catch(() => {});
     } else {

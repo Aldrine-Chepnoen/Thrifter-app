@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Plus, Menu, X, Share2, Check } from 'lucide-react';
+import { Plus, Share2, Check, X } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
@@ -80,41 +80,60 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-6">
-      <div className="relative h-40 md:h-52 bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden mb-8 shadow-inner input-shadow border border-[#EAAD11]/20">
-        <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
-        <div className="h-full w-full flex items-center justify-center">
-          <div className="px-6 md:px-8 text-center banner-text-shadow">
-            <h1 className="text-3xl md:text-4xl font-serif font-bold text-white tracking-tight">{vendorInfo?.name || name}</h1>
-            <p className="text-sm text-white mt-2 font-semibold opacity-90">
-              {items.length} curated item(s)
-            </p>
-          </div>
+    <main className="max-w-7xl mx-auto">
+      {/* Hero banner — full width, no padding, no rounded corners */}
+      <div className="relative h-44 md:h-60 bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] overflow-hidden">
+        <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none" />
+      </div>
+
+      {/* Vendor info block */}
+      <div className="px-4 md:px-6 pt-5 pb-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight">
+            {vendorInfo?.name || name}
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{items.length} items</p>
         </div>
-
-        <button
-          onClick={handleShare}
-          className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 bg-black/20 hover:bg-black/30 rounded-lg text-white text-xs font-medium transition-all"
-          title="Copy store link"
-        >
-          {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-          {copied ? 'Copied to clipboard' : 'Share'}
-        </button>
-
         {isOwnProfile && (
           <button
             onClick={settingsOpen ? () => setSettingsOpen(false) : openSettings}
-            className="absolute top-3 right-3 p-2 bg-black/20 hover:bg-black/30 rounded-lg text-white transition-all"
-            title="Store settings"
+            className="flex-shrink-0 bg-[#EAAD11] text-black font-bold px-5 py-2 rounded-full text-sm hover:opacity-90 transition-all"
           >
-            {settingsOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {settingsOpen ? 'Close' : 'Edit page'}
           </button>
         )}
       </div>
+      <div className="border-b border-gray-100 dark:border-gray-800" />
 
+      {/* Gold action bar */}
+      <div className="bg-[#EAAD11] px-4 md:px-6 py-4 flex items-center justify-between gap-3">
+        {isOwnProfile ? (
+          <Link
+            to="/upload"
+            className="flex items-center gap-2 bg-white text-black font-bold px-5 py-2.5 rounded-full text-sm hover:opacity-90 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            sell a piece
+          </Link>
+        ) : <div />}
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-2 bg-black/80 text-white font-bold px-5 py-2.5 rounded-full text-sm hover:opacity-90 transition-all"
+        >
+          {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+          {copied ? 'Copied!' : 'share profile'}
+        </button>
+      </div>
+
+      {/* Settings panel */}
       {isOwnProfile && settingsOpen && (
-        <div className="mb-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-sm">
-          <h3 className="font-serif font-bold text-lg mb-5 dark:text-white">Store Settings</h3>
+        <div className="px-4 md:px-6 py-6 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="font-serif font-bold text-lg dark:text-white">Store Settings</h3>
+            <button onClick={() => setSettingsOpen(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+              <X className="w-4 h-4 text-gray-500" />
+            </button>
+          </div>
           <div className="space-y-4 max-w-md">
             <div>
               <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Store Name</label>
@@ -155,19 +174,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         </div>
       )}
 
-      {isOwnProfile && (
-        <div className="flex justify-end mb-6">
-          <Link
-            to="/upload"
-            className="flex items-center gap-2 bg-[#EAAD11] text-black px-6 py-3 rounded-xl hover:opacity-90 transition-all font-bold shadow-lg shadow-black/10 input-shadow"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Sell Item</span>
-          </Link>
-        </div>
-      )}
-
-      <div>
+      {/* Product grid */}
+      <div className="px-4 md:px-6 mt-6">
         {loading ? (
           <ThrifterLoader />
         ) : items.length > 0 ? (
