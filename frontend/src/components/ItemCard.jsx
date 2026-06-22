@@ -1,10 +1,10 @@
 // This is the ItemCard component for the Thrifter frontend application. It displays an individual item with its image, name, market, vendor name (if available), and price formatted in Ugandan Shillings (UGX). The component uses Framer Motion for smooth animations when items are added or removed from the view. It also includes a button to remove the item from the wardrobe if the onRemove prop is provided. The image source is determined based on whether the image_path is a full URL or a relative path, and it handles both cases accordingly.
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Heart } from 'lucide-react';
+import { X, Heart, Eye } from 'lucide-react';
 import { getOptimizedCloudinaryUrl } from '../utils';
 
-const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds }) => {
+const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData }) => {
   const [saved, setSaved] = useState(() => wardrobeIds?.has(item.id) ?? false);
   const rawImgSrc = item.image_path.startsWith('http') 
     ? item.image_path 
@@ -31,6 +31,14 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds }) => 
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
+          {viewData && (
+            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-2 px-2.5 pointer-events-none">
+              <div className="flex items-center gap-1 text-white">
+                <Eye className="w-3 h-3 flex-shrink-0" />
+                <span className="text-xs font-semibold">{viewData.last_7_days} this week</span>
+              </div>
+            </div>
+          )}
           {onRemove && (
             <button
               type="button"

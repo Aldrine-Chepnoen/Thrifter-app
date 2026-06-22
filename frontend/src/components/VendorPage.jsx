@@ -17,6 +17,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [viewStats, setViewStats] = useState({});
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
 
@@ -29,6 +30,11 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       ]);
       setItems(itemsRes.data || []);
       setVendorInfo(vendorRes.data || null);
+      if (isOwnProfile) {
+        api.get(`/vendors/${encodeURIComponent(name)}/views`)
+          .then(res => setViewStats(res.data || {}))
+          .catch(() => {});
+      }
     } catch (e) {
       console.error('Failed to load vendor items', e);
     } finally {
@@ -165,7 +171,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         {loading ? (
           <ThrifterLoader />
         ) : items.length > 0 ? (
-          <MasonryGrid items={items} onItemClick={setSelectedItem} />
+          <MasonryGrid items={items} onItemClick={setSelectedItem} viewStats={isOwnProfile ? viewStats : null} />
         ) : (
           <div className="text-center py-20 text-gray-500">
             <p>No items from this vendor yet.</p>

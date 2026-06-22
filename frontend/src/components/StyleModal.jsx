@@ -1,28 +1,27 @@
 import React from 'react';
 import { X, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 const StyleModal = ({ style, onClose, onBuild }) => {
   const coverImage = style.cover_image_path || style.sample_items?.[0]?.image_path || null;
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-6">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        />
+    <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-6">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      />
 
-        <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          className="relative w-full md:w-auto md:max-w-sm bg-white dark:bg-gray-900 rounded-t-[2.5rem] md:rounded-[2.5rem] overflow-hidden shadow-2xl"
-        >
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+        className="relative w-full md:w-auto md:max-w-sm bg-white dark:bg-gray-900 rounded-t-[2.5rem] md:rounded-[2.5rem] overflow-hidden shadow-2xl"
+      >
           {/* Full-bleed cover with name overlay */}
           <div className="relative h-[58vh] md:h-[480px]">
             {coverImage ? (
@@ -68,8 +67,7 @@ const StyleModal = ({ style, onClose, onBuild }) => {
             </button>
           </div>
         </motion.div>
-      </div>
-    </AnimatePresence>
+    </div>
   );
 };
 

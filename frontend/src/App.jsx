@@ -374,26 +374,28 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 font-sans text-gray-900 dark:text-gray-100">
-      <Navbar
-        onSearch={handleSearch}
-        onImageSearchClick={handleImageSearchClick}
-        user={user}
-        onLogout={() => {
-          if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
-          localStorage.removeItem('thrifter_token');
-          setUser(null);
-          setWardrobeIds(new Set());
-        }}
-        features={features}
-        openAuthModal={openAuthModal}
-        hidden={headerHidden}
-        feedType={feedType}
-        onFeedTypeChange={handleFeedTypeChange}
-        onFilterClick={() => setIsFilterSheetOpen(true)}
-        hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
-        darkMode={darkMode}
-        toggleDarkMode={toggleDarkMode}
-      />
+      {!(isBuilderMode && location.pathname === '/outfit-builder') && (
+        <Navbar
+          onSearch={handleSearch}
+          onImageSearchClick={handleImageSearchClick}
+          user={user}
+          onLogout={() => {
+            if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
+            localStorage.removeItem('thrifter_token');
+            setUser(null);
+            setWardrobeIds(new Set());
+          }}
+          features={features}
+          openAuthModal={openAuthModal}
+          hidden={headerHidden}
+          feedType={feedType}
+          onFeedTypeChange={handleFeedTypeChange}
+          onFilterClick={() => setIsFilterSheetOpen(true)}
+          hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
+          darkMode={darkMode}
+          toggleDarkMode={toggleDarkMode}
+        />
+      )}
       
       {/* Hidden File Inputs */}
       <input 
@@ -487,9 +489,9 @@ function App() {
         <Route path="/outfit-builder" element={
           <main className="max-w-7xl mx-auto">
             {isBuilderMode && activeStyle ? (
-              <StyleBuilder 
-                style={activeStyle} 
-                onBack={() => setIsBuilderMode(false)}
+              <StyleBuilder
+                style={activeStyle}
+                onBack={() => { setIsBuilderMode(false); window.scrollTo(0, 0); }}
                 onSelectItem={setSelectedItem}
               />
             ) : (
@@ -581,18 +583,20 @@ function App() {
         <SurveyPopup user={user} onDismiss={handleSurveyDismiss} />
       )}
 
-      {styleModalOpen && activeStyleForModal && (
-        <StyleModal 
-          style={activeStyleForModal} 
-          onClose={() => setStyleModalOpen(false)}
-          onBuild={(style) => {
-            setActiveStyle(style);
-            setIsBuilderMode(true);
-            setStyleModalOpen(false);
-            window.scrollTo(0,0);
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {styleModalOpen && activeStyleForModal && (
+          <StyleModal
+            style={activeStyleForModal}
+            onClose={() => setStyleModalOpen(false)}
+            onBuild={(style) => {
+              setActiveStyle(style);
+              setIsBuilderMode(true);
+              setStyleModalOpen(false);
+              window.scrollTo(0, 0);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <ProductModal 
         item={selectedItem} 

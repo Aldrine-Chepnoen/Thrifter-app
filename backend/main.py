@@ -1296,6 +1296,109 @@ def remove_wardrobe(item_id: int, current = Depends(get_current_user), db: Sessi
     cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
 
+# ── Item view tracking ─────────────────────────────────────────────────────────
+
+@app.get("/vendors/{name}/views")
+def get_vendor_view_summary(name: str, current_user: Optional[models.User] = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    vendor = db.query(models.Vendor).filter(func.lower(models.Vendor.name) == name.lower()).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    if not current_user.is_admin and current_user.vendor_id != vendor.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    item_ids = [row.id for row in db.query(models.Item.id).filter(models.Item.vendor_id == vendor.id).all()]
+    if not item_ids:
+        return {}
+
+    now = datetime.utcnow()
+    cutoff_7 = now - timedelta(days=7)
+    cutoff_30 = now - timedelta(days=30)
+
+    rows_7 = (
+        db.query(models.ItemView.item_id, func.count(models.ItemView.id).label('cnt'))
+        .filter(models.ItemView.item_id.in_(item_ids), models.ItemView.viewed_at >= cutoff_7)
+        .group_by(models.ItemView.item_id).all()
+    )
+    rows_30 = (
+        db.query(models.ItemView.item_id, func.count(models.ItemView.id).label('cnt'))
+        .filter(models.ItemView.item_id.in_(item_ids), models.ItemView.viewed_at >= cutoff_30)
+        .group_by(models.ItemView.item_id).all()
+    )
+
+    stats_7 = {row.item_id: row.cnt for row in rows_7}
+    stats_30 = {row.item_id: row.cnt for row in rows_30}
+
+    return {
+        str(iid): {"last_7_days": stats_7.get(iid, 0), "last_30_days": stats_30.get(iid, 0)}
+        for iid in item_ids
+    }
+
+
+
+@app.post("/items/{item_id}/view", status_code=204)
+def record_item_view(item_id: int, current_user: Optional[models.User] = Depends(get_current_user), db: Session = Depends(get_db)):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    if current_user:
+        cutoff = datetime.utcnow() - timedelta(minutes=30)
+        recent = db.query(models.ItemView).filter(
+            models.ItemView.item_id == item_id,
+            models.ItemView.user_id == current_user.id,
+            models.ItemView.viewed_at >= cutoff,
+        ).first()
+        if recent:
+            return Response(status_code=204)
+
+    db.add(models.ItemView(item_id=item_id, user_id=current_user.id if current_user else None))
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/items/{item_id}/views", response_model=schemas.ItemViewStats)
+def get_item_view_stats(item_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Only the item's vendor or an admin can read view stats
+    if not current_user.is_admin:
+        if not current_user.vendor_id or current_user.vendor_id != item.vendor_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    now = datetime.utcnow()
+    cutoff_7 = now - timedelta(days=7)
+    cutoff_30 = now - timedelta(days=30)
+
+    base = db.query(models.ItemView).filter(models.ItemView.item_id == item_id)
+    total = base.count()
+    last_7 = base.filter(models.ItemView.viewed_at >= cutoff_7).count()
+    last_30 = base.filter(models.ItemView.viewed_at >= cutoff_30).count()
+
+    daily_rows = db.execute(
+        text("""
+            SELECT DATE(viewed_at) AS day, COUNT(*) AS cnt
+            FROM item_views
+            WHERE item_id = :item_id AND viewed_at >= :cutoff
+            GROUP BY DATE(viewed_at)
+            ORDER BY day DESC
+        """),
+        {"item_id": item_id, "cutoff": cutoff_30},
+    ).fetchall()
+
+    daily = [schemas.DailyViewCount(date=str(row.day), count=row.cnt) for row in daily_rows]
+
+    return schemas.ItemViewStats(total=total, last_7_days=last_7, last_30_days=last_30, daily=daily)
+
+
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)

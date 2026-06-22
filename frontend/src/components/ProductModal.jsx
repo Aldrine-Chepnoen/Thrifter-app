@@ -1,8 +1,8 @@
 // This is the ProductModal component for the Thrifter frontend application. It displays detailed information about a specific product. For users, it provides options to add to wardrobe or chat with the vendor. For the item owner (vendor), it provides "Edit Listing" and "Delete Listing" buttons. The edit mode allows vendors to update the name, price, size, and description of their items without having to re-upload.
 import React, { useState, useEffect } from 'react';
-import { X, MessageCircle, Heart, Edit, Check } from 'lucide-react';
+import { X, MessageCircle, Heart, Edit, Check, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 import { getOptimizedCloudinaryUrl } from '../utils';
@@ -18,6 +18,9 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   });
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [viewStats, setViewStats] = useState(null);
+  const location = useLocation();
+  const isOnOwnVendorPage = location.pathname.toLowerCase() === `/vendor/${user?.vendor_name?.toLowerCase()}`;
 
   useEffect(() => {
     if (item) {
@@ -32,6 +35,17 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     }
     setEditMode(false);
   }, [item, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !item) { setViewStats(null); return; }
+    const isOwnerNow = !!(user?.is_vendor && user?.vendor_name && item?.vendor_name && user.vendor_name === item.vendor_name);
+    if (!isOwnerNow) api.post(`/items/${item.id}/view`).catch(() => {});
+    if (isOwnerNow && isOnOwnVendorPage) {
+      api.get(`/items/${item.id}/views`).then(res => setViewStats(res.data)).catch(() => {});
+    } else {
+      setViewStats(null);
+    }
+  }, [item?.id, isOpen, user?.id]);
 
   useEffect(() => {
     if (isOpen) {
@@ -189,6 +203,24 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
 
           <div className="w-full md:w-1/2 p-8 flex flex-col md:overflow-y-auto">
             <div className="mb-auto">
+              {viewStats && !editMode && (
+                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5" /> Views
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{viewStats.last_7_days}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Past week</p>
+                    </div>
+                    <div className="w-px h-8 bg-gray-200 dark:bg-gray-700" />
+                    <div>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{viewStats.last_30_days}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Past month</p>
+                    </div>
+                  </div>
+                </div>
+              )}
               <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
                 {item.market}
               </span>

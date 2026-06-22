@@ -185,3 +185,13 @@ class VendorProfile(BaseModel):
 
     class Config:
         from_attributes = True
+
+class DailyViewCount(BaseModel):
+    date: str
+    count: int
+
+class ItemViewStats(BaseModel):
+    total: int
+    last_7_days: int
+    last_30_days: int
+    daily: List[DailyViewCount]

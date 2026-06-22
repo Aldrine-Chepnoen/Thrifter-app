@@ -1,9 +1,10 @@
 # This file defines the database models for the Thrifter backend application using SQLAlchemy. It includes models for users, vendors, items, blacklisted tokens, and a wardrobe feature. The User model represents registered users of the application, with fields for email, hashed password, and vendor association. The Vendor model represents sellers on the platform, with fields for name, WhatsApp contact, and a relationship to their items. The Item model represents products listed by vendors, including details such as name, price, size, market, image information, description, and an embedding vector for search functionality. The BlacklistedToken model is used to store JWT tokens that have been invalidated. The Wardrobe model allows users to save items they are interested in. These models form the core of the application's data structure and are used throughout the backend for managing data and relationships between entities.
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from database import Base
 from pgvector.sqlalchemy import Vector
 import time
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -106,3 +107,10 @@ class Wardrobe(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+
+class ItemView(Base):
+    __tablename__ = "item_views"
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

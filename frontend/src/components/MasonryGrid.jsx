@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import ItemCard from './ItemCard';
 
-const MasonryGrid = ({ items, onItemClick, onRemove, onAddToWardrobe, wardrobeIds }) => {
+const MasonryGrid = ({ items, onItemClick, onRemove, onAddToWardrobe, wardrobeIds, viewStats }) => {
   const [columnCount, setColumnCount] = useState(2);
 
   useEffect(() => {
@@ -38,6 +38,7 @@ const MasonryGrid = ({ items, onItemClick, onRemove, onAddToWardrobe, wardrobeId
                 onRemove={onRemove}
                 onAddToWardrobe={onAddToWardrobe}
                 wardrobeIds={wardrobeIds}
+                viewData={viewStats ? viewStats[String(item.id)] : null}
               />
             ))}
           </AnimatePresence>
