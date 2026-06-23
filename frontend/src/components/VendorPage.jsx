@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Plus, Share2, Check, X } from 'lucide-react';
+import { Plus, Share2, Check, X, Camera } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
@@ -14,10 +14,14 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [editWhatsapp, setEditWhatsapp] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editLocation, setEditLocation] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [viewStats, setViewStats] = useState({});
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const bannerInputRef = useRef(null);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
 
@@ -55,22 +59,52 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const openSettings = () => {
     setEditName(vendorInfo?.name || name);
     setEditWhatsapp(user?.vendor_whatsapp || '');
+    setEditDescription(vendorInfo?.description || '');
+    setEditLocation(vendorInfo?.location || '');
     setError('');
     setSettingsOpen(true);
+  };
+
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setBannerUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/vendor/me/banner', formData);
+      setVendorInfo(prev => ({ ...prev, banner_image: res.data.banner_image }));
+    } catch {
+      alert('Failed to upload banner image');
+    } finally {
+      setBannerUploading(false);
+      e.target.value = null;
+    }
   };
 
   const handleSave = async () => {
     setSaving(true);
     setError('');
     try {
-      const res = await api.put('/vendor/me', { name: editName, whatsapp: editWhatsapp });
+      const res = await api.put('/vendor/me', {
+        name: editName,
+        whatsapp: editWhatsapp,
+        description: editDescription || null,
+        location: editLocation || null,
+      });
       const newName = res.data.vendor_name;
       onVendorRenamed?.(newName);
       setSettingsOpen(false);
       if (newName.toLowerCase() !== name.toLowerCase()) {
         navigate(`/vendor/${encodeURIComponent(newName)}`, { replace: true });
       } else {
-        setVendorInfo(prev => ({ ...prev, name: newName, whatsapp: res.data.vendor_whatsapp }));
+        setVendorInfo(prev => ({
+          ...prev,
+          name: newName,
+          whatsapp: res.data.vendor_whatsapp,
+          description: editDescription || null,
+          location: editLocation || null,
+        }));
       }
     } catch (e) {
       setError(e.response?.data?.detail || 'Failed to save changes');
@@ -81,9 +115,43 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
 
   return (
     <main className="max-w-7xl mx-auto">
-      {/* Hero banner — full width, no padding, no rounded corners */}
-      <div className="relative h-44 md:h-60 bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] overflow-hidden">
-        <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none" />
+      {/* Hero banner */}
+      <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
+        {vendorInfo?.banner_image ? (
+          <img
+            src={vendorInfo.banner_image}
+            alt="Vendor banner"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Camera className="w-12 h-12 text-gray-400 dark:text-gray-600" />
+          </div>
+        )}
+
+        {isOwnProfile && (
+          <>
+            <input
+              type="file"
+              ref={bannerInputRef}
+              className="hidden"
+              accept="image/*"
+              onChange={handleBannerUpload}
+            />
+            <button
+              onClick={() => bannerInputRef.current.click()}
+              disabled={bannerUploading}
+              title="Upload banner photo"
+              className="absolute bottom-3 right-3 p-2.5 bg-black/50 hover:bg-black/70 backdrop-blur-sm text-white rounded-full transition-all disabled:opacity-50"
+            >
+              {bannerUploading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Camera className="w-5 h-5" />
+              )}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Vendor info block */}
@@ -92,7 +160,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight">
             {vendorInfo?.name || name}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{items.length} items</p>
+          {vendorInfo?.description && (
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
+          )}
+          {vendorInfo?.location && (
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">{vendorInfo.location}</p>
+          )}
+          {!vendorInfo?.description && !vendorInfo?.location && (
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{items.length} items</p>
+          )}
         </div>
         {isOwnProfile && (
           <button
@@ -151,6 +227,26 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 value={editWhatsapp}
                 onChange={e => setEditWhatsapp(e.target.value)}
                 placeholder="+256..."
+                className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Bio</label>
+              <textarea
+                value={editDescription}
+                onChange={e => setEditDescription(e.target.value)}
+                placeholder="Tell shoppers about your store..."
+                rows={3}
+                className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none resize-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Location</label>
+              <input
+                type="text"
+                value={editLocation}
+                onChange={e => setEditLocation(e.target.value)}
+                placeholder="e.g. Kampala, Uganda"
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               />
             </div>

@@ -1007,6 +1007,8 @@ def update_vendor_profile(
 
     vendor.name = new_name
     vendor.whatsapp = formatted_whatsapp
+    vendor.description = body.description
+    vendor.location = body.location
     db.commit()
     db.refresh(vendor)
 
@@ -1019,6 +1021,40 @@ def update_vendor_profile(
         is_vendor=current.is_vendor, is_admin=current.is_admin,
         vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp
     )
+
+@app.post("/vendor/me/banner")
+async def upload_vendor_banner(
+    file: UploadFile = File(...),
+    current=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current or not current.is_vendor:
+        raise HTTPException(status_code=403, detail="Vendor account required")
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    if vendor.banner_cloudinary_id:
+        try:
+            cloudinary.uploader.destroy(vendor.banner_cloudinary_id)
+        except Exception:
+            pass
+
+    content = await file.read()
+    result = cloudinary.uploader.upload(
+        io.BytesIO(content),
+        folder="thrifter_vendor_banners",
+        transformation=[
+            {"width": 1400, "crop": "limit"},
+            {"quality": "auto"},
+            {"fetch_format": "auto"}
+        ]
+    )
+    vendor.banner_image = result.get("secure_url")
+    vendor.banner_cloudinary_id = result.get("public_id")
+    db.commit()
+
+    return {"banner_image": vendor.banner_image}
 
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")

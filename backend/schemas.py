@@ -28,6 +28,8 @@ class Token(BaseModel):
 class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str
+    description: Optional[str] = None
+    location: Optional[str] = None
 
 class UserInfo(BaseModel):
     id: int
@@ -174,6 +176,9 @@ class VendorInfo(BaseModel):
     name: str
     whatsapp: Optional[str] = None
     item_count: int = 0
+    banner_image: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
 
     class Config:
         from_attributes = True

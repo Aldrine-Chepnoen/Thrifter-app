@@ -56,6 +56,10 @@ class Vendor(Base):
     whatsapp = Column(String, index=True)
     is_active = Column(Boolean, default=True)
     is_pinned = Column(Boolean, default=False)
+    banner_image = Column(String, nullable=True)
+    banner_cloudinary_id = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    location = Column(String, nullable=True)
     items = relationship("Item", back_populates="vendor")
 
 class AppSetting(Base):
