@@ -176,15 +176,6 @@ const Navbar = ({
         {showIcons && (
           <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
             <button
-              onClick={() => handleProtectedAction(onImageSearchClick)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-              title="Upload outfit inspiration"
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Image search</span>
-              <Camera className="w-3.5 h-3.5" />
-            </button>
-
-            <button
               onClick={() => handleProtectedAction('/wardrobe', true)}
               className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
               title="Wardrobe"
@@ -268,9 +259,16 @@ const Navbar = ({
                 <input
                   type="text"
                   placeholder="Search items or categories..."
-                  className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
+                  className="w-full pl-10 pr-10 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                   onChange={(e) => handleSearchInput(e.target.value)}
                 />
+                <button
+                  onClick={() => handleProtectedAction(onImageSearchClick)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EAAD11] transition-colors"
+                  title="Image search"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
               </div>
               <button
                 onClick={onFilterClick}
@@ -295,9 +293,16 @@ const Navbar = ({
               <input
                 type="text"
                 placeholder="Search items or categories..."
-                className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
+                className="w-full pl-10 pr-10 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                 onChange={(e) => handleSearchInput(e.target.value)}
               />
+              <button
+                onClick={() => handleProtectedAction(onImageSearchClick)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EAAD11] transition-colors"
+                title="Image search"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
             </div>
             <button
               onClick={onFilterClick}
