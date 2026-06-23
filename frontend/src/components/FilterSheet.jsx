@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, SlidersHorizontal } from 'lucide-react';
 
 const PRICE_BRACKETS = [
+  { label: 'Under 10k',    min: null,   max: 10000  },
   { label: 'Under 20k',    min: null,   max: 20000  },
   { label: '20k – 50k',   min: 20000,  max: 50000  },
   { label: '50k – 100k',  min: 50000,  max: 100000 },
