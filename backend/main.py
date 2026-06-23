@@ -978,7 +978,14 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
     item_count = db.query(func.count(models.Item.id)).filter(
         models.Item.vendor_id == vendor.id
     ).scalar()
-    return schemas.VendorProfile(id=vendor.id, name=vendor.name, item_count=item_count)
+    return schemas.VendorProfile(
+        id=vendor.id,
+        name=vendor.name,
+        item_count=item_count,
+        banner_image=vendor.banner_image,
+        description=vendor.description,
+        location=vendor.location,
+    )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
 def update_vendor_profile(
