@@ -1075,16 +1075,21 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         # 1. Get AI embedding for the text query
         query_emb = search_engine.get_text_embedding(query)
 
-        # 2. Vector search using pgvector (semantic/visual similarity)
-        vector_results = (
+        # 2. Vector search using pgvector HNSW index (cosine distance).
+        # No JOIN here — the join prevents the planner from using the HNSW index.
+        # Vendor active-status filtering is done in Python after selectinload.
+        raw_vector = (
             db.query(models.Item)
-            .options(defer(models.Item.embedding))
-            .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
-            .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
-            .order_by(models.Item.embedding.l2_distance(query_emb.tolist()))
-            .limit(40)
+            .options(defer(models.Item.embedding), selectinload(models.Item.vendor))
+            .filter(models.Item.embedding.isnot(None))
+            .order_by(models.Item.embedding.cosine_distance(query_emb.tolist()))
+            .limit(60)
             .all()
         )
+        vector_results = [
+            it for it in raw_vector
+            if it.vendor_id is None or (it.vendor and it.vendor.is_active)
+        ][:40]
 
         # 3. Keyword search (exact matches)
         keyword_results = (
@@ -1124,17 +1129,28 @@ async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_
     logger.info(f"Image search request: {file.filename}")
     try:
         content = await file.read()
-        image_stream = io.BytesIO(content)
-        input_emb = search_engine.get_image_embedding_from_file(image_stream)
-        
-        # Use pgvector for L2 distance search (closest 50 items)
-        items = db.query(models.Item).order_by(
-            models.Item.embedding.l2_distance(input_emb.tolist())
-        ).limit(50).all()
+
+        def _embed():
+            from PIL import Image as PILImage
+            img = PILImage.open(io.BytesIO(content)).convert("RGB")
+            img.thumbnail((512, 512), PILImage.LANCZOS)
+            return search_engine.get_image_embedding_from_file(img)
+
+        loop = asyncio.get_event_loop()
+        input_emb = await loop.run_in_executor(None, _embed)
+
+        items = (
+            db.query(models.Item)
+            .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+            .filter(models.Item.embedding.isnot(None))
+            .order_by(models.Item.embedding.cosine_distance(input_emb.tolist()))
+            .limit(50)
+            .all()
+        )
 
         if not items:
             return []
-        
+
         return [serialize_item(it) for it in items]
     except Exception as e:
         logger.error(f"Image search failed: {str(e)}", exc_info=True)

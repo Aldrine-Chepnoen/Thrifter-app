@@ -138,7 +138,8 @@ function App() {
   };
 
   const handleFeedTypeChange = (newType) => {
-    if (newType === feedType) return;
+    if (newType === feedType && !outfitResults) return;
+    setOutfitResults(null);
     setFeedType(newType);
     setItems([]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -224,6 +225,12 @@ function App() {
       clearTimeout(searchTimeoutRef.current);
     }
 
+    if (query) {
+      setOutfitResults(null);
+      setItems([]);
+      setLoading(true);
+    }
+
     searchTimeoutRef.current = setTimeout(async () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -231,15 +238,14 @@ function App() {
       abortControllerRef.current = new AbortController();
 
       const rid = ++requestIdRef.current;
-      setOutfitResults(null);
-      
+
       if (!query) {
+        setOutfitResults(null);
         if (location.pathname !== '/') navigate('/');
         fetchItems();
         return;
       }
 
-      setLoading(true);
       try {
         const response = await api.get(`/search?query=${query}`, {
           signal: abortControllerRef.current.signal
@@ -271,6 +277,8 @@ function App() {
     const formData = new FormData();
     formData.append('file', file);
 
+    setItems([]);
+    setOutfitResults(null);
     setLoading(true);
     try {
       const response = await api.post('/outfit-search', formData);
@@ -411,8 +419,14 @@ function App() {
           <main className="max-w-7xl mx-auto">
             {outfitResults ? (
               <>
-                <div className="px-6 mb-4 mt-4">
+                <div className="px-6 mb-4 mt-4 flex items-center justify-between">
                   <h2 className="text-xl font-serif font-bold">Similar Items</h2>
+                  <button
+                    onClick={() => { setOutfitResults(null); fetchItems(true, feedSeed, feedType); }}
+                    className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                  >
+                    ← Back to feed
+                  </button>
                 </div>
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} onAddToWardrobe={addToWardrobe} wardrobeIds={wardrobeIds} />
               </>
@@ -448,7 +462,7 @@ function App() {
                   </div>
                 </div>
 
-                {loading && items.length === 0 ? (
+                {loading ? (
                   <ThrifterLoader />
                 ) : items.length > 0 ? (
                   <div className="mt-4">
