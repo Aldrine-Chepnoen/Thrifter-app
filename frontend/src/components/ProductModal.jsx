@@ -82,7 +82,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${path.split(/[\\/]/).pop()}`;
 
   const activeImage = images[activeImageIndex] || images[0];
-  const mainImgSrc = getOptimizedCloudinaryUrl(getFullUrl(activeImage.image_path), 800);
+  const mainImgSrc = getOptimizedCloudinaryUrl(getFullUrl(activeImage.image_path), 600);
   
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
