@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Plus, Share2, Check, X, Camera } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
+import { getOptimizedCloudinaryUrl } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
@@ -119,7 +120,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (
           <img
-            src={vendorInfo.banner_image}
+            src={getOptimizedCloudinaryUrl(vendorInfo.banner_image, 1200)}
             alt="Vendor banner"
             className="absolute inset-0 w-full h-full object-cover"
           />

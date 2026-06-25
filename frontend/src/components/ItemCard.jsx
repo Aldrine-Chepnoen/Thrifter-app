@@ -25,9 +25,10 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
     >
       <div className="item-card-shadow bg-white dark:bg-gray-800">
         <div className="relative item-card-inner overflow-hidden bg-gray-100 dark:bg-gray-700" style={{ aspectRatio: '4 / 5' }}>
-          <img 
-            src={imgSrc} 
+          <img
+            src={imgSrc}
             alt={item.name}
+            loading="lazy"
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
