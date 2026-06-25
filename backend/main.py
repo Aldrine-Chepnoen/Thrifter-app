@@ -623,14 +623,19 @@ def _personalised_feed(
         .all()
     )
 
-    # 6. Fetch random discovery items
+    # If the embedding pool is shallower than skip+similar_count, fill the gap
+    # with extra random items so the page always reaches `limit` items
+    actual_random_count = limit - len(similar_items)
+    similar_ids = {i.id for i in similar_items}
+
+    # 6. Fetch random discovery items (exclude already-included similar items)
     db.execute(text(f"SELECT setseed({seed})"))
     random_items = (
         base_query
-        .filter(~models.Item.id.in_(exclude_ids))
+        .filter(~models.Item.id.in_(exclude_ids | similar_ids))
         .order_by(func.random())
         .offset(skip)
-        .limit(random_count)
+        .limit(actual_random_count)
         .all()
     )
 
