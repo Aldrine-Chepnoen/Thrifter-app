@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { getOptimizedCloudinaryUrl } from '../utils';
 
 const StyleModal = ({ style, onClose, onBuild }) => {
   const coverImage = style.cover_image_path || style.sample_items?.[0]?.image_path || null;
@@ -26,7 +27,7 @@ const StyleModal = ({ style, onClose, onBuild }) => {
           <div className="relative h-[58vh] md:h-[480px]">
             {coverImage ? (
               <img
-                src={coverImage}
+                src={getOptimizedCloudinaryUrl(coverImage, 800)}
                 alt={style.name}
                 className="w-full h-full object-cover"
               />

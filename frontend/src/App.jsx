@@ -453,7 +453,7 @@ function App() {
                     </div>
                     <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
                       <img
-                        src="/Adobe Express - file.png"
+                        src="https://res.cloudinary.com/dqhcuxgu9/image/upload/w_400,q_auto,f_auto,c_limit/v1782600189/homepage-banner_c6nneb.png"
                         alt="Fashion showcase"
                         className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
                       />

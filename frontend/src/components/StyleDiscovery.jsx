@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import api from '../api';
+import { getOptimizedCloudinaryUrl } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const StyleDiscovery = ({ onOpenModal }) => {
@@ -56,7 +57,7 @@ const StyleTile = ({ style, onClick }) => {
     >
       {coverImage ? (
         <img
-          src={coverImage}
+          src={getOptimizedCloudinaryUrl(coverImage, 800)}
           alt={style.name}
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
           onError={(e) => { e.target.style.display = 'none'; }}
