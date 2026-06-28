@@ -10,36 +10,37 @@ Treat all changes with production-level care — real users are actively using t
 
 **Stack:** FastAPI + PostgreSQL (pgvector) backend, React + Vite + Tailwind CSS frontend, FashionCLIP for embeddings, Cloudinary for image storage.
 
-## Commands
+## Dev Environment (Docker)
 
-### Backend (run from `backend/`)
+The dev environment runs via Docker Compose from the project root. The venv/direct approach in older notes is superseded by this.
+
 ```bash
-# Activate venv first (Windows)
-venv\Scripts\activate
-
-# Run dev server
-uvicorn main:app --reload
-
-# Run database migrations
-alembic upgrade head
-
-# Generate a new migration after model changes
-alembic revision --autogenerate -m "description"
+docker compose up          # Start backend + frontend (rebuilds if needed)
+docker compose up --build  # Force rebuild (after Dockerfile or dependency changes)
+docker compose down        # Stop all services
 ```
 
-### Frontend (run from `frontend/`)
+- **Backend** runs at `http://localhost:8000` — uvicorn with `--reload`, so code changes in `backend/` apply instantly without a container restart.
+- **Frontend** runs at `http://localhost:5173` — Vite dev server with hot reload; `npm install` runs automatically on container start.
+- Both services mount local directories as volumes (`./backend:/app`, `./frontend:/app`), so switching git branches takes effect live — no restart required.
+
+**Database migrations** must be run inside the backend container:
 ```bash
-npm run dev       # Dev server at http://localhost:5173
-npm run build     # Production build
-npm run lint      # ESLint
-npm run preview   # Preview production build
+docker compose exec backend alembic upgrade head
+docker compose exec backend alembic revision --autogenerate -m "description"
+```
+
+**Other useful frontend commands** (run inside the container):
+```bash
+docker compose exec frontend npm run build
+docker compose exec frontend npm run lint
 ```
 
 ## Environment Setup
 
-Create `backend/.env` with:
+`backend/.env` is loaded automatically by pydantic-settings (mounted into the container at `/app/.env`). Create it with:
 ```
-DATABASE_URL=postgresql://postgres:postgres@localhost/thrifter
+DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres
 JWT_SECRET=your-secret-here
 CLOUDINARY_CLOUD_NAME=...
 CLOUDINARY_API_KEY=...
@@ -49,13 +50,11 @@ SEED_DEMO=False
 JWT_EXP_SECONDS=2592000
 ```
 
-Create `frontend/.env` (optional):
-```
-VITE_API_BASE_URL=http://localhost:8000
-```
-In dev, `api.js` defaults to `http://localhost:8000`. In production it defaults to `/api`.
+The database is hosted on **Supabase** (managed PostgreSQL). The app connects to it via a standard SQLAlchemy connection string — no Supabase-specific SDK is used. pgvector is enabled on the Supabase instance by default; no manual `CREATE EXTENSION` is needed. The connection string is available in the Supabase dashboard under Project Settings → Database.
 
-PostgreSQL must have the `pgvector` extension available (`CREATE EXTENSION IF NOT EXISTS vector`). The backend auto-creates tables on startup via `models.Base.metadata.create_all()`.
+`VITE_API_BASE_URL` is set to `http://localhost:8000` in `docker-compose.yml` — no separate `frontend/.env` needed in dev. In production it defaults to `/api`.
+
+The backend auto-creates tables on startup via `models.Base.metadata.create_all()`.
 
 On first run the FashionCLIP model (`patrickjohncyh/fashion-clip`, ~300MB) is downloaded automatically.
 
