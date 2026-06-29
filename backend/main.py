@@ -1777,3 +1777,190 @@ def trigger_style_discovery(background_tasks: BackgroundTasks, _: models.User = 
     """Triggers the style discovery background task manually."""
     background_tasks.add_task(_run_style_discovery_task)
     return {"message": "Style discovery started in background"}
+
+
+# ─── Demand Board ─────────────────────────────────────────────────────────────
+
+@app.post("/demand", status_code=201)
+def create_demand_entry(
+    entry: schemas.DemandEntryCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Login required to submit a demand entry")
+    new_entry = models.DemandEntry(
+        user_id=current_user.id,
+        item_name=entry.item_name,
+        price=entry.price,
+        description=entry.description,
+    )
+    db.add(new_entry)
+    db.commit()
+    return {"message": "Entry submitted and pending approval"}
+
+
+@app.get("/demand")
+def list_demand_entries(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    expiry_cutoff = datetime.utcnow() - timedelta(weeks=3)
+    entries = (
+        db.query(models.DemandEntry)
+        .options(selectinload(models.DemandEntry.votes))
+        .filter(
+            models.DemandEntry.status == "approved",
+            models.DemandEntry.last_interacted_at > expiry_cutoff
+        )
+        .all()
+    )
+    result = []
+    for entry in entries:
+        upvotes = sum(1 for v in entry.votes if v.vote_type == "up")
+        downvotes = sum(1 for v in entry.votes if v.vote_type == "down")
+        user_vote = None
+        if current_user:
+            vote_obj = next((v for v in entry.votes if v.user_id == current_user.id), None)
+            user_vote = vote_obj.vote_type if vote_obj else None
+        result.append({
+            "id": entry.id,
+            "item_name": entry.item_name,
+            "price": entry.price,
+            "description": entry.description,
+            "status": entry.status,
+            "created_at": entry.created_at,
+            "upvotes": upvotes,
+            "downvotes": downvotes,
+            "score": upvotes - downvotes,
+            "user_vote": user_vote,
+        })
+    result.sort(key=lambda x: x["score"], reverse=True)
+    return result
+
+
+@app.post("/demand/{entry_id}/vote")
+def vote_demand_entry(
+    entry_id: int,
+    vote: schemas.DemandVoteRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Login required to vote")
+    entry = db.query(models.DemandEntry).filter(
+        models.DemandEntry.id == entry_id,
+        models.DemandEntry.status == "approved"
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    existing = db.query(models.DemandVote).filter_by(
+        user_id=current_user.id, entry_id=entry_id
+    ).first()
+    if existing:
+        if existing.vote_type == vote.vote_type:
+            db.delete(existing)
+        else:
+            existing.vote_type = vote.vote_type
+    else:
+        db.add(models.DemandVote(
+            user_id=current_user.id,
+            entry_id=entry_id,
+            vote_type=vote.vote_type
+        ))
+    entry.last_interacted_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Vote recorded"}
+
+
+@app.delete("/demand/{entry_id}/vote")
+def remove_demand_vote(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Login required")
+    existing = db.query(models.DemandVote).filter_by(
+        user_id=current_user.id, entry_id=entry_id
+    ).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="No vote found")
+    db.delete(existing)
+    db.commit()
+    return {"message": "Vote removed"}
+
+
+@app.get("/admin/demand/pending")
+def admin_demand_pending(
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    entries = (
+        db.query(models.DemandEntry)
+        .filter(models.DemandEntry.status == "pending")
+        .order_by(models.DemandEntry.created_at.asc())
+        .all()
+    )
+    return [
+        schemas.DemandEntryAdminResponse(
+            id=e.id,
+            item_name=e.item_name,
+            price=e.price,
+            description=e.description,
+            created_at=e.created_at,
+            submitter_email=e.user.email if e.user else None,
+        )
+        for e in entries
+    ]
+
+
+@app.patch("/admin/demand/{entry_id}")
+def admin_edit_demand_entry(
+    entry_id: int,
+    update: schemas.DemandEntryUpdate,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    entry = db.query(models.DemandEntry).filter(models.DemandEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if update.item_name is not None:
+        entry.item_name = update.item_name
+    if update.price is not None:
+        entry.price = update.price
+    if update.description is not None:
+        entry.description = update.description
+    db.commit()
+    return {"message": "Entry updated"}
+
+
+@app.delete("/admin/demand/{entry_id}")
+def admin_delete_demand_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    entry = db.query(models.DemandEntry).filter(models.DemandEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"message": "Entry deleted"}
+
+
+@app.patch("/admin/demand/{entry_id}/status")
+def admin_update_demand_status(
+    entry_id: int,
+    update: schemas.DemandStatusUpdate,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    entry = db.query(models.DemandEntry).filter(models.DemandEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    entry.status = update.status
+    if update.status == "approved":
+        entry.last_interacted_at = datetime.utcnow()
+    db.commit()
+    return {"message": f"Entry {update.status}"}

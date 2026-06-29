@@ -34,10 +34,18 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+# Indexes that are managed manually (e.g. pgvector HNSW, custom dedup indexes)
+# and cannot be expressed in SQLAlchemy models. Excluding them prevents Alembic
+# from flagging them as drift on every autogenerate run.
+_IGNORED_INDEXES = {
+    'items_embedding_idx',   # pgvector HNSW index — created via raw SQL
+    'ix_item_views_dedup',   # custom dedup index on item_views
+}
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == 'index' and name in _IGNORED_INDEXES:
+        return False
+    return True
 
 
 def run_migrations_offline() -> None:
@@ -58,6 +66,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -79,7 +88,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

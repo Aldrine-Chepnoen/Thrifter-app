@@ -19,6 +19,7 @@ import { motion, AnimatePresence, useScroll, useMotionValueEvent } from 'framer-
 import StyleDiscovery from './components/StyleDiscovery';
 import StyleModal from './components/StyleModal';
 import StyleBuilder from './components/StyleBuilder';
+import DemandBoard from './components/DemandBoard';
 
 function App() {
   const [items, setItems] = useState([]);
@@ -491,6 +492,9 @@ function App() {
         } />
         
         <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/" replace />} />
+        <Route path="/demand-board" element={
+          <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
+        } />
         <Route path="/vendor/:name" element={
           <VendorPage
             setSelectedItem={setSelectedItem}

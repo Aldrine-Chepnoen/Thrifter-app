@@ -1,5 +1,5 @@
 # This file defines the database models for the Thrifter backend application using SQLAlchemy. It includes models for users, vendors, items, blacklisted tokens, and a wardrobe feature. The User model represents registered users of the application, with fields for email, hashed password, and vendor association. The Vendor model represents sellers on the platform, with fields for name, WhatsApp contact, and a relationship to their items. The Item model represents products listed by vendors, including details such as name, price, size, market, image information, description, and an embedding vector for search functionality. The BlacklistedToken model is used to store JWT tokens that have been invalidated. The Wardrobe model allows users to save items they are interested in. These models form the core of the application's data structure and are used throughout the backend for managing data and relationships between entities.
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 from pgvector.sqlalchemy import Vector
@@ -11,8 +11,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
-    is_vendor = Column(Boolean, default=False)
-    is_admin = Column(Boolean, default=False)
+    is_vendor = Column(Boolean, default=False, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor")
 
@@ -54,8 +54,8 @@ class Vendor(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     whatsapp = Column(String, index=True)
-    is_active = Column(Boolean, default=True)
-    is_pinned = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_pinned = Column(Boolean, default=False, nullable=False)
     banner_image = Column(String, nullable=True)
     banner_cloudinary_id = Column(String, nullable=True)
     description = Column(String, nullable=True)
@@ -110,7 +110,35 @@ class Wardrobe(Base):
     __tablename__ = "wardrobe"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+
+class DemandEntry(Base):
+    __tablename__ = "demand_entries"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    item_name = Column(String, nullable=False)
+    price = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    status = Column(String, default="pending", index=True)  # pending, approved, rejected
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_interacted_at = Column(DateTime, nullable=True)
+
+    votes = relationship("DemandVote", back_populates="entry", cascade="all, delete-orphan")
+    user = relationship("User")
+
+class DemandVote(Base):
+    __tablename__ = "demand_votes"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entry_id = Column(Integer, ForeignKey("demand_entries.id", ondelete="CASCADE"), nullable=False)
+    vote_type = Column(String, nullable=False)  # "up" or "down"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    entry = relationship("DemandEntry", back_populates="votes")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "entry_id", name="uq_demand_vote_user_entry"),
+    )
 
 class ItemView(Base):
     __tablename__ = "item_views"

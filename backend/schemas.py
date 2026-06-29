@@ -1,6 +1,7 @@
 # This file defines the Pydantic schemas for the Thrifter backend application. These schemas are used for data validation and serialization when handling API requests and responses. The UserCreate schema is used for user registration, ensuring that the email, password, and optional vendor information are properly validated. The Token schema defines the structure of the JWT token response after successful authentication. The UserInfo schema represents the user information that can be returned in API responses, while the ItemBase, ItemCreate, and Item schemas define the structure of item data for creation and retrieval. Finally, the VendorInfo schema provides a structure for representing vendor information in API responses. These schemas help ensure that data is consistently structured and validated across the application.
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List
+from datetime import datetime
 import re
 
 class UserCreate(BaseModel):
@@ -193,6 +194,42 @@ class VendorProfile(BaseModel):
 
     class Config:
         from_attributes = True
+
+class DemandEntryCreate(BaseModel):
+    item_name: str = Field(..., min_length=2, max_length=100)
+    price: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=300)
+
+class DemandEntryResponse(BaseModel):
+    id: int
+    item_name: str
+    price: str
+    description: Optional[str] = None
+    status: str
+    created_at: datetime
+    upvotes: int
+    downvotes: int
+    score: int
+    user_vote: Optional[str] = None
+
+class DemandEntryAdminResponse(BaseModel):
+    id: int
+    item_name: str
+    price: str
+    description: Optional[str] = None
+    created_at: datetime
+    submitter_email: Optional[str] = None
+
+class DemandVoteRequest(BaseModel):
+    vote_type: str = Field(..., pattern="^(up|down)$")
+
+class DemandStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(approved|rejected)$")
+
+class DemandEntryUpdate(BaseModel):
+    item_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    price: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=300)
 
 class DailyViewCount(BaseModel):
     date: str
