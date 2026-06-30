@@ -349,6 +349,14 @@ const Navbar = ({
                 Latest
               </RoughNotation>
             </button>
+            <button
+              onClick={() => onFeedTypeChange('polls')}
+              className={`pb-2 px-2 text-sm font-bold transition-all relative ${feedType === 'polls' ? 'text-black dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+            >
+              <RoughNotation type="underline" show={feedType === 'polls'} color="#EAAD11" strokeWidth={3} iterations={3} padding={2} animationDuration={600}>
+                Polls
+              </RoughNotation>
+            </button>
             {features?.promo_10k_enabled && (
               <button
                 onClick={() => onFeedTypeChange('promo')}

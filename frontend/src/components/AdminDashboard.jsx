@@ -30,6 +30,13 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [promoToggling, setPromoToggling] = useState(false);
   const [pendingDemand, setPendingDemand] = useState([]);
   const [demandActionIds, setDemandActionIds] = useState(new Set());
+  const [demandEntries, setDemandEntries] = useState([]);
+  const [demandEntriesLoading, setDemandEntriesLoading] = useState(false);
+  const [demandAdminEntry, setDemandAdminEntry] = useState(null);
+  const [demandEditMode, setDemandEditMode] = useState(false);
+  const [demandConfirmDelete, setDemandConfirmDelete] = useState(false);
+  const [demandEditFields, setDemandEditFields] = useState({ item_name: '', price: '', description: '' });
+  const [demandSaving, setDemandSaving] = useState(false);
   const [editingStyle, setEditingStyle] = useState(null);
   const [previewStyle, setPreviewStyle] = useState(null);
   const [previewCluster, setPreviewCluster] = useState(null);
@@ -60,6 +67,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       if (styles.length === 0) loadStyles();
       if (clusters.length === 0) loadClusters();
     }
+    if (activeTab === 'polls') {
+      loadPendingDemand();
+      if (demandEntries.length === 0) loadDemandEntries();
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -78,6 +89,66 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     };
     fetchPickerItems();
   }, [createClusterOpen]);
+
+  const openDemandAdminPanel = (entry) => {
+    setDemandAdminEntry(entry);
+    setDemandEditFields({ item_name: entry.item_name, price: entry.price, description: entry.description || '' });
+    setDemandEditMode(false);
+    setDemandConfirmDelete(false);
+  };
+
+  const closeDemandAdminPanel = () => {
+    setDemandAdminEntry(null);
+    setDemandEditMode(false);
+    setDemandConfirmDelete(false);
+    setDemandSaving(false);
+  };
+
+  const handleDemandEdit = async () => {
+    setDemandSaving(true);
+    try {
+      await api.patch(`/admin/demand/${demandAdminEntry.id}`, {
+        item_name: demandEditFields.item_name.trim(),
+        price: demandEditFields.price.trim(),
+        description: demandEditFields.description.trim() || null,
+      });
+      setDemandEntries(prev => prev.map(e =>
+        e.id === demandAdminEntry.id
+          ? { ...e, item_name: demandEditFields.item_name.trim(), price: demandEditFields.price.trim(), description: demandEditFields.description.trim() || null }
+          : e
+      ));
+      closeDemandAdminPanel();
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Failed to save changes.');
+    } finally {
+      setDemandSaving(false);
+    }
+  };
+
+  const handleDemandDelete = async () => {
+    setDemandSaving(true);
+    try {
+      await api.delete(`/admin/demand/${demandAdminEntry.id}`);
+      setDemandEntries(prev => prev.filter(e => e.id !== demandAdminEntry.id));
+      closeDemandAdminPanel();
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Failed to delete entry.');
+    } finally {
+      setDemandSaving(false);
+    }
+  };
+
+  const loadDemandEntries = async () => {
+    setDemandEntriesLoading(true);
+    try {
+      const res = await api.get('/demand');
+      setDemandEntries(res.data);
+    } catch (e) {
+      console.error('Failed to load demand entries', e);
+    } finally {
+      setDemandEntriesLoading(false);
+    }
+  };
 
   const loadPendingDemand = async () => {
     try {
@@ -426,19 +497,6 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                   Launch
                 </button>
               </div>
-              <div className="flex items-center justify-between px-6 py-4">
-                <div>
-                  <p className="text-sm font-medium">Demand Board</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Community item requests ranked by upvotes</p>
-                </div>
-                <button
-                  onClick={() => navigate('/demand-board')}
-                  className="flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                >
-                  <TrendingUp className="w-4 h-4" />
-                  View
-                </button>
-              </div>
             </div>
           </div>
 
@@ -502,6 +560,52 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               ))}
             </div>
           )}
+
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">Live Board</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Current rankings by score</p>
+              </div>
+              <button
+                onClick={loadDemandEntries}
+                disabled={demandEntriesLoading}
+                className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                {demandEntriesLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+            {demandEntriesLoading ? (
+              <ThrifterLoader />
+            ) : demandEntries.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">
+                <p className="text-sm">No approved entries yet</p>
+              </div>
+            ) : (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-700">
+                {demandEntries.map((entry, i) => (
+                  <div
+                    key={entry.id}
+                    onClick={() => openDemandAdminPanel(entry)}
+                    className="px-6 py-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                  >
+                    <span className="text-xs font-bold text-gray-300 dark:text-gray-600 w-5 shrink-0 text-center">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.item_name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{entry.price}</p>
+                      {entry.description && (
+                        <p className="text-xs text-gray-400 mt-0.5">{entry.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 text-xs">
+                      <span className="text-green-600 dark:text-green-400 font-medium">▲ {entry.upvotes}</span>
+                      <span className="text-red-500 dark:text-red-400 font-medium">▼ {entry.downvotes}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1254,6 +1358,126 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
           }}
         />
       )}
+      {/* Demand entry admin panel */}
+      <AnimatePresence>
+        {demandAdminEntry && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50"
+              onClick={closeDemandAdminPanel}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 40 }}
+              className="relative w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl p-6 z-10"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">
+                  {demandEditMode ? 'Edit Entry' : demandConfirmDelete ? 'Delete Entry' : 'Manage Entry'}
+                </h2>
+                <button onClick={closeDemandAdminPanel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {demandConfirmDelete ? (
+                <div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Are you sure you want to delete this entry?</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white mb-5">"{demandAdminEntry.item_name}"</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDemandConfirmDelete(false)}
+                      className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDemandDelete}
+                      disabled={demandSaving}
+                      className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-medium hover:opacity-80 transition-opacity disabled:opacity-40"
+                    >
+                      {demandSaving ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              ) : demandEditMode ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">Item Name</label>
+                    <input
+                      value={demandEditFields.item_name}
+                      onChange={e => setDemandEditFields(f => ({ ...f, item_name: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">Price</label>
+                    <input
+                      value={demandEditFields.price}
+                      onChange={e => setDemandEditFields(f => ({ ...f, price: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 block">Description</label>
+                    <textarea
+                      value={demandEditFields.description}
+                      onChange={e => setDemandEditFields(f => ({ ...f, description: e.target.value }))}
+                      rows={3}
+                      className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDemandEditMode(false)}
+                      className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={handleDemandEdit}
+                      disabled={demandSaving || !demandEditFields.item_name.trim() || !demandEditFields.price.trim()}
+                      className="flex-1 py-2.5 rounded-xl bg-black dark:bg-white text-white dark:text-black text-sm font-medium hover:opacity-80 transition-opacity disabled:opacity-40"
+                    >
+                      {demandSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5">
+                    <p className="font-semibold text-gray-900 dark:text-white">{demandAdminEntry.item_name}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{demandAdminEntry.price}</p>
+                    {demandAdminEntry.description && (
+                      <p className="text-sm text-gray-400 mt-1">{demandAdminEntry.description}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setDemandEditMode(true)}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setDemandConfirmDelete(true)}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-medium hover:opacity-80 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -144,7 +144,7 @@ function App() {
     setFeedType(newType);
     setItems([]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    fetchItems(true, feedSeed, newType);
+    if (newType !== 'polls') fetchItems(true, feedSeed, newType);
   };
 
   const handleFiltersApply = (filters) => {
@@ -431,6 +431,8 @@ function App() {
                 </div>
                 <MasonryGrid items={outfitResults} onItemClick={setSelectedItem} onAddToWardrobe={addToWardrobe} wardrobeIds={wardrobeIds} />
               </>
+            ) : feedType === 'polls' ? (
+              <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
             ) : (
               <>
                 {/* Homepage Banner */}

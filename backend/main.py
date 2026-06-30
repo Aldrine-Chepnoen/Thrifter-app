@@ -6,7 +6,8 @@ import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, defer, selectinload
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, case
+from sqlalchemy.orm import joinedload
 import shutil
 import os
 import uuid
@@ -1805,38 +1806,67 @@ def list_demand_entries(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    expiry_cutoff = datetime.utcnow() - timedelta(weeks=3)
-    entries = (
-        db.query(models.DemandEntry)
-        .options(selectinload(models.DemandEntry.votes))
-        .filter(
-            models.DemandEntry.status == "approved",
-            models.DemandEntry.last_interacted_at > expiry_cutoff
+    base = cache.demand_get()
+
+    if base is None:
+        expiry_cutoff = datetime.utcnow() - timedelta(weeks=3)
+
+        vote_agg = (
+            db.query(
+                models.DemandVote.entry_id.label("entry_id"),
+                func.sum(case((models.DemandVote.vote_type == "up", 1), else_=0)).label("upvotes"),
+                func.sum(case((models.DemandVote.vote_type == "down", 1), else_=0)).label("downvotes"),
+            )
+            .group_by(models.DemandVote.entry_id)
+            .subquery()
         )
-        .all()
-    )
-    result = []
-    for entry in entries:
-        upvotes = sum(1 for v in entry.votes if v.vote_type == "up")
-        downvotes = sum(1 for v in entry.votes if v.vote_type == "down")
-        user_vote = None
-        if current_user:
-            vote_obj = next((v for v in entry.votes if v.user_id == current_user.id), None)
-            user_vote = vote_obj.vote_type if vote_obj else None
-        result.append({
-            "id": entry.id,
-            "item_name": entry.item_name,
-            "price": entry.price,
-            "description": entry.description,
-            "status": entry.status,
-            "created_at": entry.created_at,
-            "upvotes": upvotes,
-            "downvotes": downvotes,
-            "score": upvotes - downvotes,
-            "user_vote": user_vote,
-        })
-    result.sort(key=lambda x: x["score"], reverse=True)
-    return result
+
+        rows = (
+            db.query(
+                models.DemandEntry,
+                func.coalesce(vote_agg.c.upvotes, 0).label("upvotes"),
+                func.coalesce(vote_agg.c.downvotes, 0).label("downvotes"),
+            )
+            .outerjoin(vote_agg, models.DemandEntry.id == vote_agg.c.entry_id)
+            .filter(
+                models.DemandEntry.status == "approved",
+                models.DemandEntry.last_interacted_at > expiry_cutoff,
+            )
+            .order_by(
+                (func.coalesce(vote_agg.c.upvotes, 0) - func.coalesce(vote_agg.c.downvotes, 0)).desc()
+            )
+            .all()
+        )
+
+        base = [
+            {
+                "id": entry.id,
+                "item_name": entry.item_name,
+                "price": entry.price,
+                "description": entry.description,
+                "status": entry.status,
+                "created_at": entry.created_at,
+                "upvotes": int(upvotes),
+                "downvotes": int(downvotes),
+                "score": int(upvotes) - int(downvotes),
+            }
+            for entry, upvotes, downvotes in rows
+        ]
+        cache.demand_set(base)
+
+    if not current_user:
+        return [{**r, "user_vote": None} for r in base]
+
+    entry_ids = [r["id"] for r in base]
+    user_votes = {
+        v.entry_id: v.vote_type
+        for v in db.query(models.DemandVote).filter(
+            models.DemandVote.user_id == current_user.id,
+            models.DemandVote.entry_id.in_(entry_ids),
+        ).all()
+    } if entry_ids else {}
+
+    return [{**r, "user_vote": user_votes.get(r["id"])} for r in base]
 
 
 @app.post("/demand/{entry_id}/vote")
@@ -1898,6 +1928,7 @@ def admin_demand_pending(
 ):
     entries = (
         db.query(models.DemandEntry)
+        .options(joinedload(models.DemandEntry.user))
         .filter(models.DemandEntry.status == "pending")
         .order_by(models.DemandEntry.created_at.asc())
         .all()
@@ -1932,6 +1963,7 @@ def admin_edit_demand_entry(
     if update.description is not None:
         entry.description = update.description
     db.commit()
+    cache.demand_invalidate()
     return {"message": "Entry updated"}
 
 
@@ -1946,6 +1978,7 @@ def admin_delete_demand_entry(
         raise HTTPException(status_code=404, detail="Entry not found")
     db.delete(entry)
     db.commit()
+    cache.demand_invalidate()
     return {"message": "Entry deleted"}
 
 
@@ -1963,4 +1996,5 @@ def admin_update_demand_status(
     if update.status == "approved":
         entry.last_interacted_at = datetime.utcnow()
     db.commit()
+    cache.demand_invalidate()
     return {"message": f"Entry {update.status}"}

@@ -155,3 +155,26 @@ def search_set(query: str, value: Any) -> None:
 def search_invalidate_all() -> None:
     """Call after bulk item writes that could affect search results."""
     _clear(_search_cache, _search_lock, "search")
+
+
+# ── Demand board cache — GET /demand ──────────────────────────────────────────
+# Caches the base entry list (scores only, no user_vote) for all users.
+# TTL is intentionally short so scores stay reasonably fresh without needing
+# invalidation on every vote. user_vote is merged per-request after cache lookup.
+DEMAND_TTL = 120  # 2 minutes
+
+_demand_cache = TTLCache(maxsize=1, ttl=DEMAND_TTL)
+_demand_lock  = Lock()
+
+_DEMAND_KEY = "base"
+
+def demand_get() -> Optional[Any]:
+    return _get(_demand_cache, _demand_lock, _DEMAND_KEY, "demand")
+
+def demand_set(value: Any) -> None:
+    _set(_demand_cache, _demand_lock, _DEMAND_KEY, value)
+
+def demand_invalidate() -> None:
+    """Call after admin actions that structurally change the board (approve, edit, delete)."""
+    _del(_demand_cache, _demand_lock, _DEMAND_KEY)
+    logger.info("Cache CLEAR [demand] board invalidated")

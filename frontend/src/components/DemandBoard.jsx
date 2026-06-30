@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, Plus, X, Pencil, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, X, Pencil, Trash2, RefreshCw, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import DemandSubmitModal from './DemandSubmitModal';
@@ -18,6 +18,7 @@ const DemandBoard = ({ user, onAuthRequired }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editFields, setEditFields] = useState({ item_name: '', price: '', description: '' });
   const [saving, setSaving] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   useEffect(() => {
     loadEntries();
@@ -129,11 +130,14 @@ const DemandBoard = ({ user, onAuthRequired }) => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 px-4 py-8">
       <div className="max-w-2xl mx-auto">
         <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Item Requests</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Vote on what you want vendors to stock
-            </p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Demand Board</h1>
+            <button
+              onClick={() => setInfoOpen(true)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors mt-0.5"
+            >
+              <Info className="w-4 h-4" />
+            </button>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -194,7 +198,7 @@ const DemandBoard = ({ user, onAuthRequired }) => {
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
-                    <ThumbsUp className="w-3.5 h-3.5" />
+                    <span className="text-sm font-bold leading-none">▲</span>
                     {entry.upvotes}
                   </button>
                   <button
@@ -206,7 +210,7 @@ const DemandBoard = ({ user, onAuthRequired }) => {
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
-                    <ThumbsDown className="w-3.5 h-3.5" />
+                    <span className="text-sm font-bold leading-none">▼</span>
                     {entry.downvotes}
                   </button>
                 </div>
@@ -217,6 +221,54 @@ const DemandBoard = ({ user, onAuthRequired }) => {
       </div>
 
       <DemandSubmitModal isOpen={submitOpen} onClose={() => setSubmitOpen(false)} />
+
+      {/* Info modal */}
+      <AnimatePresence>
+        {infoOpen && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setInfoOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 40 }}
+              className="relative w-full sm:max-w-md bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl p-6 z-10"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">About the Demand Board</h2>
+                <button onClick={() => setInfoOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">What is this?</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">A board where you can request clothing items you'd like to see stocked by vendors on Thrifter.</p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">What does voting do?</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Upvotes push a request up the rankings, signalling high demand to vendors. Downvotes push it down. Vendors use this board to decide what to source and upload.</p>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">What happens after I submit?</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Your request goes to our team for a quick review before appearing on the board. This keeps the list relevant and spam-free.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInfoOpen(false)}
+                className="mt-6 w-full py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl text-sm font-medium hover:opacity-80 transition-opacity"
+              >
+                Got it
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Admin action panel */}
       <AnimatePresence>
