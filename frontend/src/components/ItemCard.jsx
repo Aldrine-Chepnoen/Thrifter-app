@@ -10,7 +10,7 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
     ? item.image_path 
     : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
   
-  const imgSrc = getOptimizedCloudinaryUrl(rawImgSrc, 300);
+  const imgSrc = getOptimizedCloudinaryUrl(rawImgSrc, 200);
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
   };

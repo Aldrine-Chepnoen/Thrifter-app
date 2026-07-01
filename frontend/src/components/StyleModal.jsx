@@ -27,7 +27,7 @@ const StyleModal = ({ style, onClose, onBuild }) => {
           <div className="relative h-[58vh] md:h-[480px]">
             {coverImage ? (
               <img
-                src={getOptimizedCloudinaryUrl(coverImage, 800)}
+                src={getOptimizedCloudinaryUrl(coverImage, 350)}
                 alt={style.name}
                 className="w-full h-full object-cover"
               />

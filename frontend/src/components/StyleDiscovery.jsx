@@ -57,7 +57,7 @@ const StyleTile = ({ style, onClick }) => {
     >
       {coverImage ? (
         <img
-          src={getOptimizedCloudinaryUrl(coverImage, 800)}
+          src={getOptimizedCloudinaryUrl(coverImage, 450)}
           alt={style.name}
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
           onError={(e) => { e.target.style.display = 'none'; }}

@@ -120,7 +120,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (
           <img
-            src={getOptimizedCloudinaryUrl(vendorInfo.banner_image, 1200)}
+            src={getOptimizedCloudinaryUrl(vendorInfo.banner_image, 800)}
             alt="Vendor banner"
             className="absolute inset-0 w-full h-full object-cover"
           />
