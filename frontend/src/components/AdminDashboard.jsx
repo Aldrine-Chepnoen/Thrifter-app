@@ -416,7 +416,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   };
 
   const cloudinaryResize = (url, w, h) => {
-    if (!url || !url.includes('cloudinary.com/')) return url;
+    if (!url || !url.includes('cloudinary.com/')) return getOptimizedCloudinaryUrl(url, w);
     return url.replace('/upload/', `/upload/w_${w},h_${h},c_fill,q_70,f_auto/`);
   };
 

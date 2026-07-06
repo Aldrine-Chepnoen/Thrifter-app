@@ -6,6 +6,7 @@ import './index.css'
 import { BrowserRouter } from 'react-router-dom'
 import posthog from 'posthog-js'
 import { PostHogProvider } from 'posthog-js/react'
+import { runR2Beacon } from './beacon'
 
 // Initialize PostHog
 // Replace 'YOUR_PROJECT_API_KEY' with your actual key from PostHog settings
@@ -13,6 +14,8 @@ posthog.init('phc_AttmJ7ufE6Y3xgDagqoP9D2GFBP9ksKEqPjbHP3xass3', {
   api_host: 'https://eu.i.posthog.com',
   person_profiles: 'always',
 })
+
+runR2Beacon()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
