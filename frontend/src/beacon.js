@@ -23,13 +23,28 @@ export function runR2Beacon() {
       const started = performance.now();
       const img = new Image();
       let settled = false;
-      const report = (success, reason) => {
+      // PostHog discards client IPs (EU privacy default), so events can't be
+      // attributed to an ISP after the fact. Instead ask ipwho.is which
+      // network this client is on and attach it to the event directly.
+      const lookupIsp = () => new Promise((resolve) => {
+        const bail = setTimeout(() => resolve(null), 4000);
+        fetch('https://ipwho.is/?fields=connection')
+          .then((r) => r.json())
+          .then((d) => { clearTimeout(bail); resolve(d && d.connection ? d.connection : null); })
+          .catch(() => { clearTimeout(bail); resolve(null); });
+      });
+      const report = async (success, reason) => {
         if (settled) return;
         settled = true;
+        const duration_ms = Math.round(performance.now() - started);
+        const conn = await lookupIsp();
         posthog.capture('r2_beacon', {
           success,
           reason,
-          duration_ms: Math.round(performance.now() - started),
+          duration_ms,
+          beacon_v: 2,
+          isp: (conn && conn.isp) || 'unknown',
+          asn: (conn && conn.asn) || 0,
         });
       };
       const timer = setTimeout(() => report(false, 'timeout'), TIMEOUT_MS);
