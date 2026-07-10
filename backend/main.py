@@ -510,6 +510,17 @@ def me(current = Depends(get_current_user), db: Session = Depends(get_db)):
     cache.me_set(current.id, result)
     return result
 
+def validate_item_fields(name: str, description: Optional[str]) -> str:
+    """Form fields bypass Pydantic body validation, so enforce the same limits
+    as schemas.ItemBase here. Returns the cleaned name."""
+    name = name.strip()
+    if not (2 <= len(name) <= 100):
+        raise HTTPException(status_code=400, detail="Item name must be between 2 and 100 characters")
+    if description and len(description) > 1000:
+        raise HTTPException(status_code=400, detail="Description must be at most 1000 characters")
+    return name
+
+
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
@@ -534,12 +545,13 @@ def serialize_item(item: models.Item) -> schemas.Item:
 
     return schemas.Item(
         id=item.id,
-        name=item.name,
+        # Truncate defensively: one over-long row must never 500 a whole feed
+        name=(item.name or "")[:100],
         price=item.price,
         size=item.size,
         market=item.market,
         item_type=item.item_type or "top",
-        description=item.description,
+        description=item.description[:1000] if item.description else None,
         image_path=display_image_path,
         cloudinary_public_id=display_cloudinary_id,
         images=images,
@@ -840,6 +852,8 @@ async def upload_item(
 
     if len(files) > 3:
         raise HTTPException(status_code=400, detail="Maximum 3 images allowed per item")
+
+    name = validate_item_fields(name, description)
 
     if not current_user.vendor_id:
         if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
@@ -1303,6 +1317,8 @@ def update_item(
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only edit your own items")
+
+    name = validate_item_fields(name, description)
 
     item.name = name
     item.price = price
