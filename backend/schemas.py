@@ -61,6 +61,8 @@ class ItemImage(BaseModel):
     id: int
     image_path: str
     cloudinary_public_id: Optional[str] = None
+    # Cloudinary URL served to sessions that can't reach the R2 domain
+    fallback_url: Optional[str] = None
     is_primary: bool
 
     class Config:
@@ -70,6 +72,7 @@ class Item(ItemBase):
     id: int
     image_path: str
     cloudinary_public_id: Optional[str] = None
+    fallback_url: Optional[str] = None
     images: List[ItemImage] = []
 
     class Config:
@@ -158,6 +161,7 @@ class StyleCategory(StyleCategoryBase):
     id: int
     created_at: float
     updated_at: float
+    cover_fallback_url: Optional[str] = None
 
     top_cluster: Optional[VisualCluster] = None
     bottom_cluster: Optional[VisualCluster] = None
@@ -189,6 +193,7 @@ class VendorProfile(BaseModel):
     name: str
     item_count: int = 0
     banner_image: Optional[str] = None
+    banner_fallback_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
 
