@@ -987,31 +987,33 @@ async def upload_item(
         db.add(db_item)
         db.flush()
 
-        # 4. Upload all images to R2 in parallel (original + WebP variants each).
-        # return_exceptions=True so a partial failure still reports the successful
-        # uploads — they land in uploaded_assets and get cleaned up on rollback.
+        # 4. Upload to both stores in parallel: R2 (primary — original + WebP
+        # variants) and Cloudinary (best-effort fallback for users on ISPs that
+        # block the R2 domain; cloudinary_backup never raises, a failed backup
+        # leaves cloudinary_public_id NULL, which is backfillable).
+        # return_exceptions=True on the R2 batch so a partial failure still
+        # reports the successful uploads — they land in uploaded_assets and get
+        # cleaned up on rollback, together with any Cloudinary backups.
         loop = asyncio.get_event_loop()
 
-        upload_results = await asyncio.gather(
-            *[loop.run_in_executor(None, storage.upload_image, content, "items")
-              for content in file_contents],
-            return_exceptions=True
+        upload_results, backup_ids = await asyncio.gather(
+            asyncio.gather(
+                *[loop.run_in_executor(None, storage.upload_image, content, "items")
+                  for content in file_contents],
+                return_exceptions=True
+            ),
+            asyncio.gather(
+                *[loop.run_in_executor(None, cloudinary_backup, content, "thrifter_items", f"item '{name}'")
+                  for content in file_contents]
+            ),
         )
         for r in upload_results:
             if isinstance(r, str):
                 uploaded_assets.append(r)
+        backup_public_ids.extend(pid for pid in backup_ids if pid)
         for r in upload_results:
             if isinstance(r, BaseException):
                 raise r
-
-        # 5. Best-effort Cloudinary backup of each original — the fallback for
-        # users on ISPs that block the R2 domain. cloudinary_backup never
-        # raises; a failed backup leaves cloudinary_public_id NULL (backfillable).
-        backup_ids = await asyncio.gather(
-            *[loop.run_in_executor(None, cloudinary_backup, content, "thrifter_items", f"item '{name}'")
-              for content in file_contents]
-        )
-        backup_public_ids.extend(pid for pid in backup_ids if pid)
 
         for index, image_url in enumerate(upload_results):
 
@@ -1033,7 +1035,7 @@ async def upload_item(
         cache.search_invalidate_all()
         cache.admin_stats_invalidate()
 
-        # 6. Compute the real embedding in the background after the response is sent
+        # 5. Compute the real embedding in the background after the response is sent
         background_tasks.add_task(_compute_and_store_embedding, db_item.id, file_contents[0])
 
         return serialize_item(db_item)
