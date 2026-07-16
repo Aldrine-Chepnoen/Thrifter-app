@@ -4,6 +4,7 @@
 # under a shared key base, e.g.
 #   items/1751800000-a1b2c3d4e5f6/orig
 #   items/1751800000-a1b2c3d4e5f6/w200.webp
+#   items/1751800000-a1b2c3d4e5f6/w400.webp
 #   items/1751800000-a1b2c3d4e5f6/w600.webp
 #   items/1751800000-a1b2c3d4e5f6/w800.webp
 # The DB stores the public URL of the largest variant; smaller variants are
@@ -22,7 +23,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-VARIANT_WIDTHS = [200, 600, 800]
+VARIANT_WIDTHS = [200, 400, 600, 800]
 LARGEST_WIDTH = VARIANT_WIDTHS[-1]
 WEBP_QUALITY = 80
 

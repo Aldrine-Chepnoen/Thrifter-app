@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
 import StyleModal from './StyleModal';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 
 const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const navigate = useNavigate();
@@ -407,19 +407,6 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
-  const getImageUrl = (path) => {
-    if (!path) return '';
-    if (path.startsWith('http')) return path;
-    const base = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
-    const filename = path.split(/[\\/]/).pop();
-    return `${base}/images/${filename}`;
-  };
-
-  const cloudinaryResize = (url, w, h) => {
-    if (!url || !url.includes('cloudinary.com/')) return getOptimizedCloudinaryUrl(url, w);
-    return url.replace('/upload/', `/upload/w_${w},h_${h},c_fill,q_70,f_auto/`);
-  };
-
   if (!user?.is_admin) return null;
 
   const tabs = ['overview', 'polls', 'vendors', 'items', 'users', 'styles'];
@@ -733,7 +720,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-10 bg-gray-50 dark:bg-gray-900 rounded-md overflow-hidden shrink-0 border border-gray-100 dark:border-gray-800">
                             {style.cover_image_path ? (
-                              <img src={getOptimizedCloudinaryUrl(style.cover_image_path, 80)} alt="" className="w-full h-full object-cover" />
+                              <img src={getImageSrc({ image_path: style.cover_image_path, fallback_url: style.cover_fallback_url }, 80)} alt="" className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-gray-300">
                                 <ImageIcon className="w-4 h-4" />
@@ -835,7 +822,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                       className="flex-shrink-0 w-64 h-[400px] bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-100 dark:border-gray-700 flex flex-col group"
                     >
                       <img
-                        src={cloudinaryResize(getImageUrl(item.image_path), 512, 800)}
+                        src={getImageSrc(item, 512)}
                         alt={item.name}
                         className="w-full flex-1 object-cover"
                         loading="lazy"
@@ -953,7 +940,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                   <div className="flex items-center gap-4">
                     {editingStyle.cover_image_path ? (
                       <div className="relative w-20 h-24 rounded-lg overflow-hidden border border-gray-100">
-                        <img src={getOptimizedCloudinaryUrl(editingStyle.cover_image_path, 200)} alt="cover" className="w-full h-full object-cover" />
+                        <img src={getImageSrc({ image_path: editingStyle.cover_image_path, fallback_url: editingStyle.cover_fallback_url }, 200)} alt="cover" className="w-full h-full object-cover" />
                         <button 
                           onClick={() => setEditingStyle({...editingStyle, cover_image_path: null, cover_cloudinary_id: null})}
                           className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black"
@@ -1141,7 +1128,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={getOptimizedCloudinaryUrl(getImageUrl(item.image_path), 100)}
+                          src={getImageSrc(item, 100)}
                           alt={item.name}
                           className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0"
                         />
@@ -1304,7 +1291,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                           }`}
                         >
                           <img
-                            src={getOptimizedCloudinaryUrl(getImageUrl(item.image_path), 200)}
+                            src={getImageSrc(item, 200)}
                             alt={item.name}
                             className="w-full h-full object-cover"
                             onError={(e) => { e.target.src = '/placeholder.svg'; }}

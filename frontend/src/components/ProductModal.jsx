@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useLocation } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated }) => {
   const [editMode, setEditMode] = useState(false);
@@ -75,14 +75,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
 
   const images = item.images && item.images.length > 0
     ? item.images
-    : [{ image_path: item.image_path, id: 'legacy' }];
-
-  const getFullUrl = (path) => path.startsWith('http')
-    ? path
-    : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${path.split(/[\\/]/).pop()}`;
+    : [{ image_path: item.image_path, fallback_url: item.fallback_url, id: 'legacy' }];
 
   const activeImage = images[activeImageIndex] || images[0];
-  const mainImgSrc = getOptimizedCloudinaryUrl(getFullUrl(activeImage.image_path), 600);
+  const mainImgSrc = getImageSrc(activeImage, 800);
   
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -197,7 +193,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     className={`w-16 h-20 rounded-lg overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-black dark:border-white scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
                   >
                     <img
-                      src={getOptimizedCloudinaryUrl(getFullUrl(img.image_path), 150)}
+                      src={getImageSrc(img, 200)}
                       alt=""
                       className="w-full h-full object-cover"
                     />

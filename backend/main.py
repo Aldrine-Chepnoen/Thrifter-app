@@ -1156,7 +1156,10 @@ async def upload_vendor_banner(
     )
     db.commit()
 
-    return {"banner_image": vendor.banner_image}
+    return {
+        "banner_image": vendor.banner_image,
+        "banner_fallback_url": cloudinary_fallback_url(vendor.banner_cloudinary_id),
+    }
 
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")
