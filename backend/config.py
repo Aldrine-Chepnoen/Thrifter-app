@@ -17,11 +17,22 @@ class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production")
     JWT_EXP_SECONDS: int = int(os.getenv("JWT_EXP_SECONDS", "3600"))
     
-    # Cloudinary
+    # Cloudinary (fallback image store for ISPs that block the R2 domain)
     CLOUDINARY_CLOUD_NAME: Optional[str] = os.getenv("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY: Optional[str] = os.getenv("CLOUDINARY_API_KEY")
     CLOUDINARY_API_SECRET: Optional[str] = os.getenv("CLOUDINARY_API_SECRET")
-    
+
+    # Cloudflare R2 (current image storage)
+    R2_ACCOUNT_ID: Optional[str] = os.getenv("R2_ACCOUNT_ID")
+    R2_ACCESS_KEY_ID: Optional[str] = os.getenv("R2_ACCESS_KEY_ID")
+    R2_SECRET_ACCESS_KEY: Optional[str] = os.getenv("R2_SECRET_ACCESS_KEY")
+    R2_BUCKET_NAME: Optional[str] = os.getenv("R2_BUCKET_NAME")
+    R2_PUBLIC_BASE_URL: Optional[str] = os.getenv("R2_PUBLIC_BASE_URL")
+
+    # PostHog server-side capture (public project key, same one the frontend uses)
+    POSTHOG_PROJECT_API_KEY: Optional[str] = os.getenv("POSTHOG_PROJECT_API_KEY")
+    POSTHOG_CAPTURE_HOST: str = os.getenv("POSTHOG_CAPTURE_HOST", "https://eu.i.posthog.com")
+
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     SEED_DEMO: bool = os.getenv("SEED_DEMO", "False").lower() == "true"

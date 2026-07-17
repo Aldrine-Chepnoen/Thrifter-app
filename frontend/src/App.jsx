@@ -13,6 +13,7 @@ import FilterSheet from './components/FilterSheet';
 import ThrifterLoader from './components/ThrifterLoader';
 import SurveyPopup from './components/SurveyPopup';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { onImageHostChange } from './imageHost';
 import posthog from 'posthog-js';
 import { motion, AnimatePresence, useScroll, useMotionValueEvent } from 'framer-motion';
 
@@ -52,6 +53,10 @@ function App() {
     else document.documentElement.classList.remove('dark');
     return isDark;
   });
+  // Bump when the R2 reachability verdict flips so every mounted <img>
+  // re-resolves its src through getImageSrc (see imageHost.js)
+  const [, setImageHostTick] = useState(0);
+  useEffect(() => onImageHostChange(() => setImageHostTick((t) => t + 1)), []);
   const activeFiltersRef = useRef({ minPrice: null, maxPrice: null });
   const fileInputRef = useRef(null);
   const searchTimeoutRef = useRef(null);

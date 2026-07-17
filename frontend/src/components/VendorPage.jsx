@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Plus, Share2, Check, X, Camera } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
@@ -74,7 +74,11 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       const formData = new FormData();
       formData.append('file', file);
       const res = await api.post('/vendor/me/banner', formData);
-      setVendorInfo(prev => ({ ...prev, banner_image: res.data.banner_image }));
+      setVendorInfo(prev => ({
+        ...prev,
+        banner_image: res.data.banner_image,
+        banner_fallback_url: res.data.banner_fallback_url,
+      }));
     } catch {
       alert('Failed to upload banner image');
     } finally {
@@ -120,7 +124,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (
           <img
-            src={getOptimizedCloudinaryUrl(vendorInfo.banner_image, 800)}
+            src={getImageSrc({ image_path: vendorInfo.banner_image, fallback_url: vendorInfo.banner_fallback_url }, 800)}
             alt="Vendor banner"
             className="absolute inset-0 w-full h-full object-cover"
           />

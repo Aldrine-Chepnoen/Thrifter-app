@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import api from '../api';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const StyleDiscovery = ({ onOpenModal }) => {
@@ -48,7 +48,9 @@ const StyleDiscovery = ({ onOpenModal }) => {
 };
 
 const StyleTile = ({ style, onClick }) => {
-  const coverImage = style.cover_image_path || style.sample_items?.[0]?.image_path || null;
+  const coverImage = style.cover_image_path
+    ? { image_path: style.cover_image_path, fallback_url: style.cover_fallback_url }
+    : style.sample_items?.[0] || null;
 
   return (
     <button
@@ -57,7 +59,7 @@ const StyleTile = ({ style, onClick }) => {
     >
       {coverImage ? (
         <img
-          src={getOptimizedCloudinaryUrl(coverImage, 450)}
+          src={getImageSrc(coverImage, 600)}
           alt={style.name}
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
           onError={(e) => { e.target.style.display = 'none'; }}

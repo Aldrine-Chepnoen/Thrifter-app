@@ -17,6 +17,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
 import re
+import urllib.request
 from PIL import Image, ImageDraw
 from sqlalchemy import text
 
@@ -32,6 +33,7 @@ import cache
 import cloudinary
 import cloudinary.uploader
 from cloudinary.utils import cloudinary_url
+import storage
 
 from config import settings
 
@@ -404,6 +406,8 @@ def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_
             sample_item_ids=style.sample_item_ids,
             cover_image_path=style.cover_image_path,
             cover_cloudinary_id=style.cover_cloudinary_id,
+            cover_fallback_url=cloudinary_fallback_url(style.cover_cloudinary_id)
+                if storage.is_r2_url(style.cover_image_path) else None,
             top_cluster_id=style.top_cluster_id,
             bottom_cluster_id=style.bottom_cluster_id,
             accessory_cluster_id=style.accessory_cluster_id,
@@ -521,6 +525,54 @@ def validate_item_fields(name: str, description: Optional[str]) -> str:
     return name
 
 
+def _posthog_capture(event: str, properties: dict) -> None:
+    """Best-effort server-side PostHog event. Never raises."""
+    if not settings.POSTHOG_PROJECT_API_KEY:
+        return
+    try:
+        body = json.dumps({
+            "api_key": settings.POSTHOG_PROJECT_API_KEY,
+            "event": event,
+            "distinct_id": "backend",
+            "properties": properties,
+        }).encode()
+        req = urllib.request.Request(
+            f"{settings.POSTHOG_CAPTURE_HOST}/capture/",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        logger.warning(f"PostHog capture failed for {event}: {e}")
+
+
+def cloudinary_backup(image_bytes: bytes, folder: str, context: str) -> Optional[str]:
+    """Best-effort upload of an original to Cloudinary — the fallback store for
+    users on ISPs that block the R2 domain. Returns the public_id, or None on
+    failure: the asset then simply has no fallback until backfilled (rows with
+    a NULL cloudinary_public_id are the backfill worklist). Never raises."""
+    if not settings.CLOUDINARY_CLOUD_NAME:
+        return None
+    try:
+        result = cloudinary.uploader.upload(
+            io.BytesIO(image_bytes),
+            folder=folder,
+            # Cap stored size: the fallback never serves wider than w800
+            transformation=[{"width": 1000, "crop": "limit"}, {"quality": "auto"}],
+        )
+        return result["public_id"]
+    except Exception as e:
+        logger.warning(f"Cloudinary backup failed ({context}): {e}")
+        _posthog_capture("cloudinary_backup_failed", {"context": context, "error": str(e)[:300]})
+        return None
+
+
+def cloudinary_fallback_url(public_id: Optional[str]) -> Optional[str]:
+    if not public_id or not settings.CLOUDINARY_CLOUD_NAME:
+        return None
+    return cloudinary_url(public_id, secure=True)[0]
+
+
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
@@ -532,6 +584,9 @@ def serialize_item(item: models.Item) -> schemas.Item:
                 id=img.id,
                 image_path=img.image_path,
                 cloudinary_public_id=img.cloudinary_public_id,
+                # Only R2-era images need a fallback; legacy paths already point at Cloudinary
+                fallback_url=cloudinary_fallback_url(img.cloudinary_public_id)
+                    if storage.is_r2_url(img.image_path) else None,
                 is_primary=img.is_primary
             ) for img in item.images
         ]
@@ -542,6 +597,12 @@ def serialize_item(item: models.Item) -> schemas.Item:
 
     display_image_path = primary_image.image_path if primary_image else item.image_path
     display_cloudinary_id = primary_image.cloudinary_public_id if primary_image else item.cloudinary_public_id
+    if primary_image:
+        display_fallback_url = primary_image.fallback_url
+    elif storage.is_r2_url(item.image_path):
+        display_fallback_url = cloudinary_fallback_url(item.cloudinary_public_id)
+    else:
+        display_fallback_url = None
 
     return schemas.Item(
         id=item.id,
@@ -554,6 +615,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
         description=item.description[:1000] if item.description else None,
         image_path=display_image_path,
         cloudinary_public_id=display_cloudinary_id,
+        fallback_url=display_fallback_url,
         images=images,
         vendor_name=vendor_name,
         vendor_whatsapp=vendor_whatsapp,
@@ -799,6 +861,8 @@ def get_item_image_redirect(item_id: int, w: Optional[int] = None, db: Session =
         url = item.image_path
         if w and 'cloudinary.com' in url:
             url = url.replace('/upload/', f'/upload/w_{w},h_{w},c_fill,q_60/')
+        elif w and storage.is_r2_url(url):
+            url = storage.variant_url(url, w)
         return RedirectResponse(url=url)
 
     filename = os.path.basename(item.image_path)
@@ -869,6 +933,7 @@ async def upload_item(
         file_contents.append(await f.read())
 
     uploaded_assets = []
+    backup_public_ids = []
 
     try:
         # 1. Resolve vendor
@@ -922,40 +987,46 @@ async def upload_item(
         db.add(db_item)
         db.flush()
 
-        # 4. Upload all images to Cloudinary in parallel
+        # 4. Upload to both stores in parallel: R2 (primary — original + WebP
+        # variants) and Cloudinary (best-effort fallback for users on ISPs that
+        # block the R2 domain; cloudinary_backup never raises, a failed backup
+        # leaves cloudinary_public_id NULL, which is backfillable).
+        # return_exceptions=True on the R2 batch so a partial failure still
+        # reports the successful uploads — they land in uploaded_assets and get
+        # cleaned up on rollback, together with any Cloudinary backups.
         loop = asyncio.get_event_loop()
 
-        def _upload(image_bytes: bytes, is_primary: bool):
-            return cloudinary.uploader.upload(
-                io.BytesIO(image_bytes),
-                folder="thrifter_items",
-                transformation=[
-                    {"width": 1000, "crop": "limit"},
-                    {"quality": "auto"},
-                    {"fetch_format": "auto"}
-                ]
-            )
-
-        upload_results = await asyncio.gather(
-            *[loop.run_in_executor(None, _upload, content, i == 0)
-              for i, content in enumerate(file_contents)]
+        upload_results, backup_ids = await asyncio.gather(
+            asyncio.gather(
+                *[loop.run_in_executor(None, storage.upload_image, content, "items")
+                  for content in file_contents],
+                return_exceptions=True
+            ),
+            asyncio.gather(
+                *[loop.run_in_executor(None, cloudinary_backup, content, "thrifter_items", f"item '{name}'")
+                  for content in file_contents]
+            ),
         )
+        for r in upload_results:
+            if isinstance(r, str):
+                uploaded_assets.append(r)
+        backup_public_ids.extend(pid for pid in backup_ids if pid)
+        for r in upload_results:
+            if isinstance(r, BaseException):
+                raise r
 
-        for index, upload_result in enumerate(upload_results):
-            public_id = upload_result.get("public_id")
-            uploaded_assets.append(public_id)
-            image_url = upload_result.get("secure_url")
+        for index, image_url in enumerate(upload_results):
 
             db.add(models.ItemImage(
                 item_id=db_item.id,
                 image_path=image_url,
-                cloudinary_public_id=public_id,
+                cloudinary_public_id=backup_ids[index],
                 is_primary=(index == 0)
             ))
 
             if index == 0:
                 db_item.image_path = image_url
-                db_item.cloudinary_public_id = public_id
+                db_item.cloudinary_public_id = backup_ids[index]
 
         db.commit()
         db.refresh(db_item)
@@ -971,9 +1042,11 @@ async def upload_item(
 
     except Exception as e:
         db.rollback()
-        for asset_id in uploaded_assets:
+        for asset_url in uploaded_assets:
+            storage.delete_image(asset_url)
+        for public_id in backup_public_ids:
             try:
-                cloudinary.uploader.destroy(asset_id)
+                cloudinary.uploader.destroy(public_id)
             except Exception:
                 pass
         logger.error(f"Item upload failed: {str(e)}", exc_info=True)
@@ -1003,6 +1076,8 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
         name=vendor.name,
         item_count=item_count,
         banner_image=vendor.banner_image,
+        banner_fallback_url=cloudinary_fallback_url(vendor.banner_cloudinary_id)
+            if storage.is_r2_url(vendor.banner_image) else None,
         description=vendor.description,
         location=vendor.location,
     )
@@ -1061,27 +1136,30 @@ async def upload_vendor_banner(
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
+    content = await file.read()
+    loop = asyncio.get_event_loop()
+    new_banner_url = await loop.run_in_executor(None, storage.upload_image, content, "banners")
+
+    # New banner is safely stored — now remove the old one from both stores
+    # (a dual-written banner has an asset in each)
     if vendor.banner_cloudinary_id:
         try:
             cloudinary.uploader.destroy(vendor.banner_cloudinary_id)
         except Exception:
             pass
+    if storage.is_r2_url(vendor.banner_image):
+        storage.delete_image(vendor.banner_image)
 
-    content = await file.read()
-    result = cloudinary.uploader.upload(
-        io.BytesIO(content),
-        folder="thrifter_vendor_banners",
-        transformation=[
-            {"width": 1400, "crop": "limit"},
-            {"quality": "auto"},
-            {"fetch_format": "auto"}
-        ]
+    vendor.banner_image = new_banner_url
+    vendor.banner_cloudinary_id = await loop.run_in_executor(
+        None, cloudinary_backup, content, "thrifter_vendor_banners", f"banner for vendor {vendor.id}"
     )
-    vendor.banner_image = result.get("secure_url")
-    vendor.banner_cloudinary_id = result.get("public_id")
     db.commit()
 
-    return {"banner_image": vendor.banner_image}
+    return {
+        "banner_image": vendor.banner_image,
+        "banner_fallback_url": cloudinary_fallback_url(vendor.banner_cloudinary_id),
+    }
 
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")
@@ -1276,20 +1354,25 @@ def delete_item(
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only delete your own items")
-    # Delete ItemImage Cloudinary assets and rows first to avoid FK constraint error
+    # Delete ItemImage storage assets and rows first to avoid FK constraint error
     for img in (item.images or []):
         try:
+            # Dual-written images have an asset in both stores — clean up each
             if img.cloudinary_public_id:
                 cloudinary.uploader.destroy(img.cloudinary_public_id)
+            if storage.is_r2_url(img.image_path):
+                storage.delete_image(img.image_path)
         except Exception:
             pass
         db.delete(img)
-    # Delete legacy Cloudinary asset
+    # Delete legacy asset
     try:
         if item.cloudinary_public_id:
             cloudinary.uploader.destroy(item.cloudinary_public_id)
+        if storage.is_r2_url(item.image_path):
+            storage.delete_image(item.image_path)
     except Exception as e:
-        print(f"Cloudinary delete error: {e}")
+        print(f"Image delete error: {e}")
 
     db.delete(item)
     db.commit()
@@ -1612,16 +1695,21 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     for img in (item.images or []):
-        if img.cloudinary_public_id:
-            try:
-                cloudinary.uploader.destroy(img.cloudinary_public_id)
-            except Exception:
-                pass
-    if item.cloudinary_public_id:
         try:
-            cloudinary.uploader.destroy(item.cloudinary_public_id)
+            # Dual-written images have an asset in both stores — clean up each
+            if img.cloudinary_public_id:
+                cloudinary.uploader.destroy(img.cloudinary_public_id)
+            if storage.is_r2_url(img.image_path):
+                storage.delete_image(img.image_path)
         except Exception:
             pass
+    try:
+        if item.cloudinary_public_id:
+            cloudinary.uploader.destroy(item.cloudinary_public_id)
+        if storage.is_r2_url(item.image_path):
+            storage.delete_image(item.image_path)
+    except Exception:
+        pass
     db.delete(item)
     db.commit()
     cache.feed_invalidate_all()
@@ -1759,21 +1847,17 @@ async def upload_style_cover(
     file: UploadFile = File(...),
     _: models.User = Depends(require_admin)
 ):
-    """Uploads an image to Cloudinary for use as a style aesthetic cover."""
+    """Uploads an image to R2 (with a Cloudinary backup) for use as a style aesthetic cover."""
     try:
         content = await file.read()
-        result = cloudinary.uploader.upload(
-            io.BytesIO(content),
-            folder="thrifter_styles",
-            transformation=[
-                {"width": 1200, "crop": "limit"},
-                {"quality": "auto"},
-                {"fetch_format": "auto"}
-            ]
+        loop = asyncio.get_event_loop()
+        image_url = await loop.run_in_executor(None, storage.upload_image, content, "styles")
+        public_id = await loop.run_in_executor(
+            None, cloudinary_backup, content, "thrifter_styles", "style cover"
         )
         return {
-            "image_path": result.get("secure_url"),
-            "cloudinary_public_id": result.get("public_id")
+            "image_path": image_url,
+            "cloudinary_public_id": public_id
         }
     except Exception as e:
         logger.error(f"Style cover upload failed: {e}")

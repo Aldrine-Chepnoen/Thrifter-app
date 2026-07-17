@@ -1,10 +1,12 @@
 import React from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 
 const StyleModal = ({ style, onClose, onBuild }) => {
-  const coverImage = style.cover_image_path || style.sample_items?.[0]?.image_path || null;
+  const coverImage = style.cover_image_path
+    ? { image_path: style.cover_image_path, fallback_url: style.cover_fallback_url }
+    : style.sample_items?.[0] || null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center p-0 md:p-6">
@@ -27,7 +29,7 @@ const StyleModal = ({ style, onClose, onBuild }) => {
           <div className="relative h-[58vh] md:h-[480px]">
             {coverImage ? (
               <img
-                src={getOptimizedCloudinaryUrl(coverImage, 350)}
+                src={getImageSrc(coverImage, 800)}
                 alt={style.name}
                 className="w-full h-full object-cover"
               />
