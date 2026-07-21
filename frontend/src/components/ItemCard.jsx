@@ -2,15 +2,12 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Heart, Eye } from 'lucide-react';
-import { getOptimizedCloudinaryUrl } from '../utils';
+import { getImageSrc } from '../utils';
 
 const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData }) => {
   const [saved, setSaved] = useState(() => wardrobeIds?.has(item.id) ?? false);
-  const rawImgSrc = item.image_path.startsWith('http') 
-    ? item.image_path 
-    : `${import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')}/images/${item.image_path.split(/[\\/]/).pop()}`;
-  
-  const imgSrc = getOptimizedCloudinaryUrl(rawImgSrc, 200);
+  // ~190 CSS px tile x 2-3x phone pixel density -> ask for 400
+  const imgSrc = getImageSrc(item, 400);
   const formatUGX = (n) => {
     try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
   };
