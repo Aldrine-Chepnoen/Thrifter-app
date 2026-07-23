@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, RefreshControl,
   ActivityIndicator, Dimensions,
 } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ItemCard, { type Item } from '@/components/ItemCard';
 import api from '@/lib/api';
@@ -75,7 +76,11 @@ export default function FeedScreen() {
         columnWrapperStyle={{ gap: GAP }}
         ItemSeparatorComponent={() => <View style={{ height: GAP }} />}
         renderItem={({ item }) => (
-          <ItemCard item={item} cardWidth={CARD_WIDTH} onPress={() => {}} />
+          <ItemCard
+            item={item}
+            cardWidth={CARD_WIDTH}
+            onPress={(i) => router.push(`/item/${i.id}`)}
+          />
         )}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#EAAD11" />

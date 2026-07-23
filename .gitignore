@@ -38,3 +38,4 @@ APP_TRANSITION_PLAN.md
 .vscode/
 backend/beacon_report.py
 backend/export-r2_beacon-count-by-events-success-2026-07-08-112646.csv
+THRIFTER delivery model.md
