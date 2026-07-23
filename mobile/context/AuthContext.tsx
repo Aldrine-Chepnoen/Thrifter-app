@@ -7,6 +7,8 @@ type User = {
   email: string;
   is_vendor: boolean;
   is_admin: boolean;
+  vendor_name?: string | null;
+  vendor_whatsapp?: string | null;
 };
 
 type AuthContextType = {
