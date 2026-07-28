@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production")
     JWT_EXP_SECONDS: int = int(os.getenv("JWT_EXP_SECONDS", "3600"))
-    
+
+    # Google Sign-In (web OAuth client ID, used to verify ID token audience)
+    GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
+
     # Cloudinary (fallback image store for ISPs that block the R2 domain)
     CLOUDINARY_CLOUD_NAME: Optional[str] = os.getenv("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY: Optional[str] = os.getenv("CLOUDINARY_API_KEY")

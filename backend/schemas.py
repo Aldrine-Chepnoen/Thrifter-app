@@ -26,6 +26,28 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+    confirm_signup: bool = False
+
+class GoogleAuthResponse(Token):
+    is_new_user: bool
+
+class GoogleAuthNeedsConfirmation(BaseModel):
+    needs_confirmation: bool = True
+    email: EmailStr
+
+class VendorUpgrade(BaseModel):
+    vendor_name: str = Field(..., min_length=2)
+    vendor_whatsapp: str
+
+    @validator('vendor_whatsapp')
+    def validate_whatsapp(cls, v):
+        cleaned = v.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        if not any(char.isdigit() for char in cleaned):
+            raise ValueError('Invalid WhatsApp number: must contain digits')
+        return cleaned
+
 class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str

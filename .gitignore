@@ -27,6 +27,9 @@ venv/
 backend/.env
 docker-compose.yml
 
+# Google OAuth client secret downloads (contain a client_secret, never commit)
+client_secret_*.json
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -12,7 +12,7 @@ import shutil
 import os
 import uuid
 import io
-from typing import List, Optional
+from typing import List, Optional, Union
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
@@ -167,6 +167,16 @@ def format_whatsapp_number(number: str) -> str:
     
     return number
 
+def get_or_create_vendor(db: Session, name: str, whatsapp: str) -> "models.Vendor":
+    formatted_whatsapp = format_whatsapp_number(whatsapp or "")
+    vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
+    if not vendor:
+        vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp)
+        db.add(vendor)
+        db.commit()
+        db.refresh(vendor)
+    return vendor
+
 def hash_password(pw: str) -> str:
     return pwd_context.hash(pw)
 
@@ -175,6 +185,8 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 import jwt
 from datetime import datetime, timedelta
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_auth_requests
 
 def make_token(payload: dict) -> str:
     payload = dict(payload)
@@ -458,13 +470,7 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     vendor_whatsapp = None
     if user.is_vendor:
         name = user.vendor_name or user.email.split("@")[0]
-        whatsapp = format_whatsapp_number(user.vendor_whatsapp or "")
-        vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
-        if not vendor:
-            vendor = models.Vendor(name=name, whatsapp=whatsapp)
-            db.add(vendor)
-            db.commit()
-            db.refresh(vendor)
+        vendor = get_or_create_vendor(db, name, user.vendor_whatsapp or "")
         vendor_id = vendor.id
         vendor_name = vendor.name
         vendor_whatsapp = vendor.whatsapp
@@ -482,12 +488,71 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
     if len(password) > 72:
         raise HTTPException(status_code=400, detail="Password too long (max 72 chars)")
     u = db.query(models.User).filter(models.User.email == email).first()
-    if not u or not verify_password(password, u.hashed_password):
+    if not u or not u.hashed_password or not verify_password(password, u.hashed_password):
         logger.warning(f"Login failed: Invalid credentials for {email}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = make_token({"uid": u.id})
     logger.info(f"Login successful: {u.id}")
     return schemas.Token(access_token=token)
+
+@app.post("/auth/google", response_model=Union[schemas.GoogleAuthResponse, schemas.GoogleAuthNeedsConfirmation])
+@limiter.limit("10/minute")
+def google_auth(request: Request, body: schemas.GoogleAuthRequest, db: Session = Depends(get_db)):
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            body.credential, google_auth_requests.Request(), settings.GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=30,
+        )
+    except ValueError as e:
+        logger.warning(f"Google auth failed: invalid credential ({e})")
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    if not payload.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google email is not verified")
+
+    sub = payload["sub"]
+    email = payload["email"]
+
+    u = db.query(models.User).filter(models.User.google_sub == sub).first()
+    is_new_user = False
+    if not u:
+        u = db.query(models.User).filter(models.User.email == email).first()
+        if u:
+            # Existing password account signing in with Google for the first time — link it.
+            u.google_sub = sub
+            db.commit()
+            logger.info(f"Linked Google identity to existing user: {u.id}")
+        elif not body.confirm_signup:
+            return schemas.GoogleAuthNeedsConfirmation(email=email)
+        else:
+            u = models.User(email=email, google_sub=sub, hashed_password=None, is_vendor=False)
+            db.add(u)
+            db.commit()
+            db.refresh(u)
+            is_new_user = True
+            logger.info(f"Registered new user via Google: {u.id}")
+
+    token = make_token({"uid": u.id})
+    logger.info(f"Google login successful: {u.id}")
+    return schemas.GoogleAuthResponse(access_token=token, is_new_user=is_new_user)
+
+@app.post("/auth/vendor-upgrade", response_model=schemas.UserInfo)
+def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if current.is_vendor:
+        raise HTTPException(status_code=400, detail="Account is already a vendor")
+
+    vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp)
+    current.is_vendor = True
+    current.vendor_id = vendor.id
+    db.commit()
+    logger.info(f"User upgraded to vendor: {current.id}")
+
+    return schemas.UserInfo(
+        id=current.id, email=current.email, is_vendor=current.is_vendor,
+        is_admin=current.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp
+    )
 
 @app.get("/auth/me", response_model=schemas.UserInfo)
 def me(current = Depends(get_current_user), db: Session = Depends(get_db)):

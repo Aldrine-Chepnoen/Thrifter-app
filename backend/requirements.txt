@@ -18,6 +18,8 @@ boto3
 python-dotenv
 slowapi
 pyjwt
+google-auth
+requests
 pydantic-settings
 email-validator
 cachetools

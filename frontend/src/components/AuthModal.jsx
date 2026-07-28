@@ -3,9 +3,11 @@ import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { GoogleLogin } from '@react-oauth/google';
 
 const AuthModal = ({ isOpen, onClose, onAuthed }) => {
   const [mode, setMode] = useState('login');
+  const [step, setStep] = useState('form'); // 'form' | 'google-confirm-signup' | 'google-vendor'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -13,8 +15,20 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
   const [vendorName, setVendorName] = useState('');
   const [vendorWhatsapp, setVendorWhatsapp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingGoogleCredential, setPendingGoogleCredential] = useState(null);
+  const [pendingGoogleEmail, setPendingGoogleEmail] = useState('');
 
   if (!isOpen) return null;
+
+  const resetAndClose = () => {
+    setStep('form');
+    setIsVendor(false);
+    setVendorName('');
+    setVendorWhatsapp('');
+    setPendingGoogleCredential(null);
+    setPendingGoogleEmail('');
+    onClose();
+  };
 
   const handleLogin = async () => {
     setLoading(true);
@@ -26,9 +40,56 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       localStorage.setItem('thrifter_token', res.data.access_token);
       const me = await api.get('/auth/me');
       onAuthed && onAuthed(me.data);
-      onClose();
+      resetAndClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Login failed';
+      alert(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleAuth = async (credential, confirmSignup = false) => {
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/google', { credential, confirm_signup: confirmSignup });
+      if (res.data.needs_confirmation) {
+        setPendingGoogleCredential(credential);
+        setPendingGoogleEmail(res.data.email);
+        setStep('google-confirm-signup');
+        return;
+      }
+      localStorage.setItem('thrifter_token', res.data.access_token);
+      const me = await api.get('/auth/me');
+      onAuthed && onAuthed(me.data);
+      if (res.data.is_new_user) {
+        setStep('google-vendor');
+      } else {
+        resetAndClose();
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || 'Google sign-in failed';
+      alert(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVendorUpgrade = async () => {
+    if (!vendorName.trim() || !vendorWhatsapp.trim()) {
+      alert('Please provide your business name and WhatsApp number.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/vendor-upgrade', {
+        vendor_name: vendorName,
+        vendor_whatsapp: vendorWhatsapp,
+      });
+      onAuthed && onAuthed(res.data);
+      resetAndClose();
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || 'Could not save vendor details';
       alert(msg);
     } finally {
       setLoading(false);
@@ -73,7 +134,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          onClick={onClose}
+          onClick={resetAndClose}
         />
         
         {/* Modal Content */}
@@ -87,13 +148,103 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
           {/* Handle for mobile pull-down visual */}
           <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mx-auto mb-6 sm:hidden" />
           
-          <button 
-            onClick={onClose}
+          <button
+            onClick={resetAndClose}
             className="absolute top-4 right-4 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
           >
             <X className="w-5 h-5 text-gray-500" />
           </button>
 
+          {step === 'google-confirm-signup' ? (
+            <div className="space-y-5 pt-2">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">No account found</h3>
+                <p className="text-sm text-gray-500">
+                  There's no Thrifter account for <span className="font-semibold text-gray-700 dark:text-gray-300">{pendingGoogleEmail}</span>. Would you like to create one?
+                </p>
+              </div>
+
+              <button
+                disabled={loading}
+                onClick={() => handleGoogleAuth(pendingGoogleCredential, true)}
+                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:bg-gray-400 shadow-lg shadow-black/10"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-b-white rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  'Create account'
+                )}
+              </button>
+              <button
+                disabled={loading}
+                onClick={() => { setPendingGoogleCredential(null); setPendingGoogleEmail(''); setStep('form'); }}
+                className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-1"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : step === 'google-vendor' ? (
+            <div className="space-y-5 pt-2">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">One more thing</h3>
+                <p className="text-sm text-gray-500">Are you a business or brand selling on Thrifter?</p>
+              </div>
+
+              <div className="flex items-center gap-3 py-2">
+                <input
+                  id="isVendorGoogle"
+                  type="checkbox"
+                  checked={isVendor}
+                  onChange={(e) => setIsVendor(e.target.checked)}
+                  className="w-5 h-5 rounded border-gray-300 text-black focus:ring-black cursor-pointer"
+                />
+                <label htmlFor="isVendorGoogle" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">I am a Business/Brand</label>
+              </div>
+
+              {isVendor && (
+                <div className="grid grid-cols-1 gap-4 pt-1">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name</label>
+                    <input
+                      type="text"
+                      value={vendorName}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp</label>
+                    <input
+                      type="text"
+                      value={vendorWhatsapp}
+                      onChange={(e) => setVendorWhatsapp(e.target.value)}
+                      placeholder="+256..."
+                      className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button
+                disabled={loading}
+                onClick={isVendor ? handleVendorUpgrade : resetAndClose}
+                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:bg-gray-400 mt-4 shadow-lg shadow-black/10"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-b-white rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </div>
+                ) : (
+                  isVendor ? 'Finish' : 'Skip for now'
+                )}
+              </button>
+            </div>
+          ) : (
+          <>
           <div className="flex gap-4 mb-8 border-b border-gray-100 dark:border-gray-800">
             <button
               onClick={() => setMode('login')}
@@ -110,6 +261,20 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
           </div>
 
           <div className="space-y-5">
+            <div className="flex justify-center">
+              <GoogleLogin
+                onSuccess={(cred) => handleGoogleAuth(cred.credential)}
+                onError={() => alert('Google sign-in failed')}
+                useOneTap={false}
+              />
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+              <span>or continue with email</span>
+              <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
               <input
@@ -203,6 +368,8 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
               By continuing, you agree to discover and support local thrift brands.
             </p>
           </div>
+          </>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>
