@@ -26,6 +26,7 @@ import models
 import schemas
 import search_engine
 import cache
+import payments
 
 # Tables are managed by Alembic migrations
 # models.Base.metadata.create_all(bind=engine)
@@ -236,6 +237,13 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
 def require_admin(current_user: Optional[models.User] = Depends(get_current_user)) -> models.User:
     if not current_user or not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+def require_vendor(current_user: Optional[models.User] = Depends(get_current_user)) -> models.User:
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not current_user.is_vendor or not current_user.vendor_id:
+        raise HTTPException(status_code=403, detail="Vendor account required")
     return current_user
 
 def get_optional_user(
@@ -684,7 +692,8 @@ def serialize_item(item: models.Item) -> schemas.Item:
         images=images,
         vendor_name=vendor_name,
         vendor_whatsapp=vendor_whatsapp,
-        whatsapp=vendor_whatsapp or None
+        whatsapp=vendor_whatsapp or None,
+        status=item.status or "available",
     )
 
 def _personalised_feed(
@@ -1118,6 +1127,585 @@ async def upload_item(
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=f"Server error during upload: {str(e)}")
+
+# ---------------------------------------------------------------------------
+# Checkout / Orders / Payments
+# ---------------------------------------------------------------------------
+
+def next_delivery_day(now: Optional[datetime] = None) -> datetime:
+    """Next upcoming Monday or Thursday (midnight), matching the Mon/Thu pickup schedule."""
+    now = now or datetime.utcnow()
+    target_weekdays = (0, 3)  # Monday=0, Thursday=3
+    for offset in range(1, 8):
+        candidate = now + timedelta(days=offset)
+        if candidate.weekday() in target_weekdays:
+            return candidate.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now  # unreachable — one of the next 7 days is always Mon or Thu
+
+def serialize_order(order: models.Order) -> schemas.OrderOut:
+    return schemas.OrderOut(
+        id=order.id,
+        vendor_id=order.vendor_id,
+        vendor_name=order.vendor.name if order.vendor else None,
+        subtotal=order.subtotal,
+        status=order.status,
+        items=[
+            schemas.OrderItemOut(
+                id=oi.id,
+                item_id=oi.item_id,
+                item_name_snapshot=oi.item_name_snapshot,
+                price_at_purchase=oi.price_at_purchase,
+            )
+            for oi in order.items
+        ],
+    )
+
+def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
+    return schemas.CheckoutOut(
+        id=checkout.id,
+        delivery_name=checkout.delivery_name,
+        delivery_phone=checkout.delivery_phone,
+        delivery_address=checkout.delivery_address,
+        delivery_day=checkout.delivery_day,
+        subtotal=checkout.subtotal,
+        delivery_fee=checkout.delivery_fee,
+        total_amount=checkout.total_amount,
+        currency=checkout.currency,
+        status=checkout.status,
+        orders=[serialize_order(o) for o in checkout.orders],
+    )
+
+@app.post("/checkout", response_model=schemas.CheckoutOut)
+@limiter.limit("10/minute")
+def create_checkout(
+    request: Request,
+    body: schemas.CheckoutCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    item_ids = [i.item_id for i in body.items]
+    if len(set(item_ids)) != len(item_ids):
+        raise HTTPException(status_code=400, detail="Duplicate items in cart")
+
+    try:
+        now = datetime.utcnow()
+
+        # Lock every requested item row for the life of this transaction so two
+        # concurrent checkouts can never both reserve the same one-of-a-kind item.
+        items = (
+            db.query(models.Item)
+            .filter(models.Item.id.in_(item_ids))
+            .with_for_update()
+            .all()
+        )
+        items_by_id = {i.id: i for i in items}
+
+        unavailable = []
+        for item_id in item_ids:
+            item = items_by_id.get(item_id)
+            if item is None:
+                unavailable.append(item_id)
+                continue
+            if item.status == "sold":
+                unavailable.append(item_id)
+                continue
+            if item.status == "reserved" and item.reserved_until and item.reserved_until > now:
+                unavailable.append(item_id)
+                continue
+            # else: "available", or a "reserved" row whose hold has expired — reclaimable
+
+        if unavailable:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "Some items are no longer available", "item_ids": unavailable},
+            )
+
+        reserved_until = now + timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES)
+        for item_id in item_ids:
+            item = items_by_id[item_id]
+            item.status = "reserved"
+            item.reserved_until = reserved_until
+
+        by_vendor: dict = {}
+        for item_id in item_ids:
+            item = items_by_id[item_id]
+            by_vendor.setdefault(item.vendor_id, []).append(item)
+
+        subtotal = sum(item.price for item in items_by_id.values())
+        delivery_fee = settings.DELIVERY_FEE_UGX
+        total_amount = subtotal + delivery_fee
+
+        checkout = models.Checkout(
+            buyer_id=current_user.id,
+            delivery_name=body.delivery_name,
+            delivery_phone=body.delivery_phone,
+            delivery_address=body.delivery_address,
+            delivery_day=next_delivery_day(now),
+            subtotal=subtotal,
+            delivery_fee=delivery_fee,
+            total_amount=total_amount,
+            currency="UGX",
+            status="pending",
+        )
+        db.add(checkout)
+        db.flush()
+
+        for vendor_id, vendor_items in by_vendor.items():
+            vendor_subtotal = sum(i.price for i in vendor_items)
+            commission = round(vendor_subtotal * settings.VENDOR_COMMISSION_RATE, 2)
+            order = models.Order(
+                checkout_id=checkout.id,
+                vendor_id=vendor_id,
+                subtotal=vendor_subtotal,
+                commission_amount=commission,
+                vendor_payout_amount=vendor_subtotal - commission,
+                status="pending",
+            )
+            db.add(order)
+            db.flush()
+            for item in vendor_items:
+                db.add(models.OrderItem(
+                    order_id=order.id,
+                    item_id=item.id,
+                    price_at_purchase=item.price,
+                    item_name_snapshot=item.name,
+                ))
+
+        db.commit()
+        db.refresh(checkout)
+        logger.info(f"Checkout {checkout.id} created for user {current_user.id}, total {total_amount}")
+        return serialize_checkout(checkout)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Checkout creation failed: {str(e)}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Server error during checkout: {str(e)}")
+
+@app.get("/checkout/{checkout_id}", response_model=schemas.CheckoutOut)
+def get_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == checkout_id).first()
+    if not checkout:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+    if checkout.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your checkout")
+
+    # Fall back to an active re-verify if still pending — covers providers/environments
+    # where the webhook hasn't arrived yet (e.g. no public URL registered locally),
+    # mirroring what Flutterwave/DPO both recommend doing after the redirect-back.
+    payment = checkout.payment
+    if checkout.status == "pending" and payment and payment.provider_tx_id:
+        try:
+            provider = payments.get_provider(payment.provider)
+            status = provider.verify(payment.tx_ref, payment.provider_tx_id)
+            _finalize_payment(db, payment, status)
+            db.commit()
+            db.refresh(checkout)
+        except Exception as e:
+            logger.warning(f"Active re-verify failed for checkout {checkout.id}: {str(e)}")
+
+    return serialize_checkout(checkout)
+
+@app.get("/orders", response_model=List[schemas.CheckoutOut])
+def list_my_orders(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    checkouts = (
+        db.query(models.Checkout)
+        .filter(models.Checkout.buyer_id == current_user.id, models.Checkout.status == "paid")
+        .order_by(models.Checkout.created_at.desc())
+        .all()
+    )
+    return [serialize_checkout(c) for c in checkouts]
+
+def _item_still_reserved(item: Optional[models.Item], now: datetime) -> bool:
+    return item is not None and item.status == "reserved" and (item.reserved_until is None or item.reserved_until >= now)
+
+@app.post("/checkout/{checkout_id}/pay", response_model=schemas.PaymentInitiateResponse)
+@limiter.limit("10/minute")
+def initiate_payment(
+    request: Request,
+    checkout_id: int,
+    body: schemas.PaymentInitiateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == checkout_id).first()
+    if not checkout:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+    if checkout.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your checkout")
+    if checkout.status != "pending":
+        raise HTTPException(status_code=409, detail=f"Checkout is already {checkout.status}")
+
+    now = datetime.utcnow()
+    expired_items = [
+        oi.item_name_snapshot
+        for order in checkout.orders
+        for oi in order.items
+        if not _item_still_reserved(oi.item, now)
+    ]
+    if expired_items:
+        checkout.status = "expired"
+        for order in checkout.orders:
+            order.status = "cancelled"
+        db.commit()
+        raise HTTPException(status_code=409, detail=f"Reservation expired for: {', '.join(expired_items)}")
+
+    tx_ref = f"THR-{checkout.id}-{uuid.uuid4().hex[:10]}"
+    redirect_url = f"{settings.FRONTEND_BASE_URL}/checkout/complete?checkout_id={checkout.id}"
+
+    try:
+        provider = payments.get_provider(body.provider)
+        result = provider.initiate(
+            tx_ref=tx_ref,
+            amount=checkout.total_amount,
+            currency=checkout.currency,
+            customer_email=current_user.email,
+            customer_name=checkout.delivery_name,
+            customer_phone=checkout.delivery_phone,
+            redirect_url=redirect_url,
+        )
+    except Exception as e:
+        logger.error(f"Payment initiation failed for checkout {checkout.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
+
+    # One Payment row per checkout — replaces any stale prior attempt (e.g. buyer picked
+    # one provider, backed out, retried with the other) instead of violating the unique constraint.
+    existing_payment = db.query(models.Payment).filter(models.Payment.checkout_id == checkout.id).first()
+    if existing_payment:
+        existing_payment.provider = body.provider
+        existing_payment.tx_ref = tx_ref
+        existing_payment.provider_tx_id = result.provider_ref
+        existing_payment.status = "pending"
+        existing_payment.amount = checkout.total_amount
+        existing_payment.currency = checkout.currency
+    else:
+        db.add(models.Payment(
+            checkout_id=checkout.id,
+            provider=body.provider,
+            tx_ref=tx_ref,
+            provider_tx_id=result.provider_ref,
+            status="pending",
+            amount=checkout.total_amount,
+            currency=checkout.currency,
+        ))
+    db.commit()
+
+    return schemas.PaymentInitiateResponse(redirect_url=result.redirect_url, tx_ref=tx_ref)
+
+def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None:
+    """Idempotent: a payment already in a terminal state is left untouched, so
+    replayed/duplicate webhook deliveries are safe no-ops."""
+    if payment.status in ("successful", "failed"):
+        return
+    checkout = payment.checkout
+    if status == "successful":
+        payment.status = "successful"
+        checkout.status = "paid"
+        for order in checkout.orders:
+            order.status = "paid"
+            for oi in order.items:
+                if oi.item:
+                    oi.item.status = "sold"
+                    oi.item.reserved_until = None
+            db.add(models.VendorPayout(
+                vendor_id=order.vendor_id,
+                order_id=order.id,
+                amount=order.vendor_payout_amount,
+                status="pending",
+            ))
+    elif status == "failed":
+        payment.status = "failed"
+        checkout.status = "failed"
+        for order in checkout.orders:
+            order.status = "cancelled"
+            for oi in order.items:
+                if oi.item:
+                    oi.item.status = "available"
+                    oi.item.reserved_until = None
+    # "pending" — leave everything as-is; a later webhook delivery will resolve it.
+
+@app.post("/webhooks/flutterwave")
+async def flutterwave_webhook(request: Request, db: Session = Depends(get_db)):
+    body_bytes = await request.body()
+    try:
+        json_body = json.loads(body_bytes or b"{}")
+    except json.JSONDecodeError:
+        json_body = {}
+    headers = dict(request.headers)
+
+    provider = payments.get_provider("flutterwave")
+    result = provider.parse_webhook(headers, json_body)
+
+    event = models.WebhookEvent(
+        provider="flutterwave",
+        tx_ref=result.tx_ref,
+        provider_event_id=result.provider_tx_id,
+        payload=json.dumps(json_body, default=str),
+        signature_valid=result.valid,
+        processed=False,
+    )
+    db.add(event)
+    db.commit()
+
+    if not result.valid:
+        logger.warning(f"Flutterwave webhook with invalid signature (tx_ref={result.tx_ref})")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    if not result.tx_ref:
+        return {"status": "ignored"}
+
+    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
+    if not payment:
+        logger.warning(f"Flutterwave webhook for unknown tx_ref={result.tx_ref}")
+        return {"status": "ignored"}
+
+    # Defense in depth: don't trust the webhook body's status field on its own —
+    # re-confirm directly against Flutterwave's verify-transaction API.
+    confirmed_status = provider.verify(result.tx_ref, result.provider_tx_id) if result.provider_tx_id else result.status
+
+    try:
+        if not payment.provider_tx_id and result.provider_tx_id:
+            payment.provider_tx_id = result.provider_tx_id
+        _finalize_payment(db, payment, confirmed_status)
+        event.processed = True
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed processing Flutterwave webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
+
+    return {"status": "ok"}
+
+@app.api_route("/webhooks/pesapal", methods=["GET", "POST"])
+async def pesapal_webhook(request: Request, db: Session = Depends(get_db)):
+    params = dict(request.query_params)
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                params = {**body, **params}
+        except Exception:
+            pass
+    headers = dict(request.headers)
+
+    provider = payments.get_provider("pesapal")
+    # parse_webhook re-verifies via GetTransactionStatus internally — Pesapal's
+    # callback payload itself carries no trustworthy status or signature.
+    result = provider.parse_webhook(headers, params)
+
+    event = models.WebhookEvent(
+        provider="pesapal",
+        tx_ref=result.tx_ref,
+        provider_event_id=result.provider_tx_id,
+        payload=json.dumps(params, default=str),
+        signature_valid=result.valid,
+        processed=False,
+    )
+    db.add(event)
+    db.commit()
+
+    if not result.tx_ref:
+        return {"status": "ignored"}
+
+    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
+    if not payment:
+        logger.warning(f"Pesapal webhook for unknown tx_ref={result.tx_ref}")
+        return {"status": "ignored"}
+
+    try:
+        if not payment.provider_tx_id and result.provider_tx_id:
+            payment.provider_tx_id = result.provider_tx_id
+        _finalize_payment(db, payment, result.status)
+        event.processed = True
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed processing Pesapal webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
+
+    return {"status": "ok"}
+
+_ORDER_STATUS_TRANSITIONS = {
+    "paid": {"picked_up"},
+    "picked_up": {"delivered"},
+}
+
+_DPO_ACK_XML = '<?xml version="1.0" encoding="utf-8"?><API3G><Response>OK</Response></API3G>'
+
+@app.api_route("/webhooks/dpo", methods=["GET", "POST"])
+async def dpo_webhook(request: Request, db: Session = Depends(get_db)):
+    # DPO's push notification format isn't guaranteed JSON — accept query params,
+    # form-encoded, or XML body, whichever the request actually carries.
+    params = dict(request.query_params)
+    body_bytes = await request.body()
+    if body_bytes:
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(body_bytes)
+            params = {**{child.tag: (child.text or "").strip() for child in root}, **params}
+        except ET.ParseError:
+            try:
+                form = await request.form()
+                params = {**dict(form), **params}
+            except Exception:
+                pass
+    headers = dict(request.headers)
+
+    provider = payments.get_provider("dpo")
+    # parse_webhook re-verifies via verifyToken internally — DPO's push payload
+    # carries no signature to check on its own.
+    result = provider.parse_webhook(headers, params)
+
+    event = models.WebhookEvent(
+        provider="dpo",
+        tx_ref=result.tx_ref,
+        provider_event_id=result.provider_tx_id,
+        payload=json.dumps(params, default=str),
+        signature_valid=result.valid,
+        processed=False,
+    )
+    db.add(event)
+    db.commit()
+
+    if not result.tx_ref:
+        return Response(content=_DPO_ACK_XML, media_type="application/xml")
+
+    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
+    if not payment:
+        logger.warning(f"DPO webhook for unknown tx_ref={result.tx_ref}")
+        return Response(content=_DPO_ACK_XML, media_type="application/xml")
+
+    try:
+        if not payment.provider_tx_id and result.provider_tx_id:
+            payment.provider_tx_id = result.provider_tx_id
+        _finalize_payment(db, payment, result.status)
+        event.processed = True
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed processing DPO webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+
+    return Response(content=_DPO_ACK_XML, media_type="application/xml")
+
+@app.get("/vendor/orders", response_model=List[schemas.VendorOrderOut])
+def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
+    orders = (
+        db.query(models.Order)
+        .filter(models.Order.vendor_id == current_user.vendor_id, models.Order.status != "pending")
+        .order_by(models.Order.created_at.desc())
+        .all()
+    )
+    return [
+        schemas.VendorOrderOut(
+            id=order.id,
+            checkout_id=order.checkout_id,
+            subtotal=order.subtotal,
+            commission_amount=order.commission_amount,
+            vendor_payout_amount=order.vendor_payout_amount,
+            status=order.status,
+            delivery_day=order.checkout.delivery_day,
+            items=[
+                schemas.OrderItemOut(
+                    id=oi.id, item_id=oi.item_id,
+                    item_name_snapshot=oi.item_name_snapshot,
+                    price_at_purchase=oi.price_at_purchase,
+                )
+                for oi in order.items
+            ],
+        )
+        for order in orders
+    ]
+
+@app.patch("/vendor/orders/{order_id}/status", response_model=schemas.VendorOrderOut)
+def update_vendor_order_status(
+    order_id: int,
+    body: schemas.VendorOrderStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_vendor),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.vendor_id != current_user.vendor_id:
+        raise HTTPException(status_code=403, detail="Not your order")
+
+    allowed_next = _ORDER_STATUS_TRANSITIONS.get(order.status, set())
+    if body.status not in allowed_next:
+        raise HTTPException(status_code=409, detail=f"Cannot move order from '{order.status}' to '{body.status}'")
+
+    order.status = body.status
+    db.commit()
+    db.refresh(order)
+    return schemas.VendorOrderOut(
+        id=order.id,
+        checkout_id=order.checkout_id,
+        subtotal=order.subtotal,
+        commission_amount=order.commission_amount,
+        vendor_payout_amount=order.vendor_payout_amount,
+        status=order.status,
+        delivery_day=order.checkout.delivery_day,
+        items=[
+            schemas.OrderItemOut(
+                id=oi.id, item_id=oi.item_id,
+                item_name_snapshot=oi.item_name_snapshot,
+                price_at_purchase=oi.price_at_purchase,
+            )
+            for oi in order.items
+        ],
+    )
+
+@app.get("/admin/payouts", response_model=List[schemas.VendorPayoutOut])
+def list_payouts(status: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    query = db.query(models.VendorPayout)
+    if status:
+        query = query.filter(models.VendorPayout.status == status)
+    payouts = query.order_by(models.VendorPayout.created_at.desc()).all()
+    return [
+        schemas.VendorPayoutOut(
+            id=p.id,
+            vendor_id=p.vendor_id,
+            vendor_name=p.vendor.name if p.vendor else None,
+            order_id=p.order_id,
+            amount=p.amount,
+            status=p.status,
+            paid_at=p.paid_at,
+            created_at=p.created_at,
+        )
+        for p in payouts
+    ]
+
+@app.patch("/admin/payouts/{payout_id}/mark-paid", response_model=schemas.VendorPayoutOut)
+def mark_payout_paid(payout_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    payout = db.query(models.VendorPayout).filter(models.VendorPayout.id == payout_id).first()
+    if not payout:
+        raise HTTPException(status_code=404, detail="Payout not found")
+    if payout.status == "paid":
+        raise HTTPException(status_code=409, detail="Payout already marked paid")
+    payout.status = "paid"
+    payout.paid_at = datetime.utcnow()
+    db.commit()
+    db.refresh(payout)
+    return schemas.VendorPayoutOut(
+        id=payout.id,
+        vendor_id=payout.vendor_id,
+        vendor_name=payout.vendor.name if payout.vendor else None,
+        order_id=payout.order_id,
+        amount=payout.amount,
+        status=payout.status,
+        paid_at=payout.paid_at,
+        created_at=payout.created_at,
+    )
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):

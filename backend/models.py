@@ -91,6 +91,10 @@ class Item(Base):
     # CLIP-ViT-B/32 produces 512-dimensional embeddings
     embedding = Column(Vector(512))
 
+    # Purchase status: available, reserved (checkout in progress), sold
+    status = Column(String, default="available", nullable=False, index=True)
+    reserved_until = Column(DateTime, nullable=True)
+
 class ItemImage(Base):
     __tablename__ = "item_images"
     id = Column(Integer, primary_key=True, index=True)
@@ -147,3 +151,90 @@ class ItemView(Base):
     item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+class Checkout(Base):
+    __tablename__ = "checkouts"
+    id = Column(Integer, primary_key=True, index=True)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    delivery_name = Column(String, nullable=False)
+    delivery_phone = Column(String, nullable=False)
+    delivery_address = Column(Text, nullable=False)
+    delivery_day = Column(DateTime, nullable=False)
+    subtotal = Column(Float, nullable=False)
+    delivery_fee = Column(Float, nullable=False)
+    total_amount = Column(Float, nullable=False)
+    currency = Column(String, default="UGX", nullable=False)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, paid, failed, cancelled, expired
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    buyer = relationship("User")
+    orders = relationship("Order", back_populates="checkout", cascade="all, delete-orphan")
+    payment = relationship("Payment", back_populates="checkout", uselist=False, cascade="all, delete-orphan")
+
+class Order(Base):
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True, index=True)
+    checkout_id = Column(Integer, ForeignKey("checkouts.id", ondelete="CASCADE"), nullable=False, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False, index=True)
+    subtotal = Column(Float, nullable=False)
+    commission_amount = Column(Float, nullable=False)
+    vendor_payout_amount = Column(Float, nullable=False)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, paid, picked_up, delivered, cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    checkout = relationship("Checkout", back_populates="orders")
+    vendor = relationship("Vendor")
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    payout = relationship("VendorPayout", back_populates="order", uselist=False, cascade="all, delete-orphan")
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    price_at_purchase = Column(Float, nullable=False)
+    item_name_snapshot = Column(String, nullable=False)
+
+    order = relationship("Order", back_populates="items")
+    item = relationship("Item")
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    checkout_id = Column(Integer, ForeignKey("checkouts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    provider = Column(String, nullable=False)  # "flutterwave" | "pesapal"
+    tx_ref = Column(String, unique=True, index=True, nullable=False)
+    provider_tx_id = Column(String, nullable=True)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed
+    amount = Column(Float, nullable=False)
+    currency = Column(String, default="UGX", nullable=False)
+    raw_response = Column(Text, nullable=True)  # JSON-encoded
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    checkout = relationship("Checkout", back_populates="payment")
+
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, nullable=False, index=True)
+    tx_ref = Column(String, nullable=True, index=True)
+    provider_event_id = Column(String, nullable=True, index=True)
+    payload = Column(Text, nullable=False)  # JSON-encoded
+    signature_valid = Column(Boolean, default=False, nullable=False)
+    processed = Column(Boolean, default=False, nullable=False, index=True)
+    received_at = Column(DateTime, default=datetime.utcnow)
+
+class VendorPayout(Base):
+    __tablename__ = "vendor_payouts"
+    id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, unique=True)
+    amount = Column(Float, nullable=False)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, paid
+    paid_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    vendor = relationship("Vendor")
+    order = relationship("Order", back_populates="payout")

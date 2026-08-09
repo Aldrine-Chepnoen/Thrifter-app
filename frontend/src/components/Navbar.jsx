@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -68,6 +68,7 @@ const Navbar = ({
   hasActiveFilters,
   darkMode,
   toggleDarkMode,
+  cartCount = 0,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -183,6 +184,31 @@ const Navbar = ({
               <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
               <Heart className="w-3.5 h-3.5" />
             </button>
+
+            <Link
+              to="/cart"
+              className="relative flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+              title="Cart"
+            >
+              <span className="text-[10px] md:text-xs tracking-tight">Cart</span>
+              <ShoppingBag className="w-3.5 h-3.5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+
+            {user && (
+              <Link
+                to={user.is_vendor ? '/vendor/orders' : '/orders'}
+                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
+                title="Orders"
+              >
+                <span className="text-[10px] md:text-xs tracking-tight">Orders</span>
+                <Package className="w-3.5 h-3.5" />
+              </Link>
+            )}
 
             {user?.is_admin && (
               <Link

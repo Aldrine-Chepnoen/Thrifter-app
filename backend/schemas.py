@@ -96,6 +96,7 @@ class Item(ItemBase):
     cloudinary_public_id: Optional[str] = None
     fallback_url: Optional[str] = None
     images: List[ItemImage] = []
+    status: str = "available"
 
     class Config:
         from_attributes = True
@@ -257,6 +258,72 @@ class DemandEntryUpdate(BaseModel):
     item_name: Optional[str] = Field(None, min_length=2, max_length=100)
     price: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=300)
+
+class CheckoutItemRequest(BaseModel):
+    item_id: int
+
+class CheckoutCreate(BaseModel):
+    items: List[CheckoutItemRequest] = Field(..., min_length=1, max_length=20)
+    delivery_name: str = Field(..., min_length=2, max_length=100)
+    delivery_phone: str = Field(..., min_length=7, max_length=20)
+    delivery_address: str = Field(..., min_length=5, max_length=500)
+
+class OrderItemOut(BaseModel):
+    id: int
+    item_id: int
+    item_name_snapshot: str
+    price_at_purchase: float
+
+class OrderOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    subtotal: float
+    status: str
+    items: List[OrderItemOut] = []
+
+class CheckoutOut(BaseModel):
+    id: int
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    delivery_day: datetime
+    subtotal: float
+    delivery_fee: float
+    total_amount: float
+    currency: str
+    status: str
+    orders: List[OrderOut] = []
+
+class PaymentInitiateRequest(BaseModel):
+    provider: str = Field(..., pattern="^(flutterwave|pesapal|dpo)$")
+
+class PaymentInitiateResponse(BaseModel):
+    redirect_url: str
+    tx_ref: str
+
+class VendorOrderStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(picked_up|delivered)$")
+
+class VendorOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+
+class VendorPayoutOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    order_id: int
+    amount: float
+    status: str
+    paid_at: Optional[datetime] = None
+    created_at: datetime
 
 class DailyViewCount(BaseModel):
     date: str

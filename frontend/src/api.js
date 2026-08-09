@@ -30,4 +30,11 @@ export const updateDemandEntryStatus = (id, status) => api.patch(`/admin/demand/
 export const editDemandEntry = (id, data) => api.patch(`/admin/demand/${id}`, data).then(r => r.data);
 export const deleteDemandEntry = (id) => api.delete(`/admin/demand/${id}`).then(r => r.data);
 
+export const createCheckout = (data) => api.post('/checkout', data).then(r => r.data);
+export const getCheckout = (id) => api.get(`/checkout/${id}`).then(r => r.data);
+export const payCheckout = (id, provider) => api.post(`/checkout/${id}/pay`, { provider }).then(r => r.data);
+export const fetchMyOrders = () => api.get('/orders').then(r => r.data);
+export const fetchVendorOrders = () => api.get('/vendor/orders').then(r => r.data);
+export const updateVendorOrderStatus = (id, status) => api.patch(`/vendor/orders/${id}/status`, { status }).then(r => r.data);
+
 export default api;
