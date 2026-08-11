@@ -88,6 +88,10 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   };
 
   const handleSave = async () => {
+    if (!editLocation.trim()) {
+      setError('Pickup location is required so we can arrange deliveries.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -95,7 +99,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         name: editName,
         whatsapp: editWhatsapp,
         description: editDescription || null,
-        location: editLocation || null,
+        location: editLocation.trim(),
       });
       const newName = res.data.vendor_name;
       onVendorRenamed?.(newName);
@@ -108,7 +112,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           name: newName,
           whatsapp: res.data.vendor_whatsapp,
           description: editDescription || null,
-          location: editLocation || null,
+          location: editLocation.trim(),
         }));
       }
     } catch (e) {
@@ -246,14 +250,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Location</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">
+                Pickup Location <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 value={editLocation}
                 onChange={e => setEditLocation(e.target.value)}
                 placeholder="e.g. Kampala, Uganda"
+                required
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Needed so we can arrange item pickup for delivery.</p>
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}
             <div className="flex gap-3 pt-1">

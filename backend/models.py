@@ -82,6 +82,7 @@ class Item(Base):
     item_type = Column(String, default="top", index=True) # top, bottom, dress, accessory
     cloudinary_public_id = Column(String, nullable=True)
     description = Column(Text, nullable=True)
+    quantity = Column(Integer, default=1, nullable=False, server_default="1")
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor", back_populates="items")
 

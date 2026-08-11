@@ -38,6 +38,7 @@ const UploadForm = () => {
     size: '',
     market: '',
     item_type: 'top',
+    quantity: 1,
     vendor_name: '',
     vendor_whatsapp: '',
     description: '',
@@ -232,6 +233,19 @@ const UploadForm = () => {
               <option value="dress">Dress / Jumpsuit</option>
               <option value="accessory">Accessory (Shoes, Bag, etc.)</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity</label>
+            <input
+              type="number"
+              name="quantity"
+              min="0"
+              value={formData.quantity}
+              onChange={handleChange}
+              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+              required
+              disabled={!canUpload}
+            />
           </div>
         </div>
 

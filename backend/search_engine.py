@@ -25,6 +25,8 @@ except Exception as e:
     model = None
     processor = None
 
+EMBEDDING_DIM = 512  # must match the pgvector column width (items.embedding)
+
 def _simple_image_embedding(image: Image.Image):
     # (Existing fallback remains the same)
     image = image.convert("RGB").resize((32, 32))
@@ -34,14 +36,17 @@ def _simple_image_embedding(image: Image.Image):
     garr = np.asarray(gray, dtype=np.float32) / 255.0
     vec = np.concatenate([rgb_mean, garr.flatten()])
     n = np.linalg.norm(vec)
-    return vec if n == 0 else vec / n
+    vec = vec if n == 0 else vec / n
+    # Pad to the pgvector column's fixed width — the raw feature vector is
+    # shorter than the real CLIP output, and the column rejects any mismatch.
+    return np.pad(vec, (0, EMBEDDING_DIM - vec.shape[0]))
 
 def _simple_text_embedding(text: str):
     # (Existing fallback remains the same)
     tokens = re.findall(r"\w+", (text or "").lower())
-    vec = np.zeros(128, dtype=np.float32)
+    vec = np.zeros(EMBEDDING_DIM, dtype=np.float32)
     for t in tokens:
-        h = int(hashlib.md5(t.encode()).hexdigest(), 16) % 128
+        h = int(hashlib.md5(t.encode()).hexdigest(), 16) % EMBEDDING_DIM
         vec[h] += 1.0
     n = np.linalg.norm(vec)
     return vec if n == 0 else vec / n

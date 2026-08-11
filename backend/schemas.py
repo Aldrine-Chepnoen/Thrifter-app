@@ -10,6 +10,7 @@ class UserCreate(BaseModel):
     is_vendor: bool = False
     vendor_name: Optional[str] = Field(None, min_length=2)
     vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = None
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -20,6 +21,15 @@ class UserCreate(BaseModel):
         # Basic check to ensure there are enough digits
         if not any(char.isdigit() for char in cleaned):
              raise ValueError('Invalid WhatsApp number: must contain digits')
+        return cleaned
+
+    @validator('vendor_location', always=True)
+    def validate_vendor_location(cls, v, values):
+        if not values.get('is_vendor'):
+            return v
+        cleaned = (v or '').strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required for business/vendor accounts')
         return cleaned
 
 class Token(BaseModel):
@@ -40,6 +50,7 @@ class GoogleAuthNeedsConfirmation(BaseModel):
 class VendorUpgrade(BaseModel):
     vendor_name: str = Field(..., min_length=2)
     vendor_whatsapp: str
+    vendor_location: str = Field(..., min_length=2)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -48,11 +59,25 @@ class VendorUpgrade(BaseModel):
             raise ValueError('Invalid WhatsApp number: must contain digits')
         return cleaned
 
+    @validator('vendor_location')
+    def validate_vendor_location(cls, v):
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required')
+        return cleaned
+
 class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str
     description: Optional[str] = None
-    location: Optional[str] = None
+    location: str = Field(..., min_length=2, max_length=200)
+
+    @validator('location')
+    def validate_location(cls, v):
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required')
+        return cleaned
 
 class UserInfo(BaseModel):
     id: int
@@ -75,6 +100,7 @@ class ItemBase(BaseModel):
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
     whatsapp: Optional[str] = None
+    quantity: int = Field(1, ge=0)
 
 class ItemCreate(ItemBase):
     pass

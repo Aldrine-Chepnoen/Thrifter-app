@@ -14,6 +14,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
   const [isVendor, setIsVendor] = useState(false);
   const [vendorName, setVendorName] = useState('');
   const [vendorWhatsapp, setVendorWhatsapp] = useState('');
+  const [vendorLocation, setVendorLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingGoogleCredential, setPendingGoogleCredential] = useState(null);
   const [pendingGoogleEmail, setPendingGoogleEmail] = useState('');
@@ -25,6 +26,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
     setIsVendor(false);
     setVendorName('');
     setVendorWhatsapp('');
+    setVendorLocation('');
     setPendingGoogleCredential(null);
     setPendingGoogleEmail('');
     onClose();
@@ -76,8 +78,8 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
   };
 
   const handleVendorUpgrade = async () => {
-    if (!vendorName.trim() || !vendorWhatsapp.trim()) {
-      alert('Please provide your business name and WhatsApp number.');
+    if (!vendorName.trim() || !vendorWhatsapp.trim() || !vendorLocation.trim()) {
+      alert('Please provide your business name, WhatsApp number, and pickup location.');
       return;
     }
     setLoading(true);
@@ -85,6 +87,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       const res = await api.post('/auth/vendor-upgrade', {
         vendor_name: vendorName,
         vendor_whatsapp: vendorWhatsapp,
+        vendor_location: vendorLocation.trim(),
       });
       onAuthed && onAuthed(res.data);
       resetAndClose();
@@ -101,7 +104,11 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       alert('Password must be at least 8 characters long.');
       return;
     }
-    
+    if (isVendor && !vendorLocation.trim()) {
+      alert('Please provide a pickup location for your business.');
+      return;
+    }
+
     setLoading(true);
     try {
       const body = {
@@ -110,6 +117,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
         is_vendor: isVendor,
         vendor_name: isVendor ? vendorName : null,
         vendor_whatsapp: isVendor ? vendorWhatsapp : null,
+        vendor_location: isVendor ? vendorLocation.trim() : null,
       };
       await api.post('/auth/register', body);
       await handleLogin();
@@ -222,6 +230,16 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                       value={vendorWhatsapp}
                       onChange={(e) => setVendorWhatsapp(e.target.value)}
                       placeholder="+256..."
+                      className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Pickup Location</label>
+                    <input
+                      type="text"
+                      value={vendorLocation}
+                      onChange={(e) => setVendorLocation(e.target.value)}
+                      placeholder="e.g. Kampala, Uganda"
                       className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
                     />
                   </div>
@@ -341,6 +359,16 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                         value={vendorWhatsapp}
                         onChange={(e) => setVendorWhatsapp(e.target.value)}
                         placeholder="+256..."
+                        className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Pickup Location</label>
+                      <input
+                        type="text"
+                        value={vendorLocation}
+                        onChange={(e) => setVendorLocation(e.target.value)}
+                        placeholder="e.g. Kampala, Uganda"
                         className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
                       />
                     </div>

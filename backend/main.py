@@ -167,11 +167,11 @@ def format_whatsapp_number(number: str) -> str:
     
     return number
 
-def get_or_create_vendor(db: Session, name: str, whatsapp: str) -> "models.Vendor":
+def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Optional[str] = None) -> "models.Vendor":
     formatted_whatsapp = format_whatsapp_number(whatsapp or "")
     vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
     if not vendor:
-        vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp)
+        vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp, location=location or None)
         db.add(vendor)
         db.commit()
         db.refresh(vendor)
@@ -470,7 +470,7 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     vendor_whatsapp = None
     if user.is_vendor:
         name = user.vendor_name or user.email.split("@")[0]
-        vendor = get_or_create_vendor(db, name, user.vendor_whatsapp or "")
+        vendor = get_or_create_vendor(db, name, user.vendor_whatsapp or "", user.vendor_location)
         vendor_id = vendor.id
         vendor_name = vendor.name
         vendor_whatsapp = vendor.whatsapp
@@ -543,7 +543,7 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
     if current.is_vendor:
         raise HTTPException(status_code=400, detail="Account is already a vendor")
 
-    vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp)
+    vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp, body.vendor_location)
     current.is_vendor = True
     current.vendor_id = vendor.id
     db.commit()
@@ -684,7 +684,8 @@ def serialize_item(item: models.Item) -> schemas.Item:
         images=images,
         vendor_name=vendor_name,
         vendor_whatsapp=vendor_whatsapp,
-        whatsapp=vendor_whatsapp or None
+        whatsapp=vendor_whatsapp or None,
+        quantity=item.quantity if item.quantity is not None else 1
     )
 
 def _personalised_feed(
@@ -964,6 +965,7 @@ async def upload_item(
     vendor_name: Optional[str] = Form(None),
     vendor_whatsapp: Optional[str] = Form(None),
     description: str = Form(None),
+    quantity: int = Form(1),
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -983,6 +985,9 @@ async def upload_item(
         raise HTTPException(status_code=400, detail="Maximum 3 images allowed per item")
 
     name = validate_item_fields(name, description)
+
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
 
     if not current_user.vendor_id:
         if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
@@ -1047,6 +1052,7 @@ async def upload_item(
             item_type=item_type,
             description=description,
             vendor_id=vendor.id,
+            quantity=quantity,
             embedding=[0.0] * embedding_dim
         )
         db.add(db_item)
@@ -1455,6 +1461,7 @@ def update_item(
     size: str = Form(...),
     market: str = Form(...),
     description: Optional[str] = Form(None),
+    quantity: int = Form(1),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user)
 ):
@@ -1468,12 +1475,16 @@ def update_item(
 
     name = validate_item_fields(name, description)
 
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
+
     item.name = name
     item.price = price
     item.size = size
     item.market = market
     item.description = description
-    
+    item.quantity = quantity
+
     db.commit()
     db.refresh(item)
     cache.feed_invalidate_all()
