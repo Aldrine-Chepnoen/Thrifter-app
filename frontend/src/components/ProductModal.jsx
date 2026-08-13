@@ -13,7 +13,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     name: '',
     price: '',
     size: '',
-    market: '',
     description: '',
     quantity: 1
   });
@@ -29,7 +28,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         name: item.name,
         price: item.price,
         size: item.size,
-        market: item.market || '',
         description: item.description || '',
         quantity: item.quantity ?? 1
       });
@@ -108,7 +106,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       formData.append('name', editedData.name);
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
-      formData.append('market', editedData.market);
       formData.append('description', editedData.description);
       formData.append('quantity', editedData.quantity);
 
@@ -226,9 +223,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   </div>
                 </div>
               )}
-              <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
-                {item.market}
-              </span>
 
               {editMode ? (
                 <div className="space-y-4">
@@ -260,25 +254,15 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Location</label>
-                      <input
-                        className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
-                        value={editedData.market}
-                        onChange={(e) => { const v = e.target.value; setEditedData(prev => ({...prev, market: v})); }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity</label>
-                      <input
-                        type="number"
-                        min="0"
-                        className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
-                        value={editedData.quantity}
-                        onChange={(e) => setEditedData({...editedData, quantity: e.target.value})}
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity</label>
+                    <input
+                      type="number"
+                      min="0"
+                      className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
+                      value={editedData.quantity}
+                      onChange={(e) => setEditedData({...editedData, quantity: e.target.value})}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Description</label>

@@ -70,13 +70,18 @@ class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str
     description: Optional[str] = None
-    location: str = Field(..., min_length=2, max_length=200)
+    # Not required here: editing unrelated profile fields (name, whatsapp, bio)
+    # must not be blocked by a missing location. Location is instead enforced
+    # via feed visibility — vendors without it just don't show up.
+    location: Optional[str] = Field(None, max_length=200)
 
     @validator('location')
     def validate_location(cls, v):
+        if not v:
+            return None
         cleaned = v.strip()
         if len(cleaned) < 2:
-            raise ValueError('Pickup location is required')
+            raise ValueError('Pickup location must be at least 2 characters')
         return cleaned
 
 class UserInfo(BaseModel):
@@ -94,7 +99,7 @@ class ItemBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     price: float = Field(..., gt=0)
     size: str = Field(..., min_length=1)
-    market: str = Field(..., min_length=2)
+    market: Optional[str] = Field(None, min_length=2)
     item_type: Optional[str] = Field("top", description="top, bottom, dress, accessory")
     description: Optional[str] = Field(None, max_length=1000)
     vendor_name: Optional[str] = None
@@ -160,7 +165,7 @@ class AdminItem(BaseModel):
     name: str
     price: float
     size: str
-    market: str
+    market: Optional[str] = None
     image_path: str
     item_type: Optional[str] = None
     vendor_name: Optional[str] = None

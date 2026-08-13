@@ -36,7 +36,6 @@ const UploadForm = () => {
     name: '',
     price: '',
     size: '',
-    market: '',
     item_type: 'top',
     quantity: 1,
     vendor_name: '',
@@ -200,18 +199,6 @@ const UploadForm = () => {
               type="text" 
               name="size"
               value={formData.size} 
-              onChange={handleChange}
-              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
-              required
-              disabled={!canUpload}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Market / Location</label>
-            <input 
-              type="text" 
-              name="market"
-              value={formData.market} 
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required

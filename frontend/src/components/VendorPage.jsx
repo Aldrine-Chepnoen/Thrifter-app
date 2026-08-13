@@ -88,10 +88,6 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   };
 
   const handleSave = async () => {
-    if (!editLocation.trim()) {
-      setError('Pickup location is required so we can arrange deliveries.');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
@@ -99,7 +95,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         name: editName,
         whatsapp: editWhatsapp,
         description: editDescription || null,
-        location: editLocation.trim(),
+        location: editLocation.trim() || null,
       });
       const newName = res.data.vendor_name;
       onVendorRenamed?.(newName);
@@ -112,7 +108,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           name: newName,
           whatsapp: res.data.vendor_whatsapp,
           description: editDescription || null,
-          location: editLocation.trim(),
+          location: editLocation.trim() || null,
         }));
       }
     } catch (e) {
@@ -172,10 +168,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
           )}
-          {vendorInfo?.location && (
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">{vendorInfo.location}</p>
-          )}
-          {!vendorInfo?.description && !vendorInfo?.location && (
+          {!vendorInfo?.description && (
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{items.length} items</p>
           )}
         </div>
@@ -257,7 +250,6 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 type="text"
                 value={editLocation}
                 onChange={e => setEditLocation(e.target.value)}
-                placeholder="e.g. Kampala, Uganda"
                 required
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               />

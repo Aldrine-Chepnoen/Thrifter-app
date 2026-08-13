@@ -239,7 +239,6 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                       type="text"
                       value={vendorLocation}
                       onChange={(e) => setVendorLocation(e.target.value)}
-                      placeholder="e.g. Kampala, Uganda"
                       className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
                     />
                   </div>

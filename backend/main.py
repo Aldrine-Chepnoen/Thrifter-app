@@ -960,7 +960,7 @@ async def upload_item(
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
-    market: str = Form(...),
+    market: Optional[str] = Form(None),
     item_type: str = Form("top"),
     vendor_name: Optional[str] = Form(None),
     vendor_whatsapp: Optional[str] = Form(None),
@@ -1135,13 +1135,14 @@ def list_vendors(db: Session = Depends(get_db)):
     return result
 
 @app.get("/vendors/{name}", response_model=schemas.VendorProfile)
-def get_vendor(name: str, db: Session = Depends(get_db)):
+def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(get_optional_user)):
     vendor = db.query(models.Vendor).filter(models.Vendor.name.ilike(name)).first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     item_count = db.query(func.count(models.Item.id)).filter(
         models.Item.vendor_id == vendor.id
     ).scalar()
+    is_owner = bool(current_user and current_user.vendor_id == vendor.id)
     return schemas.VendorProfile(
         id=vendor.id,
         name=vendor.name,
@@ -1150,7 +1151,10 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
         banner_fallback_url=cloudinary_fallback_url(vendor.banner_cloudinary_id)
             if storage.is_r2_url(vendor.banner_image) else None,
         description=vendor.description,
-        location=vendor.location,
+        # Pickup location is internal logistics data — only the vendor
+        # themselves sees it (used to pre-fill their own settings form),
+        # never shown on the public store page.
+        location=vendor.location if is_owner else None,
     )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
@@ -1459,7 +1463,6 @@ def update_item(
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
-    market: str = Form(...),
     description: Optional[str] = Form(None),
     quantity: int = Form(1),
     db: Session = Depends(get_db),
@@ -1481,7 +1484,6 @@ def update_item(
     item.name = name
     item.price = price
     item.size = size
-    item.market = market
     item.description = description
     item.quantity = quantity
 

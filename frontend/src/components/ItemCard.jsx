@@ -69,7 +69,6 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
           </button>
         )}
         <h3 className="font-medium text-gray-900 dark:text-gray-100 truncate pr-6">{item.name}</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{item.market}</p>
         {item.vendor_name && (
           <p className="text-xs text-gray-500 dark:text-gray-400">{item.vendor_name}</p>
         )}
