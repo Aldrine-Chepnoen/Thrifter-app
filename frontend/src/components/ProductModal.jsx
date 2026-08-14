@@ -100,6 +100,11 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   };
 
   const handleConfirmEdit = async () => {
+    const qty = parseInt(editedData.quantity, 10);
+    if (isNaN(qty) || qty < 0 || String(qty) !== String(editedData.quantity).trim()) {
+      alert('Quantity must be a whole number, 0 or greater.');
+      return;
+    }
     setUpdating(true);
     try {
       const formData = new FormData();
@@ -107,7 +112,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
       formData.append('description', editedData.description);
-      formData.append('quantity', editedData.quantity);
+      formData.append('quantity', qty);
 
       const res = await api.put(`/items/${item.id}`, formData);
       onUpdated && onUpdated(res.data);

@@ -175,6 +175,13 @@ def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Option
         db.add(vendor)
         db.commit()
         db.refresh(vendor)
+    elif location and not vendor.location:
+        # Vendor row already existed (e.g. auto-created via a legacy path) but
+        # had no location yet — fill it in rather than silently discarding
+        # what this signup/upgrade just provided.
+        vendor.location = location
+        db.commit()
+        db.refresh(vendor)
     return vendor
 
 def hash_password(pw: str) -> str:

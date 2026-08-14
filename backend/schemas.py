@@ -10,7 +10,7 @@ class UserCreate(BaseModel):
     is_vendor: bool = False
     vendor_name: Optional[str] = Field(None, min_length=2)
     vendor_whatsapp: Optional[str] = None
-    vendor_location: Optional[str] = None
+    vendor_location: Optional[str] = Field(None, max_length=200)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -50,7 +50,7 @@ class GoogleAuthNeedsConfirmation(BaseModel):
 class VendorUpgrade(BaseModel):
     vendor_name: str = Field(..., min_length=2)
     vendor_whatsapp: str
-    vendor_location: str = Field(..., min_length=2)
+    vendor_location: str = Field(..., min_length=2, max_length=200)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -71,8 +71,10 @@ class VendorUpdate(BaseModel):
     whatsapp: str
     description: Optional[str] = None
     # Not required here: editing unrelated profile fields (name, whatsapp, bio)
-    # must not be blocked by a missing location. Location is instead enforced
-    # via feed visibility — vendors without it just don't show up.
+    # must not be blocked by a missing location. The plan is to enforce it via
+    # feed visibility instead (hide items from vendors with no location set),
+    # but that filtering isn't implemented yet — today, vendors without a
+    # location still show up normally.
     location: Optional[str] = Field(None, max_length=200)
 
     @validator('location')
