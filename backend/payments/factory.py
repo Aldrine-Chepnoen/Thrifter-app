@@ -1,12 +1,11 @@
 from .base import PaymentProvider
-from .flutterwave import FlutterwaveProvider
 from .pesapal import PesapalProvider
-from .dpo import DpoProvider
+from .nylon import NylonPayProvider
 
+# Flutterwave and DPO were dropped (Flutterwave KYC stalled, DPO never went live).
 _PROVIDERS = {
-    "flutterwave": FlutterwaveProvider,
     "pesapal": PesapalProvider,
-    "dpo": DpoProvider,
+    "nylon": NylonPayProvider,
 }
 
 

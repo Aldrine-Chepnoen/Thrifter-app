@@ -203,7 +203,7 @@ class Payment(Base):
     __tablename__ = "payments"
     id = Column(Integer, primary_key=True, index=True)
     checkout_id = Column(Integer, ForeignKey("checkouts.id", ondelete="CASCADE"), nullable=False, unique=True)
-    provider = Column(String, nullable=False)  # "flutterwave" | "pesapal"
+    provider = Column(String, nullable=False)  # "pesapal" | "nylon" (once built)
     tx_ref = Column(String, unique=True, index=True, nullable=False)
     provider_tx_id = Column(String, nullable=True)
     status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed

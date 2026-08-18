@@ -296,7 +296,7 @@ class CheckoutOut(BaseModel):
     orders: List[OrderOut] = []
 
 class PaymentInitiateRequest(BaseModel):
-    provider: str = Field(..., pattern="^(flutterwave|pesapal|dpo)$")
+    provider: str = Field(..., pattern="^(pesapal|nylon)$")
 
 class PaymentInitiateResponse(BaseModel):
     redirect_url: str

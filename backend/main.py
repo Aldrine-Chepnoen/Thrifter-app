@@ -1297,8 +1297,7 @@ def get_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: 
         raise HTTPException(status_code=403, detail="Not your checkout")
 
     # Fall back to an active re-verify if still pending — covers providers/environments
-    # where the webhook hasn't arrived yet (e.g. no public URL registered locally),
-    # mirroring what Flutterwave/DPO both recommend doing after the redirect-back.
+    # where the webhook hasn't arrived yet (e.g. no public URL registered locally).
     payment = checkout.payment
     if checkout.status == "pending" and payment and payment.provider_tx_id:
         try:
@@ -1435,58 +1434,6 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
                     oi.item.reserved_until = None
     # "pending" — leave everything as-is; a later webhook delivery will resolve it.
 
-@app.post("/webhooks/flutterwave")
-async def flutterwave_webhook(request: Request, db: Session = Depends(get_db)):
-    body_bytes = await request.body()
-    try:
-        json_body = json.loads(body_bytes or b"{}")
-    except json.JSONDecodeError:
-        json_body = {}
-    headers = dict(request.headers)
-
-    provider = payments.get_provider("flutterwave")
-    result = provider.parse_webhook(headers, json_body)
-
-    event = models.WebhookEvent(
-        provider="flutterwave",
-        tx_ref=result.tx_ref,
-        provider_event_id=result.provider_tx_id,
-        payload=json.dumps(json_body, default=str),
-        signature_valid=result.valid,
-        processed=False,
-    )
-    db.add(event)
-    db.commit()
-
-    if not result.valid:
-        logger.warning(f"Flutterwave webhook with invalid signature (tx_ref={result.tx_ref})")
-        raise HTTPException(status_code=401, detail="Invalid signature")
-
-    if not result.tx_ref:
-        return {"status": "ignored"}
-
-    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
-    if not payment:
-        logger.warning(f"Flutterwave webhook for unknown tx_ref={result.tx_ref}")
-        return {"status": "ignored"}
-
-    # Defense in depth: don't trust the webhook body's status field on its own —
-    # re-confirm directly against Flutterwave's verify-transaction API.
-    confirmed_status = provider.verify(result.tx_ref, result.provider_tx_id) if result.provider_tx_id else result.status
-
-    try:
-        if not payment.provider_tx_id and result.provider_tx_id:
-            payment.provider_tx_id = result.provider_tx_id
-        _finalize_payment(db, payment, confirmed_status)
-        event.processed = True
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed processing Flutterwave webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Webhook processing failed")
-
-    return {"status": "ok"}
-
 @app.api_route("/webhooks/pesapal", methods=["GET", "POST"])
 async def pesapal_webhook(request: Request, db: Session = Depends(get_db)):
     params = dict(request.query_params)
@@ -1536,55 +1483,42 @@ async def pesapal_webhook(request: Request, db: Session = Depends(get_db)):
 
     return {"status": "ok"}
 
-_ORDER_STATUS_TRANSITIONS = {
-    "paid": {"picked_up"},
-    "picked_up": {"delivered"},
-}
-
-_DPO_ACK_XML = '<?xml version="1.0" encoding="utf-8"?><API3G><Response>OK</Response></API3G>'
-
-@app.api_route("/webhooks/dpo", methods=["GET", "POST"])
-async def dpo_webhook(request: Request, db: Session = Depends(get_db)):
-    # DPO's push notification format isn't guaranteed JSON — accept query params,
-    # form-encoded, or XML body, whichever the request actually carries.
-    params = dict(request.query_params)
-    body_bytes = await request.body()
-    if body_bytes:
-        try:
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(body_bytes)
-            params = {**{child.tag: (child.text or "").strip() for child in root}, **params}
-        except ET.ParseError:
-            try:
-                form = await request.form()
-                params = {**dict(form), **params}
-            except Exception:
-                pass
+@app.post("/webhooks/nylonpay")
+async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
+    raw_body = await request.body()
+    try:
+        json_body = json.loads(raw_body or b"{}")
+    except json.JSONDecodeError:
+        json_body = {}
     headers = dict(request.headers)
 
-    provider = payments.get_provider("dpo")
-    # parse_webhook re-verifies via verifyToken internally — DPO's push payload
-    # carries no signature to check on its own.
-    result = provider.parse_webhook(headers, params)
+    provider = payments.get_provider("nylon")
+    # Signature is verified against the exact raw bytes Nylon Pay signed, so the
+    # raw body is threaded through alongside the parsed dict rather than re-serialized.
+    result = provider.parse_webhook(headers, {"_raw_body": raw_body, **json_body})
 
     event = models.WebhookEvent(
-        provider="dpo",
+        provider="nylon",
         tx_ref=result.tx_ref,
         provider_event_id=result.provider_tx_id,
-        payload=json.dumps(params, default=str),
+        payload=json.dumps(json_body, default=str),
         signature_valid=result.valid,
         processed=False,
     )
     db.add(event)
     db.commit()
 
+    if not result.valid:
+        logger.warning(f"Nylon Pay webhook with invalid signature (tx_ref={result.tx_ref})")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
     if not result.tx_ref:
-        return Response(content=_DPO_ACK_XML, media_type="application/xml")
+        return {"status": "ignored"}
 
     payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
     if not payment:
-        logger.warning(f"DPO webhook for unknown tx_ref={result.tx_ref}")
-        return Response(content=_DPO_ACK_XML, media_type="application/xml")
+        logger.warning(f"Nylon Pay webhook for unknown tx_ref={result.tx_ref}")
+        return {"status": "ignored"}
 
     try:
         if not payment.provider_tx_id and result.provider_tx_id:
@@ -1594,9 +1528,15 @@ async def dpo_webhook(request: Request, db: Session = Depends(get_db)):
         db.commit()
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed processing DPO webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+        logger.error(f"Failed processing Nylon Pay webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
 
-    return Response(content=_DPO_ACK_XML, media_type="application/xml")
+    return {"status": "ok"}
+
+_ORDER_STATUS_TRANSITIONS = {
+    "paid": {"picked_up"},
+    "picked_up": {"delivered"},
+}
 
 @app.get("/vendor/orders", response_model=List[schemas.VendorOrderOut])
 def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):

@@ -6,9 +6,12 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
+// Add 'nylon' here once its adapter is wired into the backend factory.
+const PAYMENT_PROVIDERS = ['pesapal'];
+
 const Checkout = ({ cartItems, onOrderPlaced }) => {
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
-  const [provider, setProvider] = useState('flutterwave');
+  const [provider, setProvider] = useState('pesapal');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -99,8 +102,8 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
 
         <div>
           <label className="block text-sm font-medium mb-2">Pay with</label>
-          <div className="grid grid-cols-3 gap-3">
-            {['flutterwave', 'pesapal', 'dpo'].map((p) => (
+          <div className={`grid gap-3 ${PAYMENT_PROVIDERS.length > 1 ? 'grid-cols-3' : 'grid-cols-1'}`}>
+            {PAYMENT_PROVIDERS.map((p) => (
               <button
                 type="button"
                 key={p}

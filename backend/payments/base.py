@@ -7,9 +7,8 @@ from typing import Optional, Dict, Any
 class InitiateResult:
     redirect_url: str
     tx_ref: str
-    # Provider-side reference needed to later verify/poll status (e.g. Flutterwave's
-    # numeric transaction id, Pesapal's order_tracking_id). Not all providers need one
-    # up front — Flutterwave's comes back only via webhook/redirect.
+    # Provider-side reference needed to later verify/poll status (e.g. Pesapal's
+    # order_tracking_id). Not all providers need one up front.
     provider_ref: Optional[str] = None
 
 
