@@ -18,6 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import json
 import re
 import urllib.request
+import requests
 from PIL import Image, ImageDraw
 from sqlalchemy import text
 
@@ -463,6 +464,29 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
         bottoms=[serialize_item(i) for i in get_cluster_items(style.bottom_cluster, "bottom")],
         accessories=[serialize_item(i) for i in get_cluster_items(style.accessory_cluster, "accessory")]
     )
+
+@app.post("/geocode/reverse", response_model=schemas.ReverseGeocodeResponse)
+@limiter.limit("10/minute")
+def reverse_geocode(request: Request, body: schemas.ReverseGeocodeRequest):
+    # No auth required: used from the vendor signup form, before an account exists.
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Location lookup is not configured")
+    try:
+        resp = requests.get(
+            "https://maps.googleapis.com/maps/api/geocode/json",
+            params={"latlng": f"{body.lat},{body.lng}", "key": settings.GOOGLE_MAPS_API_KEY},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        logger.exception("Reverse geocode request failed")
+        raise HTTPException(status_code=502, detail="Could not reach location lookup service")
+
+    if data.get("status") != "OK" or not data.get("results"):
+        raise HTTPException(status_code=404, detail="Could not determine address for this location")
+
+    return schemas.ReverseGeocodeResponse(address=data["results"][0]["formatted_address"])
 
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")

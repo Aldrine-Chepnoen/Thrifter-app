@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, X } from 'lucide-react';
+import { Eye, EyeOff, X, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GoogleLogin } from '@react-oauth/google';
 
@@ -15,6 +15,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
   const [vendorName, setVendorName] = useState('');
   const [vendorWhatsapp, setVendorWhatsapp] = useState('');
   const [vendorLocation, setVendorLocation] = useState('');
+  const [locating, setLocating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pendingGoogleCredential, setPendingGoogleCredential] = useState(null);
   const [pendingGoogleEmail, setPendingGoogleEmail] = useState('');
@@ -75,6 +76,34 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setVendorLocation(res.data.address);
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        alert('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleVendorUpgrade = async () => {
@@ -234,7 +263,18 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Pickup Location</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location</label>
+                      <button
+                        type="button"
+                        onClick={handleUseMyLocation}
+                        disabled={locating}
+                        className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        {locating ? 'Locating…' : 'Use my location'}
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={vendorLocation}
@@ -362,7 +402,18 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Pickup Location</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location</label>
+                        <button
+                          type="button"
+                          onClick={handleUseMyLocation}
+                          disabled={locating}
+                          className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          {locating ? 'Locating…' : 'Use my location'}
+                        </button>
+                      </div>
                       <input
                         type="text"
                         value={vendorLocation}

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Google Sign-In (web OAuth client ID, used to verify ID token audience)
     GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
 
+    # Google Maps Geocoding API (reverse-geocodes vendor "use my location" coordinates to an address)
+    GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
+
     # Cloudinary (fallback image store for ISPs that block the R2 domain)
     CLOUDINARY_CLOUD_NAME: Optional[str] = os.getenv("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY: Optional[str] = os.getenv("CLOUDINARY_API_KEY")

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera } from 'lucide-react';
+import { Plus, Share2, Check, X, Camera, MapPin } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
 import { getImageSrc } from '../utils';
@@ -17,6 +17,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editLocation, setEditLocation] = useState('');
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -85,6 +86,34 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setBannerUploading(false);
       e.target.value = null;
     }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setEditLocation(res.data.address);
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        alert('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleSave = async () => {
@@ -243,9 +272,20 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">
-                Pickup Location <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium dark:text-gray-300">
+                  Pickup Location <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  disabled={locating}
+                  className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  {locating ? 'Locating…' : 'Use my location'}
+                </button>
+              </div>
               <input
                 type="text"
                 value={editLocation}
