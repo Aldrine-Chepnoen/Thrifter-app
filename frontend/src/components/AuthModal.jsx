@@ -83,6 +83,9 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
       return;
     }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
