@@ -1515,9 +1515,12 @@ async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
     if not result.tx_ref:
         return {"status": "ignored"}
 
-    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
+    # Nylon Pay's payload only echoes back the UUID `reference` we minted in
+    # initiate() (parsed into result.tx_ref by parse_webhook), which we stored as
+    # provider_tx_id — not our internal tx_ref — so look it up by that field.
+    payment = db.query(models.Payment).filter(models.Payment.provider_tx_id == result.tx_ref).first()
     if not payment:
-        logger.warning(f"Nylon Pay webhook for unknown tx_ref={result.tx_ref}")
+        logger.warning(f"Nylon Pay webhook for unknown reference={result.tx_ref}")
         return {"status": "ignored"}
 
     try:

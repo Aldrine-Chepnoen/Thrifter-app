@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional, Dict, Any
 
 from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature
@@ -34,23 +35,29 @@ class NylonPayProvider(PaymentProvider):
         redirect_url: str,
     ) -> InitiateResult:
         client = self._get_client()
+        # Nylon Pay requires `reference` to be a valid UUID — our internal tx_ref
+        # (format "THR-{checkout_id}-{hex10}") isn't one, so mint a separate UUID
+        # here and track it as provider_ref instead of reusing tx_ref.
+        reference = str(uuid.uuid4())
         try:
             client.collect_payment(
                 amount=int(round(amount)),
                 currency=currency,
                 customer={"name": customer_name, "phone_number": customer_phone, "email": customer_email or None},
                 description="Thrifter order",
-                reference=tx_ref,
+                reference=reference,
             )
         except SdkException as e:
             raise RuntimeError(f"Nylon Pay collection failed [{e.category}]: {e}") from e
         # Mobile money collections have no hosted checkout page — the customer approves
         # on their own phone. Send the buyer straight to our confirmation page, which
         # already polls GET /checkout/{id} until the webhook (or verify()) resolves it.
-        return InitiateResult(redirect_url=redirect_url, tx_ref=tx_ref, provider_ref=None)
+        return InitiateResult(redirect_url=redirect_url, tx_ref=tx_ref, provider_ref=reference)
 
     def verify(self, tx_ref: str, provider_ref: Optional[str] = None) -> str:
-        result = self._get_client().get_status(reference=tx_ref)
+        if not provider_ref:
+            return "pending"
+        result = self._get_client().get_status(reference=provider_ref)
         if not result.is_ok:
             return "pending"
         status = result.value.status
@@ -72,6 +79,10 @@ class NylonPayProvider(PaymentProvider):
         ))
         payload = data.get("payload", {}) if valid else {}
         status_map = {"successful": "successful", "failed": "failed", "cancelled": "failed"}
+        # Nylon Pay's webhook never echoes back our internal tx_ref — only the UUID
+        # `reference` we minted in initiate() (stored as Payment.provider_tx_id).
+        # The nylonpay_webhook handler in main.py looks payments up by that field,
+        # not by tx_ref, to account for this.
         return WebhookResult(
             valid=valid,
             tx_ref=payload.get("reference"),
