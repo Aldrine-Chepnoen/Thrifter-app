@@ -13,6 +13,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [stylesSubTab, setStylesSubTab] = useState('curated'); // 'curated' or 'library'
   const [stats, setStats] = useState(null);
   const [vendors, setVendors] = useState([]);
+  const [unverifiedVendors, setUnverifiedVendors] = useState([]);
+  const [selectedForDeactivation, setSelectedForDeactivation] = useState(new Set());
+  const [deactivating, setDeactivating] = useState(false);
+  const [exportingVendorCsv, setExportingVendorCsv] = useState(false);
   const [items, setItems] = useState([]);
   const [itemsPage, setItemsPage] = useState(0);
   const [itemsHasMore, setItemsHasMore] = useState(true);
@@ -57,6 +61,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
     loadStats();
     loadVendors();
+    loadUnverifiedVendors();
     loadFeatures();
     loadPendingDemand();
   }, [user]);
@@ -199,6 +204,15 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       console.error('Failed to load vendors', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUnverifiedVendors = async () => {
+    try {
+      const res = await api.get('/admin/vendors/unverified');
+      setUnverifiedVendors(res.data);
+    } catch (e) {
+      console.error('Failed to load unverified vendors', e);
     }
   };
 
@@ -367,6 +381,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       const res = await api.patch(`/admin/vendors/${vendorId}/toggle`);
       setVendors(prev => prev.map(v => v.id === vendorId ? res.data : v));
       loadStats();
+      loadUnverifiedVendors();
     } catch (e) {
       alert('Failed to update vendor: ' + (e.response?.data?.detail || e.message));
     }
@@ -381,6 +396,51 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       });
     } catch (e) {
       alert(e.response?.data?.detail || 'Failed to update pin');
+    }
+  };
+
+  const downloadVerificationCsv = async () => {
+    setExportingVendorCsv(true);
+    try {
+      const res = await api.get('/admin/vendors/verification-export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'vendor_verification_export.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Failed to export vendor list: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setExportingVendorCsv(false);
+    }
+  };
+
+  const toggleSelectedForDeactivation = (vendorId) => {
+    setSelectedForDeactivation(prev => {
+      const next = new Set(prev);
+      if (next.has(vendorId)) next.delete(vendorId);
+      else next.add(vendorId);
+      return next;
+    });
+  };
+
+  const deactivateSelectedVendors = async () => {
+    const vendorIds = [...selectedForDeactivation];
+    if (vendorIds.length === 0) return;
+    if (!window.confirm(`Hide ${vendorIds.length} vendor${vendorIds.length > 1 ? 's' : ''} who never confirmed? Their items will disappear from the site until they verify.`)) return;
+    setDeactivating(true);
+    try {
+      const res = await api.post('/admin/vendors/deactivate-bulk', { vendor_ids: vendorIds });
+      const updatedById = new Map(res.data.map(v => [v.id, v]));
+      setVendors(prev => prev.map(v => updatedById.get(v.id) || v));
+      setUnverifiedVendors(prev => prev.filter(v => !updatedById.has(v.id)));
+      setSelectedForDeactivation(new Set());
+      loadStats();
+    } catch (e) {
+      alert('Failed to deactivate vendors: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -1030,7 +1090,44 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <p className="text-xs text-gray-400">
                 {vendors.filter(v => v.is_pinned).length}/5 vendors pinned
               </p>
+              <button
+                onClick={downloadVerificationCsv}
+                disabled={exportingVendorCsv}
+                className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                {exportingVendorCsv ? 'Exporting…' : 'Export verification links (CSV)'}
+              </button>
             </div>
+
+            {unverifiedVendors.length > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                    {unverifiedVendors.length} vendor{unverifiedVendors.length > 1 ? 's' : ''} haven't confirmed they're still active
+                  </p>
+                  <button
+                    onClick={deactivateSelectedVendors}
+                    disabled={selectedForDeactivation.size === 0 || deactivating}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium bg-red-50 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+                  >
+                    {deactivating ? 'Hiding…' : `Deactivate selected (${selectedForDeactivation.size})`}
+                  </button>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {unverifiedVendors.map(vendor => (
+                    <label key={vendor.id} className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedForDeactivation.has(vendor.id)}
+                        onChange={() => toggleSelectedForDeactivation(vendor.id)}
+                      />
+                      {vendor.name} <span className="text-amber-600 dark:text-amber-400">({vendor.item_count} items)</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
               <table className="w-full text-sm min-w-[680px]">
                 <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
@@ -1039,6 +1136,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                     <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Items</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Verified</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
                   </tr>
                 </thead>
@@ -1062,6 +1160,13 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                           vendor.is_active ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
                         }`}>
                           {vendor.is_active ? 'Visible' : 'Hidden'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          vendor.verified_at ? 'bg-green-50 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {vendor.verified_at ? 'Verified' : 'Not yet'}
                         </span>
                       </td>
                       <td className="px-6 py-4">

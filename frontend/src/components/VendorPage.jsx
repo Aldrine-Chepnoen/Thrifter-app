@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Share2, Check, X, Camera, MapPin } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
@@ -9,6 +9,9 @@ import ThrifterLoader from './ThrifterLoader';
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
   const { name } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const verifyToken = searchParams.get('verify');
+  const [verifyState, setVerifyState] = useState(verifyToken ? 'checking' : null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [vendorInfo, setVendorInfo] = useState(null);
@@ -51,6 +54,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   useEffect(() => {
     fetchVendorItems();
   }, [name, refreshKey]);
+
+  useEffect(() => {
+    if (!verifyToken) return;
+    api.post('/vendors/verify', { token: verifyToken })
+      .then(res => setVerifyState(res.data.status))
+      .catch(() => setVerifyState('invalid'))
+      .finally(() => {
+        searchParams.delete('verify');
+        setSearchParams(searchParams, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyToken]);
 
   const handleShare = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -150,8 +165,35 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  const verifyModalContent = {
+    checking: { title: 'Confirming…', body: null },
+    confirmed: { title: "You're verified!", body: 'Thanks for confirming — your shop stays visible on Thrifter.' },
+    expired: { title: 'This link has expired', body: "This verification window has closed. Contact us if you're still an active seller." },
+    invalid: { title: "This link isn't valid", body: 'Please use the confirmation link from your email.' },
+  }[verifyState];
+
   return (
     <main className="max-w-7xl mx-auto">
+      {verifyState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 text-center shadow-xl">
+            {verifyState === 'checking' ? (
+              <ThrifterLoader />
+            ) : (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">{verifyModalContent.title}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">{verifyModalContent.body}</p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Hero banner */}
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (

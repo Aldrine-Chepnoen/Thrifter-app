@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     POSTHOG_PROJECT_API_KEY: Optional[str] = os.getenv("POSTHOG_PROJECT_API_KEY")
     POSTHOG_CAPTURE_HOST: str = os.getenv("POSTHOG_CAPTURE_HOST", "https://eu.i.posthog.com")
 
+    # Frontend base URL (used to build absolute links, e.g. vendor verification emails)
+    FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     SEED_DEMO: bool = os.getenv("SEED_DEMO", "False").lower() == "true"

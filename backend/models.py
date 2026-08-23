@@ -61,6 +61,7 @@ class Vendor(Base):
     banner_cloudinary_id = Column(String, nullable=True)
     description = Column(String, nullable=True)
     location = Column(String, nullable=True)
+    verified_at = Column(DateTime, nullable=True)
     items = relationship("Item", back_populates="vendor")
 
 class AppSetting(Base):

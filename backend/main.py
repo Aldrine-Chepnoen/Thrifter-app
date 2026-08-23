@@ -1,7 +1,7 @@
 # This is the main application file for the Thrifter backend API. It sets up the FastAPI application, configures database connections, defines API endpoints for user authentication, item management, and search functionality. The application uses SQLAlchemy for database interactions, Cloudinary for image storage, and a custom search engine for generating image embeddings and performing similarity searches. The code also includes structured logging, error handling, and rate limiting to ensure a robust and secure API. Additionally, there are utility functions for password hashing, JWT token management, and seeding demo data for testing purposes. 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Header, Response, Request, BackgroundTasks
 import asyncio
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,9 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
 import re
+import csv
 import urllib.request
+from urllib.parse import quote
 import requests
 from PIL import Image, ImageDraw
 from sqlalchemy import text
@@ -27,6 +29,7 @@ import models
 import schemas
 import search_engine
 import cache
+import vendor_verify
 
 # Tables are managed by Alembic migrations
 # models.Base.metadata.create_all(bind=engine)
@@ -1714,11 +1717,96 @@ def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(r
     return [
         schemas.AdminVendor(
             id=v.id, name=v.name, whatsapp=v.whatsapp,
-            is_active=v.is_active, is_pinned=v.is_pinned,
+            is_active=v.is_active, is_pinned=v.is_pinned, verified_at=v.verified_at,
             item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
         )
         for v in vendors
     ]
+
+@app.get("/admin/vendors/unverified", response_model=List[schemas.AdminVendor])
+def admin_list_unverified_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = (db.query(models.Vendor)
+        .filter(models.Vendor.is_active == True, models.Vendor.verified_at.is_(None))
+        .order_by(models.Vendor.id.desc())
+        .all())
+    return [
+        schemas.AdminVendor(
+            id=v.id, name=v.name, whatsapp=v.whatsapp,
+            is_active=v.is_active, is_pinned=v.is_pinned, verified_at=v.verified_at,
+            item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+        )
+        for v in vendors
+    ]
+
+@app.get("/admin/vendors/verification-export")
+def admin_export_vendor_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = (db.query(models.Vendor)
+        .filter(models.Vendor.is_active == True)
+        .order_by(models.Vendor.id)
+        .all())
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["vendor_id", "vendor_name", "email", "confirm_link", "note"])
+
+    for v in vendors:
+        user = (db.query(models.User)
+            .filter(models.User.vendor_id == v.id, models.User.is_vendor == True)
+            .order_by(models.User.id.asc())
+            .first())
+        if not user or not user.email:
+            writer.writerow([v.id, v.name, "", "", "SKIPPED - no vendor login/email on file"])
+            continue
+        token = vendor_verify.make_vendor_verify_token(v.id)
+        link = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(v.name)}?verify={token}"
+        writer.writerow([v.id, v.name, user.email, link, ""])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=vendor_verification_export.csv"},
+    )
+
+@app.post("/admin/vendors/deactivate-bulk", response_model=List[schemas.AdminVendor])
+def admin_deactivate_vendors_bulk(body: schemas.BulkVendorIds, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = db.query(models.Vendor).filter(models.Vendor.id.in_(body.vendor_ids)).all()
+    if not vendors:
+        raise HTTPException(status_code=404, detail="No matching vendors found")
+    for v in vendors:
+        v.is_active = False
+    db.commit()
+    cache.feed_invalidate_all()
+    cache.search_invalidate_all()
+    cache.admin_stats_invalidate()
+    for v in vendors:
+        db.refresh(v)
+    return [
+        schemas.AdminVendor(
+            id=v.id, name=v.name, whatsapp=v.whatsapp,
+            is_active=v.is_active, is_pinned=v.is_pinned, verified_at=v.verified_at,
+            item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+        )
+        for v in vendors
+    ]
+
+@app.post("/vendors/verify", response_model=schemas.VendorVerifyResponse)
+@limiter.limit("20/minute")
+def confirm_vendor_verification(request: Request, body: schemas.VendorVerifyRequest, db: Session = Depends(get_db)):
+    result = vendor_verify.decode_vendor_verify_token(body.token)
+    if result["status"] != "ok":
+        return schemas.VendorVerifyResponse(status=result["status"])
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
+    if not vendor:
+        return schemas.VendorVerifyResponse(status="invalid")
+
+    if not vendor.verified_at:
+        vendor.verified_at = datetime.utcnow()
+        db.commit()
+        db.refresh(vendor)
+
+    return schemas.VendorVerifyResponse(status="confirmed", vendor_name=vendor.name)
 
 @app.get("/admin/items", response_model=List[schemas.AdminItem])
 def admin_list_items(
@@ -1764,8 +1852,8 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     cache.admin_stats_invalidate()
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
-        is_active=vendor.is_active, is_pinned=vendor.is_pinned,
-        item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+        is_active=vendor.is_active, is_pinned=vendor.is_pinned, verified_at=vendor.verified_at,
+        item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
     )
 
 @app.patch("/admin/vendors/{vendor_id}/pin", response_model=schemas.AdminVendor)
@@ -1782,7 +1870,7 @@ def admin_pin_vendor(vendor_id: int, db: Session = Depends(get_db), _: models.Us
     db.refresh(vendor)
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
-        is_active=vendor.is_active, is_pinned=vendor.is_pinned,
+        is_active=vendor.is_active, is_pinned=vendor.is_pinned, verified_at=vendor.verified_at,
         item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
     )
 

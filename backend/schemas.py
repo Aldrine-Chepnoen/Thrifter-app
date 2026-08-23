@@ -164,10 +164,21 @@ class AdminVendor(BaseModel):
     whatsapp: Optional[str] = None
     is_active: bool
     is_pinned: bool = False
+    verified_at: Optional[datetime] = None
     item_count: int
 
     class Config:
         from_attributes = True
+
+class VendorVerifyRequest(BaseModel):
+    token: str
+
+class VendorVerifyResponse(BaseModel):
+    status: str  # "confirmed" | "expired" | "invalid"
+    vendor_name: Optional[str] = None
+
+class BulkVendorIds(BaseModel):
+    vendor_ids: List[int] = Field(..., min_length=1)
 
 class AdminItem(BaseModel):
     id: int

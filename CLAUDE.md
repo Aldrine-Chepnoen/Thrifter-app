@@ -48,7 +48,10 @@ CLOUDINARY_API_SECRET=...
 DEBUG=True
 SEED_DEMO=False
 JWT_EXP_SECONDS=2592000
+FRONTEND_BASE_URL=https://your-prod-domain.example
 ```
+
+`FRONTEND_BASE_URL` is used to build absolute links back to the frontend from backend-generated content (e.g. vendor verification confirm links). Defaults to `http://localhost:5173` if unset.
 
 The database is hosted on **Supabase** (managed PostgreSQL). The app connects to it via a standard SQLAlchemy connection string — no Supabase-specific SDK is used. pgvector is enabled on the Supabase instance by default; no manual `CREATE EXTENSION` is needed. The connection string is available in the Supabase dashboard under Project Settings → Database.
 
