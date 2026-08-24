@@ -1808,6 +1808,22 @@ def confirm_vendor_verification(request: Request, body: schemas.VendorVerifyRequ
 
     return schemas.VendorVerifyResponse(status="confirmed", vendor_name=vendor.name)
 
+@app.post("/vendors/verify/location", response_model=schemas.VendorVerifyResponse)
+@limiter.limit("20/minute")
+def update_vendor_verification_location(request: Request, body: schemas.VendorVerifyLocationRequest, db: Session = Depends(get_db)):
+    result = vendor_verify.decode_vendor_verify_token(body.token)
+    if result["status"] != "ok":
+        return schemas.VendorVerifyResponse(status=result["status"])
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
+    if not vendor:
+        return schemas.VendorVerifyResponse(status="invalid")
+
+    vendor.location = body.location.strip()
+    db.commit()
+
+    return schemas.VendorVerifyResponse(status="confirmed", vendor_name=vendor.name)
+
 @app.get("/admin/items", response_model=List[schemas.AdminItem])
 def admin_list_items(
     skip: int = 0,

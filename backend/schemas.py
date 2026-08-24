@@ -177,6 +177,10 @@ class VendorVerifyResponse(BaseModel):
     status: str  # "confirmed" | "expired" | "invalid"
     vendor_name: Optional[str] = None
 
+class VendorVerifyLocationRequest(BaseModel):
+    token: str
+    location: str = Field(..., min_length=1, max_length=200)
+
 class BulkVendorIds(BaseModel):
     vendor_ids: List[int] = Field(..., min_length=1)
 

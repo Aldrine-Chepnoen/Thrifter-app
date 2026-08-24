@@ -11,7 +11,12 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const verifyToken = searchParams.get('verify');
+  const [confirmedToken] = useState(() => verifyToken);
   const [verifyState, setVerifyState] = useState(verifyToken ? 'checking' : null);
+  const [verifyLocationInput, setVerifyLocationInput] = useState('');
+  const [verifyLocationSaving, setVerifyLocationSaving] = useState(false);
+  const [verifyLocationSaved, setVerifyLocationSaved] = useState(false);
+  const [verifyLocating, setVerifyLocating] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [vendorInfo, setVendorInfo] = useState(null);
@@ -66,6 +71,57 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verifyToken]);
+
+  useEffect(() => {
+    if (verifyState === 'confirmed' && vendorInfo) {
+      setVerifyLocationInput(prev => prev || vendorInfo.location || '');
+    }
+  }, [verifyState, vendorInfo]);
+
+  const handleUseMyLocationForVerify = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
+    setVerifyLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setVerifyLocationInput(res.data.address);
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setVerifyLocating(false);
+        }
+      },
+      () => {
+        setVerifyLocating(false);
+        alert('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const handleSaveVerifyLocation = async () => {
+    if (!confirmedToken || !verifyLocationInput.trim()) return;
+    setVerifyLocationSaving(true);
+    try {
+      await api.post('/vendors/verify/location', { token: confirmedToken, location: verifyLocationInput.trim() });
+      setVerifyLocationSaved(true);
+      setVendorInfo(prev => prev ? { ...prev, location: verifyLocationInput.trim() } : prev);
+    } catch (e) {
+      alert('Failed to save your location. Please try again.');
+    } finally {
+      setVerifyLocationSaving(false);
+    }
+  };
 
   const handleShare = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -167,7 +223,6 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
 
   const verifyModalContent = {
     checking: { title: 'Confirming…', body: null },
-    confirmed: { title: "You're verified!", body: 'Thanks for confirming — your shop stays visible on Thrifter.' },
     expired: { title: 'This link has expired', body: "This verification window has closed. Contact us if you're still an active seller." },
     invalid: { title: "This link isn't valid", body: 'Please use the confirmation link from your email.' },
   }[verifyState];
@@ -177,9 +232,66 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       {verifyState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 text-center shadow-xl">
-            {verifyState === 'checking' ? (
-              <ThrifterLoader />
-            ) : (
+            {verifyState === 'checking' && <ThrifterLoader />}
+
+            {verifyState === 'confirmed' && !verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">You're verified!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                  Please confirm your pickup location so we can arrange deliveries.
+                </p>
+                <div className="flex items-center justify-end mb-1.5">
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocationForVerify}
+                    disabled={verifyLocating}
+                    className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    {verifyLocating ? 'Locating…' : 'Use my location'}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={verifyLocationInput}
+                  onChange={e => setVerifyLocationInput(e.target.value)}
+                  placeholder="Pickup location"
+                  className="w-full p-3 mb-4 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none text-left"
+                />
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={handleSaveVerifyLocation}
+                    disabled={verifyLocationSaving || !verifyLocationInput.trim()}
+                    className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
+                  >
+                    {verifyLocationSaving ? 'Saving…' : 'Save location'}
+                  </button>
+                  <button
+                    onClick={() => setVerifyState(null)}
+                    className="px-5 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+              </>
+            )}
+
+            {verifyState === 'confirmed' && verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">All set!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">
+                  Thanks — you're confirmed and your pickup location is saved.
+                </p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+
+            {(verifyState === 'expired' || verifyState === 'invalid') && (
               <>
                 <h3 className="font-serif font-bold text-lg dark:text-white mb-2">{verifyModalContent.title}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">{verifyModalContent.body}</p>
