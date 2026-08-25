@@ -53,6 +53,8 @@ FRONTEND_BASE_URL=https://your-prod-domain.example
 
 `FRONTEND_BASE_URL` is used to build absolute links back to the frontend from backend-generated content (e.g. vendor verification confirm links). Defaults to `http://localhost:5173` if unset.
 
+`BACKEND_BASE_URL` is used to build absolute links that must resolve to a *backend* route rather than the frontend — e.g. the `/s/<code>` short-link redirect used for SMS verification links, which is served by the backend itself, not the React app. Don't confuse this with `FRONTEND_BASE_URL`: they point at two different hosts. Defaults to `http://localhost:8000` if unset; set to the backend's real public URL (e.g. the Railway app URL) in production.
+
 The database is hosted on **Supabase** (managed PostgreSQL). The app connects to it via a standard SQLAlchemy connection string — no Supabase-specific SDK is used. pgvector is enabled on the Supabase instance by default; no manual `CREATE EXTENSION` is needed. The connection string is available in the Supabase dashboard under Project Settings → Database.
 
 `VITE_API_BASE_URL` is set to `http://localhost:8000` in `docker-compose.yml` — no separate `frontend/.env` needed in dev. In production it defaults to `/api`.

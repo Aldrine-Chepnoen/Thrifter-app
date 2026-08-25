@@ -1801,7 +1801,7 @@ def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: model
             continue
         token = vendor_verify.make_vendor_verify_token(v.id, channel="sms")
         code = _create_short_link(db, v.id, token)
-        short_link = f"{settings.FRONTEND_BASE_URL}/s/{code}"
+        short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
         writer.writerow([v.id, v.name, v.whatsapp, short_link, ""])
 
     buf.seek(0)

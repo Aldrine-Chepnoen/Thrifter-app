@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Frontend base URL (used to build absolute links, e.g. vendor verification emails)
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
+    # Backend's own public base URL (used for links that must resolve to a backend
+    # route, e.g. /s/<code> short links — NOT the same host as FRONTEND_BASE_URL)
+    BACKEND_BASE_URL: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
+
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     SEED_DEMO: bool = os.getenv("SEED_DEMO", "False").lower() == "true"
