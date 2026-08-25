@@ -21,12 +21,14 @@ TTL_SECONDS = 7 * 24 * 3600  # 7 days — fixed, independent of JWT_EXP_SECONDS
 class VerifyResult(TypedDict):
     status: Literal["ok", "expired", "invalid"]
     vendor_id: Optional[int]
+    channel: Optional[str]
 
 
-def make_vendor_verify_token(vendor_id: int) -> str:
+def make_vendor_verify_token(vendor_id: int, channel: str = "email") -> str:
     payload = {
         "vid": vendor_id,
         "purpose": PURPOSE,
+        "channel": channel,
         "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(seconds=TTL_SECONDS),
     }
@@ -37,15 +39,19 @@ def decode_vendor_verify_token(token: str) -> VerifyResult:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
-        return {"status": "expired", "vendor_id": None}
+        return {"status": "expired", "vendor_id": None, "channel": None}
     except jwt.InvalidTokenError:
-        return {"status": "invalid", "vendor_id": None}
+        return {"status": "invalid", "vendor_id": None, "channel": None}
 
     if payload.get("purpose") != PURPOSE:
-        return {"status": "invalid", "vendor_id": None}
+        return {"status": "invalid", "vendor_id": None, "channel": None}
 
     vid = payload.get("vid")
     if not isinstance(vid, int):
-        return {"status": "invalid", "vendor_id": None}
+        return {"status": "invalid", "vendor_id": None, "channel": None}
 
-    return {"status": "ok", "vendor_id": vid}
+    # Tokens issued before the "channel" claim existed (already-sent email
+    # links) default to "email" so they keep working without needing a resend.
+    channel = payload.get("channel", "email")
+
+    return {"status": "ok", "vendor_id": vid, "channel": channel}

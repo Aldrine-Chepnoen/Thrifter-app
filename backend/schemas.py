@@ -164,7 +164,8 @@ class AdminVendor(BaseModel):
     whatsapp: Optional[str] = None
     is_active: bool
     is_pinned: bool = False
-    verified_at: Optional[datetime] = None
+    email_verified_at: Optional[datetime] = None
+    phone_verified_at: Optional[datetime] = None
     item_count: int
 
     class Config:

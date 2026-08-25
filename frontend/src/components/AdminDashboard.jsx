@@ -1136,7 +1136,8 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                     <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Items</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
-                    <th className="text-left px-6 py-3 font-medium text-gray-500">Verified</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Email</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Phone</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Actions</th>
                   </tr>
                 </thead>
@@ -1164,9 +1165,16 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          vendor.verified_at ? 'bg-green-50 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                          vendor.email_verified_at ? 'bg-green-50 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                         }`}>
-                          {vendor.verified_at ? 'Verified' : 'Not yet'}
+                          {vendor.email_verified_at ? 'Verified' : 'Not yet'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          vendor.phone_verified_at ? 'bg-green-50 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {vendor.phone_verified_at ? 'Verified' : 'Not yet'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
