@@ -49,7 +49,7 @@ def normalize_phone(raw: str) -> str:
 
 
 def build_message(name: str, short_link: str) -> str:
-    return f"Thrifter: Hi {name}, confirm your vendor account is active: {short_link}"
+    return f"Thrifter: Hi {name}, Please click this link to verify your phone number on your Thrifter account: {short_link}"
 
 
 def _post(username: str, password: str, payload: dict) -> dict:
