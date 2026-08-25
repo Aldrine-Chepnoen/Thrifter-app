@@ -1,5 +1,11 @@
 """
-Send vendor phone-verification SMS via EgoSMS.
+Send vendor phone-verification SMS via the Pahappa "Comms" API (EgoSMS's
+current platform, at comms.egosms.co — not the older egosms.co/api/v1/plain/
+GET-based API documented in various third-party blog posts, which appears to
+be a legacy/deprecated endpoint with a separate user database).
+
+Verified directly against https://developers.pahappa.com/docs/sending-sms/
+and https://developers.pahappa.com/docs/balance-inquiry/ on 2026-08-26.
 
 Deliberately standalone (like generate_verification_links.py): does not
 import config.py, since that would pull in whatever's sitting in the local
@@ -8,9 +14,7 @@ EGOSMS_USERNAME, EGOSMS_PASSWORD, and EGOSMS_SENDER directly from the
 environment.
 
 Dry-run by default — prints what would be sent without calling the API.
-Pass --send to actually send. EgoSMS's expected phone number format hasn't
-been confirmed against a live account, so send a single --test-number message
-first before running the full batch.
+Pass --send to actually send.
 
 Usage:
     # Dry run (default) - prints a sample of what would be sent, no network calls
@@ -37,7 +41,7 @@ import time
 
 import requests
 
-EGOSMS_URL = "https://www.egosms.co/api/v1/plain/"
+COMMS_URL = "https://comms.egosms.co/api/v1/json/"
 
 
 def normalize_phone(raw: str) -> str:
@@ -48,31 +52,27 @@ def build_message(name: str, short_link: str) -> str:
     return f"Thrifter: Hi {name}, confirm your vendor account is active: {short_link}"
 
 
-def get_balance(username: str, password: str) -> str:
+def _post(username: str, password: str, payload: dict) -> dict:
+    body = {"userdata": {"username": username, "password": password}, **payload}
+    resp = requests.post(COMMS_URL, json=body, headers={"Content-Type": "application/json"}, timeout=15)
     try:
-        resp = requests.get(
-            EGOSMS_URL,
-            params={"method": "Balance", "username": username, "password": password},
-            timeout=10,
-        )
-        return resp.text.strip()
+        return resp.json()
+    except ValueError:
+        return {"Status": "Failed", "Message": f"Non-JSON response (HTTP {resp.status_code}): {resp.text[:200]}"}
+
+
+def get_balance(username: str, password: str) -> dict:
+    try:
+        return _post(username, password, {"method": "Balance"})
     except requests.RequestException as e:
-        return f"(could not check balance: {e})"
+        return {"Status": "Failed", "Message": f"could not check balance: {e}"}
 
 
-def send_sms(username: str, password: str, sender: str, number: str, message: str) -> str:
-    resp = requests.get(
-        EGOSMS_URL,
-        params={
-            "number": number,
-            "message": message,
-            "username": username,
-            "password": password,
-            "sender": sender,
-        },
-        timeout=15,
-    )
-    return resp.text.strip()
+def send_sms(username: str, password: str, sender: str, number: str, message: str) -> dict:
+    return _post(username, password, {
+        "method": "SendSms",
+        "msgdata": [{"number": number, "message": message, "senderid": sender, "priority": "0"}],
+    })
 
 
 def main():
