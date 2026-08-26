@@ -17,6 +17,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [selectedForDeactivation, setSelectedForDeactivation] = useState(new Set());
   const [deactivating, setDeactivating] = useState(false);
   const [exportingVendorCsv, setExportingVendorCsv] = useState(false);
+  const [exportingSmsCsv, setExportingSmsCsv] = useState(false);
   const [items, setItems] = useState([]);
   const [itemsPage, setItemsPage] = useState(0);
   const [itemsHasMore, setItemsHasMore] = useState(true);
@@ -413,6 +414,23 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       alert('Failed to export vendor list: ' + (e.response?.data?.detail || e.message));
     } finally {
       setExportingVendorCsv(false);
+    }
+  };
+
+  const downloadSmsVerificationCsv = async () => {
+    setExportingSmsCsv(true);
+    try {
+      const res = await api.get('/admin/vendors/sms-verification-export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'vendor_sms_verification_export.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Failed to export SMS vendor list: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setExportingSmsCsv(false);
     }
   };
 
@@ -1090,13 +1108,22 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <p className="text-xs text-gray-400">
                 {vendors.filter(v => v.is_pinned).length}/5 vendors pinned
               </p>
-              <button
-                onClick={downloadVerificationCsv}
-                disabled={exportingVendorCsv}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
-              >
-                {exportingVendorCsv ? 'Exporting…' : 'Export verification links (CSV)'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadVerificationCsv}
+                  disabled={exportingVendorCsv}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                >
+                  {exportingVendorCsv ? 'Exporting…' : 'Export verification links (CSV)'}
+                </button>
+                <button
+                  onClick={downloadSmsVerificationCsv}
+                  disabled={exportingSmsCsv}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+                >
+                  {exportingSmsCsv ? 'Exporting…' : 'Export SMS verification links (CSV)'}
+                </button>
+              </div>
             </div>
 
             {unverifiedVendors.length > 0 && (
