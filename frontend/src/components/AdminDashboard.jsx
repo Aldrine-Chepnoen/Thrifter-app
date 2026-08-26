@@ -23,6 +23,9 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [itemsHasMore, setItemsHasMore] = useState(true);
   const [itemsLoadingMore, setItemsLoadingMore] = useState(false);
   const [users, setUsers] = useState([]);
+  const [usersPage, setUsersPage] = useState(0);
+  const [usersHasMore, setUsersHasMore] = useState(true);
+  const [usersLoadingMore, setUsersLoadingMore] = useState(false);
   const [styles, setStyles] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [clustersPage, setClustersPage] = useState(0);
@@ -31,6 +34,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [clustersLoadingMore, setClustersLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const ITEMS_PAGE_SIZE = 50;
+  const USERS_PAGE_SIZE = 50;
   const CLUSTER_PAGE_SIZE = 20;
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoToggling, setPromoToggling] = useState(false);
@@ -232,15 +236,18 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
-  const loadUsers = async () => {
-    setLoading(true);
+  const loadUsers = async (page = 0) => {
+    page === 0 ? setLoading(true) : setUsersLoadingMore(true);
     try {
-      const res = await api.get('/admin/users');
-      setUsers(res.data);
+      const res = await api.get(`/admin/users?skip=${page * USERS_PAGE_SIZE}&limit=${USERS_PAGE_SIZE}`);
+      setUsers(prev => page === 0 ? res.data : [...prev, ...res.data]);
+      setUsersPage(page);
+      setUsersHasMore(res.data.length === USERS_PAGE_SIZE);
     } catch (e) {
       console.error('Failed to load users', e);
     } finally {
       setLoading(false);
+      setUsersLoadingMore(false);
     }
   };
 
@@ -1326,6 +1333,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       {/* Users */}
       {activeTab === 'users' && (
         loading ? <ThrifterLoader /> : (
+          <>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
@@ -1365,6 +1373,18 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <p className="text-center py-12 text-gray-400 text-sm">No users found.</p>
             )}
           </div>
+          {usersHasMore && (
+            <div className="flex justify-center mt-4">
+              <button
+                onClick={() => loadUsers(usersPage + 1)}
+                disabled={usersLoadingMore}
+                className="px-6 py-2 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              >
+                {usersLoadingMore ? 'Loading...' : 'Load more'}
+              </button>
+            </div>
+          )}
+          </>
         )
       )}
 

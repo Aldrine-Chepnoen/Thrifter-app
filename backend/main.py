@@ -1695,32 +1695,51 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
     return result
 
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
-def admin_list_users(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    users = db.query(models.User).order_by(models.User.id.desc()).all()
-    result = []
-    for u in users:
-        vendor_name = None
-        if u.vendor_id:
-            v = db.query(models.Vendor).filter(models.Vendor.id == u.vendor_id).first()
-            if v:
-                vendor_name = v.name
-        result.append(schemas.AdminUser(
+def admin_list_users(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    users = (
+        db.query(models.User)
+        .options(joinedload(models.User.vendor))
+        .order_by(models.User.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [
+        schemas.AdminUser(
             id=u.id, email=u.email, is_vendor=u.is_vendor,
-            is_admin=u.is_admin, vendor_name=vendor_name
-        ))
-    return result
+            is_admin=u.is_admin, vendor_name=u.vendor.name if u.vendor else None
+        )
+        for u in users
+    ]
+
+def _vendor_item_counts(db: Session, vendor_ids: list):
+    if not vendor_ids:
+        return {}
+    rows = (
+        db.query(models.Item.vendor_id, func.count(models.Item.id))
+        .filter(models.Item.vendor_id.in_(vendor_ids))
+        .group_by(models.Item.vendor_id)
+        .all()
+    )
+    return dict(rows)
 
 @app.get("/admin/vendors", response_model=List[schemas.AdminVendor])
 def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
     vendors = (db.query(models.Vendor)
         .order_by(models.Vendor.is_pinned.desc(), models.Vendor.id.desc())
         .all())
+    counts = _vendor_item_counts(db, [v.id for v in vendors])
     return [
         schemas.AdminVendor(
             id=v.id, name=v.name, whatsapp=v.whatsapp,
             is_active=v.is_active, is_pinned=v.is_pinned,
             email_verified_at=v.email_verified_at, phone_verified_at=v.phone_verified_at,
-            item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+            item_count=counts.get(v.id, 0)
         )
         for v in vendors
     ]
@@ -1735,12 +1754,13 @@ def admin_list_unverified_vendors(db: Session = Depends(get_db), _: models.User 
         )
         .order_by(models.Vendor.id.desc())
         .all())
+    counts = _vendor_item_counts(db, [v.id for v in vendors])
     return [
         schemas.AdminVendor(
             id=v.id, name=v.name, whatsapp=v.whatsapp,
             is_active=v.is_active, is_pinned=v.is_pinned,
             email_verified_at=v.email_verified_at, phone_verified_at=v.phone_verified_at,
-            item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+            item_count=counts.get(v.id, 0)
         )
         for v in vendors
     ]
