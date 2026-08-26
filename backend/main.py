@@ -1775,15 +1775,6 @@ def admin_export_vendor_verification(db: Session = Depends(get_db), _: models.Us
         headers={"Content-Disposition": "attachment; filename=vendor_verification_export.csv"},
     )
 
-def _create_short_link(db: Session, vendor_id: int, token: str) -> str:
-    for _ in range(5):
-        code = secrets.token_urlsafe(6)
-        if not db.query(models.ShortLink).filter(models.ShortLink.code == code).first():
-            db.add(models.ShortLink(code=code, vendor_id=vendor_id, token=token))
-            db.commit()
-            return code
-    raise RuntimeError("Could not generate a unique short link code")
-
 @app.get("/admin/vendors/sms-verification-export")
 def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
     vendors = (db.query(models.Vendor)
@@ -1795,14 +1786,34 @@ def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: model
     writer = csv.writer(buf)
     writer.writerow(["vendor_id", "vendor_name", "whatsapp", "short_link", "note"])
 
+    # Generate all codes in memory and commit once at the end — doing a
+    # collision-check query + insert + commit per vendor (as this used to)
+    # means one DB round trip per vendor, which timed out past ~502 Bad
+    # Gateway territory once there were a few hundred vendors to process.
+    # secrets.token_urlsafe(6) has ~2^48 possible values, so a Python-side
+    # set is more than enough to guarantee uniqueness within one batch.
+    used_codes = set()
+    new_links = []
+    rows = []
+
     for v in vendors:
         if not v.whatsapp:
-            writer.writerow([v.id, v.name, "", "", "SKIPPED - no phone number on file"])
+            rows.append([v.id, v.name, "", "", "SKIPPED - no phone number on file"])
             continue
         token = vendor_verify.make_vendor_verify_token(v.id, channel="sms")
-        code = _create_short_link(db, v.id, token)
+        code = secrets.token_urlsafe(6)
+        while code in used_codes:
+            code = secrets.token_urlsafe(6)
+        used_codes.add(code)
+        new_links.append(models.ShortLink(code=code, vendor_id=v.id, token=token))
         short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
-        writer.writerow([v.id, v.name, v.whatsapp, short_link, ""])
+        rows.append([v.id, v.name, v.whatsapp, short_link, ""])
+
+    db.add_all(new_links)
+    db.commit()
+
+    for row in rows:
+        writer.writerow(row)
 
     buf.seek(0)
     return StreamingResponse(
