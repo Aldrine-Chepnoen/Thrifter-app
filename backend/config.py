@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Google Sign-In (web OAuth client ID, used to verify ID token audience)
     GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
 
+    # Google Maps Geocoding API (reverse-geocodes vendor "use my location" coordinates to an address)
+    GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
+
     # Cloudinary (fallback image store for ISPs that block the R2 domain)
     CLOUDINARY_CLOUD_NAME: Optional[str] = os.getenv("CLOUDINARY_CLOUD_NAME")
     CLOUDINARY_API_KEY: Optional[str] = os.getenv("CLOUDINARY_API_KEY")
@@ -54,7 +57,13 @@ class Settings(BaseSettings):
     DELIVERY_FEE_UGX: float = float(os.getenv("DELIVERY_FEE_UGX", "5000"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
+
+    # Frontend base URL (used to build absolute links, e.g. vendor verification emails)
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+
+    # Backend's own public base URL (used for links that must resolve to a backend
+    # route, e.g. /s/<code> short links — NOT the same host as FRONTEND_BASE_URL)
+    BACKEND_BASE_URL: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

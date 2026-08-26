@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera } from 'lucide-react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Share2, Check, X, Camera, MapPin } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import api from '../api';
 import { getImageSrc } from '../utils';
@@ -9,6 +9,14 @@ import ThrifterLoader from './ThrifterLoader';
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
   const { name } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const verifyToken = searchParams.get('verify');
+  const [confirmedToken] = useState(() => verifyToken);
+  const [verifyState, setVerifyState] = useState(verifyToken ? 'checking' : null);
+  const [verifyLocationInput, setVerifyLocationInput] = useState('');
+  const [verifyLocationSaving, setVerifyLocationSaving] = useState(false);
+  const [verifyLocationSaved, setVerifyLocationSaved] = useState(false);
+  const [verifyLocating, setVerifyLocating] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [vendorInfo, setVendorInfo] = useState(null);
@@ -17,6 +25,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editLocation, setEditLocation] = useState('');
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -50,6 +59,69 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   useEffect(() => {
     fetchVendorItems();
   }, [name, refreshKey]);
+
+  useEffect(() => {
+    if (!verifyToken) return;
+    api.post('/vendors/verify', { token: verifyToken })
+      .then(res => setVerifyState(res.data.status))
+      .catch(() => setVerifyState('invalid'))
+      .finally(() => {
+        searchParams.delete('verify');
+        setSearchParams(searchParams, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyToken]);
+
+  useEffect(() => {
+    if (verifyState === 'confirmed' && vendorInfo) {
+      setVerifyLocationInput(prev => prev || vendorInfo.location || '');
+    }
+  }, [verifyState, vendorInfo]);
+
+  const handleUseMyLocationForVerify = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
+    setVerifyLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setVerifyLocationInput(res.data.address);
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setVerifyLocating(false);
+        }
+      },
+      () => {
+        setVerifyLocating(false);
+        alert('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const handleSaveVerifyLocation = async () => {
+    if (!confirmedToken || !verifyLocationInput.trim()) return;
+    setVerifyLocationSaving(true);
+    try {
+      await api.post('/vendors/verify/location', { token: confirmedToken, location: verifyLocationInput.trim() });
+      setVerifyLocationSaved(true);
+      setVendorInfo(prev => prev ? { ...prev, location: verifyLocationInput.trim() } : prev);
+    } catch (e) {
+      alert('Failed to save your location. Please try again.');
+    } finally {
+      setVerifyLocationSaving(false);
+    }
+  };
 
   const handleShare = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -87,6 +159,37 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setEditLocation(res.data.address);
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        alert('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError('');
@@ -95,7 +198,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         name: editName,
         whatsapp: editWhatsapp,
         description: editDescription || null,
-        location: editLocation || null,
+        location: editLocation.trim() || null,
       });
       const newName = res.data.vendor_name;
       onVendorRenamed?.(newName);
@@ -108,7 +211,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           name: newName,
           whatsapp: res.data.vendor_whatsapp,
           description: editDescription || null,
-          location: editLocation || null,
+          location: editLocation.trim() || null,
         }));
       }
     } catch (e) {
@@ -118,8 +221,91 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  const verifyModalContent = {
+    checking: { title: 'Confirming…', body: null },
+    expired: { title: 'This link has expired', body: "This verification window has closed. Contact us if you're still an active seller." },
+    invalid: { title: "This link isn't valid", body: 'Please use the confirmation link from your email.' },
+  }[verifyState];
+
   return (
     <main className="max-w-7xl mx-auto">
+      {verifyState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 text-center shadow-xl">
+            {verifyState === 'checking' && <ThrifterLoader />}
+
+            {verifyState === 'confirmed' && !verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">You're verified!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                  Please confirm your pickup location so we can arrange deliveries.
+                </p>
+                <div className="flex items-center justify-end mb-1.5">
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocationForVerify}
+                    disabled={verifyLocating}
+                    className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    {verifyLocating ? 'Locating…' : 'Use my location'}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={verifyLocationInput}
+                  onChange={e => setVerifyLocationInput(e.target.value)}
+                  placeholder="Pickup location"
+                  className="w-full p-3 mb-4 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none text-left"
+                />
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={handleSaveVerifyLocation}
+                    disabled={verifyLocationSaving || !verifyLocationInput.trim()}
+                    className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
+                  >
+                    {verifyLocationSaving ? 'Saving…' : 'Save location'}
+                  </button>
+                  <button
+                    onClick={() => setVerifyState(null)}
+                    className="px-5 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+              </>
+            )}
+
+            {verifyState === 'confirmed' && verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">All set!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">
+                  Thanks — you're confirmed and your pickup location is saved.
+                </p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+
+            {(verifyState === 'expired' || verifyState === 'invalid') && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">{verifyModalContent.title}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">{verifyModalContent.body}</p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Hero banner */}
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (
@@ -168,10 +354,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
           )}
-          {vendorInfo?.location && (
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">{vendorInfo.location}</p>
-          )}
-          {!vendorInfo?.description && !vendorInfo?.location && (
+          {!vendorInfo?.description && (
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{items.length} items</p>
           )}
         </div>
@@ -246,14 +429,28 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Location</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium dark:text-gray-300">
+                  Pickup Location <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  disabled={locating}
+                  className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  {locating ? 'Locating…' : 'Use my location'}
+                </button>
+              </div>
               <input
                 type="text"
                 value={editLocation}
                 onChange={e => setEditLocation(e.target.value)}
-                placeholder="e.g. Kampala, Uganda"
+                required
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Needed so we can arrange item pickup for delivery.</p>
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}
             <div className="flex gap-3 pt-1">

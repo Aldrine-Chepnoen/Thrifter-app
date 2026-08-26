@@ -1,7 +1,7 @@
 # This is the main application file for the Thrifter backend API. It sets up the FastAPI application, configures database connections, defines API endpoints for user authentication, item management, and search functionality. The application uses SQLAlchemy for database interactions, Cloudinary for image storage, and a custom search engine for generating image embeddings and performing similarity searches. The code also includes structured logging, error handling, and rate limiting to ensure a robust and secure API. Additionally, there are utility functions for password hashing, JWT token management, and seeding demo data for testing purposes. 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Header, Response, Request, BackgroundTasks
 import asyncio
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,11 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
 import re
+import csv
+import secrets
 import urllib.request
+from urllib.parse import quote
+import requests
 from PIL import Image, ImageDraw
 from sqlalchemy import text
 
@@ -27,6 +31,7 @@ import schemas
 import search_engine
 import cache
 import payments
+import vendor_verify
 
 # Tables are managed by Alembic migrations
 # models.Base.metadata.create_all(bind=engine)
@@ -168,12 +173,19 @@ def format_whatsapp_number(number: str) -> str:
     
     return number
 
-def get_or_create_vendor(db: Session, name: str, whatsapp: str) -> "models.Vendor":
+def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Optional[str] = None) -> "models.Vendor":
     formatted_whatsapp = format_whatsapp_number(whatsapp or "")
     vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
     if not vendor:
-        vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp)
+        vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp, location=location or None)
         db.add(vendor)
+        db.commit()
+        db.refresh(vendor)
+    elif location and not vendor.location:
+        # Vendor row already existed (e.g. auto-created via a legacy path) but
+        # had no location yet — fill it in rather than silently discarding
+        # what this signup/upgrade just provided.
+        vendor.location = location
         db.commit()
         db.refresh(vendor)
     return vendor
@@ -465,6 +477,29 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
         accessories=[serialize_item(i) for i in get_cluster_items(style.accessory_cluster, "accessory")]
     )
 
+@app.post("/geocode/reverse", response_model=schemas.ReverseGeocodeResponse)
+@limiter.limit("10/minute")
+def reverse_geocode(request: Request, body: schemas.ReverseGeocodeRequest):
+    # No auth required: used from the vendor signup form, before an account exists.
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Location lookup is not configured")
+    try:
+        resp = requests.get(
+            "https://maps.googleapis.com/maps/api/geocode/json",
+            params={"latlng": f"{body.lat},{body.lng}", "key": settings.GOOGLE_MAPS_API_KEY},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        logger.exception("Reverse geocode request failed")
+        raise HTTPException(status_code=502, detail="Could not reach location lookup service")
+
+    if data.get("status") != "OK" or not data.get("results"):
+        raise HTTPException(status_code=404, detail="Could not determine address for this location")
+
+    return schemas.ReverseGeocodeResponse(address=data["results"][0]["formatted_address"])
+
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
 def register(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -478,7 +513,7 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     vendor_whatsapp = None
     if user.is_vendor:
         name = user.vendor_name or user.email.split("@")[0]
-        vendor = get_or_create_vendor(db, name, user.vendor_whatsapp or "")
+        vendor = get_or_create_vendor(db, name, user.vendor_whatsapp or "", user.vendor_location)
         vendor_id = vendor.id
         vendor_name = vendor.name
         vendor_whatsapp = vendor.whatsapp
@@ -551,7 +586,7 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
     if current.is_vendor:
         raise HTTPException(status_code=400, detail="Account is already a vendor")
 
-    vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp)
+    vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp, body.vendor_location)
     current.is_vendor = True
     current.vendor_id = vendor.id
     db.commit()
@@ -694,6 +729,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
         vendor_whatsapp=vendor_whatsapp,
         whatsapp=vendor_whatsapp or None,
         status=item.status or "available",
+        quantity=item.quantity if item.quantity is not None else 1
     )
 
 def _personalised_feed(
@@ -968,11 +1004,12 @@ async def upload_item(
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
-    market: str = Form(...),
+    market: Optional[str] = Form(None),
     item_type: str = Form("top"),
     vendor_name: Optional[str] = Form(None),
     vendor_whatsapp: Optional[str] = Form(None),
     description: str = Form(None),
+    quantity: int = Form(1),
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -992,6 +1029,9 @@ async def upload_item(
         raise HTTPException(status_code=400, detail="Maximum 3 images allowed per item")
 
     name = validate_item_fields(name, description)
+
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
 
     if not current_user.vendor_id:
         if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
@@ -1056,6 +1096,7 @@ async def upload_item(
             item_type=item_type,
             description=description,
             vendor_id=vendor.id,
+            quantity=quantity,
             embedding=[0.0] * embedding_dim
         )
         db.add(db_item)
@@ -1660,13 +1701,14 @@ def list_vendors(db: Session = Depends(get_db)):
     return result
 
 @app.get("/vendors/{name}", response_model=schemas.VendorProfile)
-def get_vendor(name: str, db: Session = Depends(get_db)):
+def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(get_optional_user)):
     vendor = db.query(models.Vendor).filter(models.Vendor.name.ilike(name)).first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
     item_count = db.query(func.count(models.Item.id)).filter(
         models.Item.vendor_id == vendor.id
     ).scalar()
+    is_owner = bool(current_user and current_user.vendor_id == vendor.id)
     return schemas.VendorProfile(
         id=vendor.id,
         name=vendor.name,
@@ -1675,7 +1717,10 @@ def get_vendor(name: str, db: Session = Depends(get_db)):
         banner_fallback_url=cloudinary_fallback_url(vendor.banner_cloudinary_id)
             if storage.is_r2_url(vendor.banner_image) else None,
         description=vendor.description,
-        location=vendor.location,
+        # Pickup location is internal logistics data — only the vendor
+        # themselves sees it (used to pre-fill their own settings form),
+        # never shown on the public store page.
+        location=vendor.location if is_owner else None,
     )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
@@ -1984,8 +2029,8 @@ def update_item(
     name: str = Form(...),
     price: float = Form(...),
     size: str = Form(...),
-    market: str = Form(...),
     description: Optional[str] = Form(None),
+    quantity: int = Form(1),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user)
 ):
@@ -1999,12 +2044,15 @@ def update_item(
 
     name = validate_item_fields(name, description)
 
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
+
     item.name = name
     item.price = price
     item.size = size
-    item.market = market
     item.description = description
-    
+    item.quantity = quantity
+
     db.commit()
     db.refresh(item)
     cache.feed_invalidate_all()
@@ -2178,34 +2226,222 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
     return result
 
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
-def admin_list_users(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    users = db.query(models.User).order_by(models.User.id.desc()).all()
-    result = []
-    for u in users:
-        vendor_name = None
-        if u.vendor_id:
-            v = db.query(models.Vendor).filter(models.Vendor.id == u.vendor_id).first()
-            if v:
-                vendor_name = v.name
-        result.append(schemas.AdminUser(
+def admin_list_users(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin)
+):
+    users = (
+        db.query(models.User)
+        .options(joinedload(models.User.vendor))
+        .order_by(models.User.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [
+        schemas.AdminUser(
             id=u.id, email=u.email, is_vendor=u.is_vendor,
-            is_admin=u.is_admin, vendor_name=vendor_name
-        ))
-    return result
+            is_admin=u.is_admin, vendor_name=u.vendor.name if u.vendor else None
+        )
+        for u in users
+    ]
+
+def _vendor_item_counts(db: Session, vendor_ids: list):
+    if not vendor_ids:
+        return {}
+    rows = (
+        db.query(models.Item.vendor_id, func.count(models.Item.id))
+        .filter(models.Item.vendor_id.in_(vendor_ids))
+        .group_by(models.Item.vendor_id)
+        .all()
+    )
+    return dict(rows)
 
 @app.get("/admin/vendors", response_model=List[schemas.AdminVendor])
 def admin_list_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
     vendors = (db.query(models.Vendor)
         .order_by(models.Vendor.is_pinned.desc(), models.Vendor.id.desc())
         .all())
+    counts = _vendor_item_counts(db, [v.id for v in vendors])
     return [
         schemas.AdminVendor(
             id=v.id, name=v.name, whatsapp=v.whatsapp,
             is_active=v.is_active, is_pinned=v.is_pinned,
+            email_verified_at=v.email_verified_at, phone_verified_at=v.phone_verified_at,
+            item_count=counts.get(v.id, 0)
+        )
+        for v in vendors
+    ]
+
+@app.get("/admin/vendors/unverified", response_model=List[schemas.AdminVendor])
+def admin_list_unverified_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = (db.query(models.Vendor)
+        .filter(
+            models.Vendor.is_active == True,
+            models.Vendor.email_verified_at.is_(None),
+            models.Vendor.phone_verified_at.is_(None),
+        )
+        .order_by(models.Vendor.id.desc())
+        .all())
+    counts = _vendor_item_counts(db, [v.id for v in vendors])
+    return [
+        schemas.AdminVendor(
+            id=v.id, name=v.name, whatsapp=v.whatsapp,
+            is_active=v.is_active, is_pinned=v.is_pinned,
+            email_verified_at=v.email_verified_at, phone_verified_at=v.phone_verified_at,
+            item_count=counts.get(v.id, 0)
+        )
+        for v in vendors
+    ]
+
+@app.get("/admin/vendors/verification-export")
+def admin_export_vendor_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = (db.query(models.Vendor)
+        .filter(models.Vendor.is_active == True)
+        .order_by(models.Vendor.id)
+        .all())
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["vendor_id", "vendor_name", "email", "confirm_link", "note"])
+
+    for v in vendors:
+        user = (db.query(models.User)
+            .filter(models.User.vendor_id == v.id, models.User.is_vendor == True)
+            .order_by(models.User.id.asc())
+            .first())
+        if not user or not user.email:
+            writer.writerow([v.id, v.name, "", "", "SKIPPED - no vendor login/email on file"])
+            continue
+        token = vendor_verify.make_vendor_verify_token(v.id, channel="email")
+        link = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(v.name)}?verify={token}"
+        writer.writerow([v.id, v.name, user.email, link, ""])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=vendor_verification_export.csv"},
+    )
+
+@app.get("/admin/vendors/sms-verification-export")
+def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = (db.query(models.Vendor)
+        .filter(models.Vendor.is_active == True)
+        .order_by(models.Vendor.id)
+        .all())
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["vendor_id", "vendor_name", "whatsapp", "short_link", "note"])
+
+    # Generate all codes in memory and commit once at the end — doing a
+    # collision-check query + insert + commit per vendor (as this used to)
+    # means one DB round trip per vendor, which timed out past ~502 Bad
+    # Gateway territory once there were a few hundred vendors to process.
+    # secrets.token_urlsafe(6) has ~2^48 possible values, so a Python-side
+    # set is more than enough to guarantee uniqueness within one batch.
+    used_codes = set()
+    new_links = []
+    rows = []
+
+    for v in vendors:
+        if not v.whatsapp:
+            rows.append([v.id, v.name, "", "", "SKIPPED - no phone number on file"])
+            continue
+        token = vendor_verify.make_vendor_verify_token(v.id, channel="sms")
+        code = secrets.token_urlsafe(6)
+        while code in used_codes:
+            code = secrets.token_urlsafe(6)
+        used_codes.add(code)
+        new_links.append(models.ShortLink(code=code, vendor_id=v.id, token=token))
+        short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
+        rows.append([v.id, v.name, v.whatsapp, short_link, ""])
+
+    db.add_all(new_links)
+    db.commit()
+
+    for row in rows:
+        writer.writerow(row)
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=vendor_sms_verification_export.csv"},
+    )
+
+@app.get("/s/{code}")
+def resolve_short_link(code: str, db: Session = Depends(get_db)):
+    link = db.query(models.ShortLink).filter(models.ShortLink.code == code).first()
+    if not link:
+        return RedirectResponse(url=settings.FRONTEND_BASE_URL)
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == link.vendor_id).first()
+    name = vendor.name if vendor else ""
+    return RedirectResponse(url=f"{settings.FRONTEND_BASE_URL}/vendor/{quote(name)}?verify={link.token}")
+
+@app.post("/admin/vendors/deactivate-bulk", response_model=List[schemas.AdminVendor])
+def admin_deactivate_vendors_bulk(body: schemas.BulkVendorIds, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    vendors = db.query(models.Vendor).filter(models.Vendor.id.in_(body.vendor_ids)).all()
+    if not vendors:
+        raise HTTPException(status_code=404, detail="No matching vendors found")
+    for v in vendors:
+        v.is_active = False
+    db.commit()
+    cache.feed_invalidate_all()
+    cache.search_invalidate_all()
+    cache.admin_stats_invalidate()
+    for v in vendors:
+        db.refresh(v)
+    return [
+        schemas.AdminVendor(
+            id=v.id, name=v.name, whatsapp=v.whatsapp,
+            is_active=v.is_active, is_pinned=v.is_pinned,
+            email_verified_at=v.email_verified_at, phone_verified_at=v.phone_verified_at,
             item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
         )
         for v in vendors
     ]
+
+@app.post("/vendors/verify", response_model=schemas.VendorVerifyResponse)
+@limiter.limit("20/minute")
+def confirm_vendor_verification(request: Request, body: schemas.VendorVerifyRequest, db: Session = Depends(get_db)):
+    result = vendor_verify.decode_vendor_verify_token(body.token)
+    if result["status"] != "ok":
+        return schemas.VendorVerifyResponse(status=result["status"])
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
+    if not vendor:
+        return schemas.VendorVerifyResponse(status="invalid")
+
+    if result["channel"] == "sms":
+        if not vendor.phone_verified_at:
+            vendor.phone_verified_at = datetime.utcnow()
+            db.commit()
+    else:
+        if not vendor.email_verified_at:
+            vendor.email_verified_at = datetime.utcnow()
+            db.commit()
+
+    return schemas.VendorVerifyResponse(status="confirmed", vendor_name=vendor.name)
+
+@app.post("/vendors/verify/location", response_model=schemas.VendorVerifyResponse)
+@limiter.limit("20/minute")
+def update_vendor_verification_location(request: Request, body: schemas.VendorVerifyLocationRequest, db: Session = Depends(get_db)):
+    result = vendor_verify.decode_vendor_verify_token(body.token)
+    if result["status"] != "ok":
+        return schemas.VendorVerifyResponse(status=result["status"])
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
+    if not vendor:
+        return schemas.VendorVerifyResponse(status="invalid")
+
+    vendor.location = body.location.strip()
+    db.commit()
+
+    return schemas.VendorVerifyResponse(status="confirmed", vendor_name=vendor.name)
 
 @app.get("/admin/items", response_model=List[schemas.AdminItem])
 def admin_list_items(
@@ -2252,7 +2488,8 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
         is_active=vendor.is_active, is_pinned=vendor.is_pinned,
-        item_count=db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
+        email_verified_at=vendor.email_verified_at, phone_verified_at=vendor.phone_verified_at,
+        item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
     )
 
 @app.patch("/admin/vendors/{vendor_id}/pin", response_model=schemas.AdminVendor)
@@ -2270,6 +2507,7 @@ def admin_pin_vendor(vendor_id: int, db: Session = Depends(get_db), _: models.Us
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
         is_active=vendor.is_active, is_pinned=vendor.is_pinned,
+        email_verified_at=vendor.email_verified_at, phone_verified_at=vendor.phone_verified_at,
         item_count=db.query(models.Item).filter(models.Item.vendor_id == vendor.id).count()
     )
 

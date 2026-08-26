@@ -13,8 +13,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     name: '',
     price: '',
     size: '',
-    market: '',
-    description: ''
+    description: '',
+    quantity: 1
   });
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -29,8 +29,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         name: item.name,
         price: item.price,
         size: item.size,
-        market: item.market || '',
-        description: item.description || ''
+        description: item.description || '',
+        quantity: item.quantity ?? 1
       });
       setActiveImageIndex(0);
     }
@@ -101,15 +101,20 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   };
 
   const handleConfirmEdit = async () => {
+    const qty = parseInt(editedData.quantity, 10);
+    if (isNaN(qty) || qty < 0 || String(qty) !== String(editedData.quantity).trim()) {
+      alert('Quantity must be a whole number, 0 or greater.');
+      return;
+    }
     setUpdating(true);
     try {
       const formData = new FormData();
       formData.append('name', editedData.name);
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
-      formData.append('market', editedData.market);
       formData.append('description', editedData.description);
-      
+      formData.append('quantity', qty);
+
       const res = await api.put(`/items/${item.id}`, formData);
       onUpdated && onUpdated(res.data);
       setEditMode(false);
@@ -224,9 +229,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   </div>
                 </div>
               )}
-              <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium tracking-wider uppercase mb-4">
-                {item.market}
-              </span>
 
               {editMode ? (
                 <div className="space-y-4">
@@ -259,11 +261,13 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Location</label>
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity</label>
                     <input
+                      type="number"
+                      min="0"
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
-                      value={editedData.market}
-                      onChange={(e) => { const v = e.target.value; setEditedData(prev => ({...prev, market: v})); }}
+                      value={editedData.quantity}
+                      onChange={(e) => setEditedData({...editedData, quantity: e.target.value})}
                     />
                   </div>
                   <div>

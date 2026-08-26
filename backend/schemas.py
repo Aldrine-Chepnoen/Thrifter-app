@@ -10,6 +10,7 @@ class UserCreate(BaseModel):
     is_vendor: bool = False
     vendor_name: Optional[str] = Field(None, min_length=2)
     vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = Field(None, max_length=200)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -20,6 +21,15 @@ class UserCreate(BaseModel):
         # Basic check to ensure there are enough digits
         if not any(char.isdigit() for char in cleaned):
              raise ValueError('Invalid WhatsApp number: must contain digits')
+        return cleaned
+
+    @validator('vendor_location', always=True)
+    def validate_vendor_location(cls, v, values):
+        if not values.get('is_vendor'):
+            return v
+        cleaned = (v or '').strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required for business/vendor accounts')
         return cleaned
 
 class Token(BaseModel):
@@ -40,6 +50,7 @@ class GoogleAuthNeedsConfirmation(BaseModel):
 class VendorUpgrade(BaseModel):
     vendor_name: str = Field(..., min_length=2)
     vendor_whatsapp: str
+    vendor_location: str = Field(..., min_length=2, max_length=200)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -48,11 +59,39 @@ class VendorUpgrade(BaseModel):
             raise ValueError('Invalid WhatsApp number: must contain digits')
         return cleaned
 
+    @validator('vendor_location')
+    def validate_vendor_location(cls, v):
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required')
+        return cleaned
+
 class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str
     description: Optional[str] = None
-    location: Optional[str] = None
+    # Not required here: editing unrelated profile fields (name, whatsapp, bio)
+    # must not be blocked by a missing location. The plan is to enforce it via
+    # feed visibility instead (hide items from vendors with no location set),
+    # but that filtering isn't implemented yet — today, vendors without a
+    # location still show up normally.
+    location: Optional[str] = Field(None, max_length=200)
+
+    @validator('location')
+    def validate_location(cls, v):
+        if not v:
+            return None
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location must be at least 2 characters')
+        return cleaned
+
+class ReverseGeocodeRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+class ReverseGeocodeResponse(BaseModel):
+    address: str
 
 class UserInfo(BaseModel):
     id: int
@@ -69,12 +108,13 @@ class ItemBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     price: float = Field(..., gt=0)
     size: str = Field(..., min_length=1)
-    market: str = Field(..., min_length=2)
+    market: Optional[str] = Field(None, min_length=2)
     item_type: Optional[str] = Field("top", description="top, bottom, dress, accessory")
     description: Optional[str] = Field(None, max_length=1000)
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
     whatsapp: Optional[str] = None
+    quantity: int = Field(1, ge=0)
 
 class ItemCreate(ItemBase):
     pass
@@ -125,17 +165,33 @@ class AdminVendor(BaseModel):
     whatsapp: Optional[str] = None
     is_active: bool
     is_pinned: bool = False
+    email_verified_at: Optional[datetime] = None
+    phone_verified_at: Optional[datetime] = None
     item_count: int
 
     class Config:
         from_attributes = True
+
+class VendorVerifyRequest(BaseModel):
+    token: str
+
+class VendorVerifyResponse(BaseModel):
+    status: str  # "confirmed" | "expired" | "invalid"
+    vendor_name: Optional[str] = None
+
+class VendorVerifyLocationRequest(BaseModel):
+    token: str
+    location: str = Field(..., min_length=1, max_length=200)
+
+class BulkVendorIds(BaseModel):
+    vendor_ids: List[int] = Field(..., min_length=1)
 
 class AdminItem(BaseModel):
     id: int
     name: str
     price: float
     size: str
-    market: str
+    market: Optional[str] = None
     image_path: str
     item_type: Optional[str] = None
     vendor_name: Optional[str] = None

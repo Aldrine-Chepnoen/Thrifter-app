@@ -41,3 +41,14 @@ APP_TRANSITION_PLAN.md
 .vscode/
 backend/beacon_report.py
 backend/export-r2_beacon-count-by-events-success-2026-07-08-112646.csv
+
+#email verification csv files
+Supabase Snippet Active Vendors with Vendor User Emails.csv
+Supabase Snippet Fetch Non-Vendor Users by Email.csv
+Unknown vendor emails.csv
+Valid vendor emails.csv
+Vendors valid email check-EmailAwesome.csv
+backend/generate_verification_links.py
+manual_verification_emails/
+unknown_vendor_verification_links.csv
+vendor_verification_links.csv

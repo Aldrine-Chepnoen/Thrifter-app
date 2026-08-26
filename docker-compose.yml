@@ -1,5 +1,31 @@
 # This is the Docker Compose configuration file for the Thrifter application. It defines two services: the backend and the frontend. The backend service is built from the Dockerfile located in the ./backend directory, and it exposes port 8000 for API access. It also mounts volumes for images and embeddings to allow for persistent storage. The frontend service is built from the Dockerfile in the ./frontend directory and exposes port 8080 for web access. The frontend depends on the backend service, ensuring that it starts after the backend is up and running. Environment variables are used to configure the backend service, including an upload password for secure access to image uploads. This setup allows for easy deployment and management of both services using Docker Compose.
 services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: thrifter-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=thrifter
+    volumes:
+      - thrifter-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:latest
+    container_name: thrifter-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
   backend:
     build: ./backend
     container_name: thrifter-backend
@@ -12,6 +38,9 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - UPLOAD_PASSWORD=thrifter-admin-2024
+    depends_on:
+      db:
+        condition: service_healthy
 
   frontend:
     image: node:22
@@ -27,3 +56,6 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend
+
+volumes:
+  thrifter-db-data:

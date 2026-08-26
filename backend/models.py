@@ -61,7 +61,17 @@ class Vendor(Base):
     banner_cloudinary_id = Column(String, nullable=True)
     description = Column(String, nullable=True)
     location = Column(String, nullable=True)
+    email_verified_at = Column(DateTime, nullable=True)
+    phone_verified_at = Column(DateTime, nullable=True)
     items = relationship("Item", back_populates="vendor")
+
+class ShortLink(Base):
+    __tablename__ = "short_links"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True, nullable=False)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False)
+    token = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class AppSetting(Base):
     __tablename__ = "app_settings"
@@ -82,6 +92,7 @@ class Item(Base):
     item_type = Column(String, default="top", index=True) # top, bottom, dress, accessory
     cloudinary_public_id = Column(String, nullable=True)
     description = Column(Text, nullable=True)
+    quantity = Column(Integer, default=1, nullable=False, server_default="1")
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor", back_populates="items")
 
