@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import ThrifterLoader from './ThrifterLoader';
 import StyleModal from './StyleModal';
+import AdminOrders from './AdminOrders';
 import { getImageSrc } from '../utils';
 
 const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
@@ -494,7 +495,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
 
   if (!user?.is_admin) return null;
 
-  const tabs = ['overview', 'polls', 'vendors', 'items', 'users', 'styles'];
+  const tabs = ['overview', 'orders', 'polls', 'vendors', 'items', 'users', 'styles'];
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
@@ -575,6 +576,9 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
 
         </>
       )}
+
+      {/* Orders Tab */}
+      {activeTab === 'orders' && <AdminOrders />}
 
       {/* Polls Tab */}
       {activeTab === 'polls' && (

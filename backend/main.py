@@ -2012,6 +2012,88 @@ def mark_payout_paid(payout_id: int, db: Session = Depends(get_db), current_user
         created_at=payout.created_at,
     )
 
+# ---------------------------------------------------------------------------
+# Admin order fulfillment
+# ---------------------------------------------------------------------------
+# Record of the full transition chain: paid ("Order placed") -> picked_up
+# ("On delivery") -> delivered ("Delivered"). One-way — an admin correcting a
+# mistake goes through the DB directly, same as the vendor-side version this
+# replaces. Cancelled/failed orders never enter this flow.
+_ADMIN_ORDER_STATUS_TRANSITIONS = {
+    "paid": {"picked_up"},
+    "picked_up": {"delivered"},
+}
+
+def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
+    items = []
+    for oi in order.items:
+        image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        items.append(schemas.OrderItemOut(
+            id=oi.id, item_id=oi.item_id,
+            item_name_snapshot=oi.item_name_snapshot,
+            price_at_purchase=oi.price_at_purchase,
+            quantity=oi.quantity,
+            image_path=image_path,
+            fallback_url=fallback_url,
+        ))
+    checkout = order.checkout
+    return schemas.AdminOrderOut(
+        id=order.id,
+        checkout_id=order.checkout_id,
+        vendor_id=order.vendor_id,
+        vendor_name=order.vendor.name if order.vendor else None,
+        vendor_whatsapp=order.vendor.whatsapp if order.vendor else None,
+        vendor_location=order.vendor.location if order.vendor else None,
+        delivery_name=checkout.delivery_name,
+        delivery_phone=checkout.delivery_phone,
+        delivery_address=checkout.delivery_address,
+        subtotal=order.subtotal,
+        commission_amount=order.commission_amount,
+        vendor_payout_amount=order.vendor_payout_amount,
+        status=order.status,
+        created_at=order.created_at,
+        delivery_day=checkout.delivery_day,
+        items=items,
+    )
+
+@app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
+def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    # Cancelled/failed orders never needed fulfillment action, so they're
+    # excluded here rather than given a bucket in the admin UI.
+    orders = (
+        db.query(models.Order)
+        .options(
+            joinedload(models.Order.checkout),
+            joinedload(models.Order.vendor),
+            joinedload(models.Order.items).joinedload(models.OrderItem.item),
+        )
+        .filter(models.Order.status.in_(["paid", "picked_up", "delivered"]))
+        .order_by(models.Order.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    return [_serialize_admin_order(order) for order in orders]
+
+@app.patch("/admin/orders/{order_id}/status", response_model=schemas.AdminOrderOut)
+def update_admin_order_status(
+    order_id: int,
+    body: schemas.AdminOrderStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    allowed_next = _ADMIN_ORDER_STATUS_TRANSITIONS.get(order.status, set())
+    if body.status not in allowed_next:
+        raise HTTPException(status_code=409, detail=f"Cannot move order from '{order.status}' to '{body.status}'")
+
+    order.status = body.status
+    db.commit()
+    db.refresh(order)
+    return _serialize_admin_order(order)
+
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):
     vendors = db.query(models.Vendor).all()

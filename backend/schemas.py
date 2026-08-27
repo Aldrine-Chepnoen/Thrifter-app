@@ -387,6 +387,27 @@ class VendorOrderOut(BaseModel):
     delivery_day: datetime
     items: List[OrderItemOut] = []
 
+class AdminOrderStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(picked_up|delivered)$")
+
+class AdminOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = None
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    created_at: datetime
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+
 class VendorPayoutOut(BaseModel):
     id: int
     vendor_id: int
