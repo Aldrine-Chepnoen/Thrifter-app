@@ -8,6 +8,7 @@ const OrderConfirmation = () => {
   const checkoutId = searchParams.get('checkout_id');
   const [checkout, setCheckout] = useState(null);
   const [error, setError] = useState(null);
+  const [timedOut, setTimedOut] = useState(false);
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -21,8 +22,12 @@ const OrderConfirmation = () => {
         if (cancelled) return;
         setCheckout(data);
         attempts += 1;
-        if (data.status === 'pending' && attempts < 20) {
-          pollRef.current = setTimeout(poll, 3000);
+        if (data.status === 'pending') {
+          if (attempts < 20) {
+            pollRef.current = setTimeout(poll, 3000);
+          } else {
+            setTimedOut(true);
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err?.response?.data?.detail || 'Could not load order status.');
@@ -46,6 +51,17 @@ const OrderConfirmation = () => {
     <main className="max-w-lg mx-auto px-4 py-16 text-center">
       {error ? (
         <p className="text-red-600">{error}</p>
+      ) : timedOut && (!checkout || checkout.status === 'pending') ? (
+        <>
+          <Loader className="w-10 h-10 mx-auto mb-4 text-[#EAAD11]" />
+          <h2 className="text-xl font-serif font-bold mb-2">This is taking longer than usual</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
+            We're still waiting to hear back from the payment provider. If you completed the mobile money prompt, your order should appear in My Orders shortly — no need to pay again.
+          </p>
+          <Link to="/orders" className="inline-block bg-[#EAAD11] text-black py-3 px-6 rounded-xl font-bold hover:opacity-90">
+            Check My Orders
+          </Link>
+        </>
       ) : !checkout || checkout.status === 'pending' ? (
         <>
           <Loader className="w-10 h-10 mx-auto mb-4 animate-spin text-[#EAAD11]" />

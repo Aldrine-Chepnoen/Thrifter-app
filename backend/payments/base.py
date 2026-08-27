@@ -7,8 +7,8 @@ from typing import Optional, Dict, Any
 class InitiateResult:
     redirect_url: str
     tx_ref: str
-    # Provider-side reference needed to later verify/poll status (e.g. Pesapal's
-    # order_tracking_id). Not all providers need one up front.
+    # Provider-side reference needed to later verify/poll status. Not all
+    # providers need one up front.
     provider_ref: Optional[str] = None
 
 
@@ -46,7 +46,6 @@ class PaymentProvider(ABC):
 
     @abstractmethod
     def parse_webhook(self, headers: Dict[str, str], data: Dict[str, Any]) -> WebhookResult:
-        """Interpret an inbound webhook/IPN call. `data` is the JSON body for
-        providers that POST a payload, or the query params for providers (like
-        Pesapal) whose notification is a bare GET callback."""
+        """Interpret an inbound webhook call. `data` is the JSON body for
+        providers that POST a payload."""
         ...

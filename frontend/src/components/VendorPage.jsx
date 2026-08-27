@@ -1,10 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera, MapPin } from 'lucide-react';
+import { Plus, Share2, Check, X, Camera, MapPin, Crown } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
-import api from '../api';
+import VendorOrders from './VendorOrders';
+import UpgradeToPremiumModal from './UpgradeToPremiumModal';
+import api, { fetchVendorSlotStatus } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
+
+const formatUGX = (n) => {
+  try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
+};
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
   const { name } = useParams();
@@ -32,8 +38,11 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [viewStats, setViewStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
   const bannerInputRef = useRef(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
 
   const fetchVendorItems = async () => {
     setLoading(true);
@@ -47,6 +56,9 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       if (isOwnProfile) {
         api.get(`/vendors/${encodeURIComponent(name)}/views`)
           .then(res => setViewStats(res.data || {}))
+          .catch(() => {});
+        fetchVendorSlotStatus()
+          .then(setSubscriptionStatus)
           .catch(() => {});
       }
     } catch (e) {
@@ -348,8 +360,14 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       {/* Vendor info block */}
       <div className="px-4 md:px-6 pt-5 pb-4 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight">
+          <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight flex items-center gap-2">
             {vendorInfo?.name || name}
+            {vendorInfo?.is_premium && (
+              <span className="inline-flex items-center gap-1 bg-[#EAAD11] text-black text-[11px] font-bold px-2 py-1 rounded-full normal-case tracking-normal">
+                <Crown className="w-3 h-3" />
+                Premium
+              </span>
+            )}
           </h1>
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
@@ -472,18 +490,88 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         </div>
       )}
 
-      {/* Product grid */}
+      {/* Tabs (own profile only — orders are private) */}
+      {isOwnProfile && (
+        <div className="px-4 md:px-6 mt-6 flex gap-2 border-b border-gray-100 dark:border-gray-800">
+          {[{ key: 'items', label: 'My Items' }, { key: 'orders', label: 'Orders' }, { key: 'subscription', label: 'Subscription' }].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-[#EAAD11] text-gray-900 dark:text-white'
+                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Product grid / Orders / Subscription */}
       <div className="px-4 md:px-6 mt-6">
-        {loading ? (
+        {isOwnProfile && activeTab === 'orders' ? (
+          <VendorOrders />
+        ) : isOwnProfile && activeTab === 'subscription' ? (
+          <div className="max-w-md">
+            {!subscriptionStatus ? (
+              <ThrifterLoader />
+            ) : (
+              <>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    {subscriptionStatus.is_premium && <Crown className="w-4 h-4 text-[#EAAD11]" />}
+                    <span className="font-bold text-gray-900 dark:text-white">
+                      {subscriptionStatus.is_premium ? 'Premium plan' : 'Free plan'}
+                    </span>
+                  </div>
+                  {subscriptionStatus.is_premium && subscriptionStatus.expires_at && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      Renews / expires {new Date(subscriptionStatus.expires_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  <div className="flex justify-between text-sm mt-2">
+                    <span className="text-gray-500 dark:text-gray-400">Active listings</span>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {subscriptionStatus.active_item_count}{subscriptionStatus.is_premium ? '' : ` / ${subscriptionStatus.free_item_limit}`}
+                    </span>
+                  </div>
+                  {subscriptionStatus.hidden_item_count > 0 && (
+                    <div className="flex justify-between text-sm mt-1">
+                      <span className="text-gray-500 dark:text-gray-400">Hidden (over limit)</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">{subscriptionStatus.hidden_item_count}</span>
+                    </div>
+                  )}
+                </div>
+                {!subscriptionStatus.is_premium && (
+                  <button
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="w-full bg-[#EAAD11] text-black py-3.5 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Crown className="w-4 h-4" />
+                    Upgrade to Premium — {formatUGX(subscriptionStatus.price_ugx)}/30 days
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        ) : loading ? (
           <ThrifterLoader />
         ) : items.length > 0 ? (
-          <MasonryGrid items={items} onItemClick={setSelectedItem} viewStats={isOwnProfile ? viewStats : null} />
+          <MasonryGrid
+            items={items}
+            onItemClick={setSelectedItem}
+            viewStats={isOwnProfile ? viewStats : null}
+            hiddenBannerText={isOwnProfile ? 'Unavailable — upgrade to unlock' : undefined}
+          />
         ) : (
           <div className="text-center py-20 text-gray-500">
             <p>No items from this vendor yet.</p>
           </div>
         )}
       </div>
+      <UpgradeToPremiumModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
     </main>
   );
 };

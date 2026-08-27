@@ -16,23 +16,28 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     description: '',
     quantity: 1
   });
+  const [originalQuantity, setOriginalQuantity] = useState(1);
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
+  const [cartQty, setCartQty] = useState(1);
   const location = useLocation();
   const navigate = useNavigate();
   const isOnOwnVendorPage = location.pathname.toLowerCase() === `/vendor/${user?.vendor_name?.toLowerCase()}`;
 
   useEffect(() => {
     if (item) {
+      const qty = item.quantity ?? 1;
       setEditedData({
         name: item.name,
         price: item.price,
         size: item.size,
         description: item.description || '',
-        quantity: item.quantity ?? 1
+        quantity: qty
       });
+      setOriginalQuantity(qty);
       setActiveImageIndex(0);
+      setCartQty(1);
     }
     setEditMode(false);
   }, [item, isOpen]);
@@ -113,7 +118,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
       formData.append('description', editedData.description);
-      formData.append('quantity', qty);
+      // Send a delta, not the absolute value: this form was opened against a
+      // snapshot that a concurrent sale may have since changed, so "how much
+      // did the vendor change it by" is what the backend actually needs.
+      formData.append('quantity_delta', qty - originalQuantity);
 
       const res = await api.put(`/items/${item.id}`, formData);
       onUpdated && onUpdated(res.data);
@@ -151,9 +159,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     posthog.capture('item_added_to_cart', {
       item_id: item.id,
       item_name: item.name,
-      vendor_name: item.vendor_name
+      vendor_name: item.vendor_name,
+      quantity: cartQty
     });
-    onAddToCart(item);
+    onAddToCart(item, cartQty);
   };
 
   return (
@@ -367,12 +376,12 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   </button>
                 )}
 
-                {item.status && item.status !== 'available' ? (
+                {item.is_hidden || (item.status && item.status !== 'available') ? (
                   <button
                     disabled
                     className="w-full bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed mt-3"
                   >
-                    {item.status === 'sold' ? 'Sold' : 'Reserved'}
+                    {item.is_hidden ? 'Unavailable' : item.status === 'sold' ? 'Sold' : 'Reserved'}
                   </button>
                 ) : isInCart ? (
                   <button
@@ -383,13 +392,37 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     In Cart — View Cart
                   </button>
                 ) : (
-                  <button
-                    onClick={handleAddToCart}
-                    className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-colors mt-3"
-                  >
-                    <ShoppingBag className="w-5 h-5" />
-                    Add to Cart
-                  </button>
+                  <>
+                    {item.quantity > 1 && (
+                      <div className="flex items-center justify-between mt-3 mb-1">
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Quantity ({item.quantity} available)</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setCartQty((q) => Math.max(1, q - 1))}
+                            className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 flex items-center justify-center font-bold hover:bg-gray-100 dark:hover:bg-gray-800"
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center font-semibold">{cartQty}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCartQty((q) => Math.min(item.quantity, q + 1))}
+                            className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 flex items-center justify-center font-bold hover:bg-gray-100 dark:hover:bg-gray-800"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAddToCart}
+                      className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-colors mt-3"
+                    >
+                      <ShoppingBag className="w-5 h-5" />
+                      Add to Cart
+                    </button>
+                  </>
                 )}
               </>
             )}

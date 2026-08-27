@@ -1,5 +1,5 @@
 # This file defines the database models for the Thrifter backend application using SQLAlchemy. It includes models for users, vendors, items, blacklisted tokens, and a wardrobe feature. The User model represents registered users of the application, with fields for email, hashed password, and vendor association. The Vendor model represents sellers on the platform, with fields for name, WhatsApp contact, and a relationship to their items. The Item model represents products listed by vendors, including details such as name, price, size, market, image information, description, and an embedding vector for search functionality. The BlacklistedToken model is used to store JWT tokens that have been invalidated. The Wardrobe model allows users to save items they are interested in. These models form the core of the application's data structure and are used throughout the backend for managing data and relationships between entities.
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from database import Base
 from pgvector.sqlalchemy import Vector
@@ -102,9 +102,21 @@ class Item(Base):
     # CLIP-ViT-B/32 produces 512-dimensional embeddings
     embedding = Column(Vector(512))
 
-    # Purchase status: available, reserved (checkout in progress), sold
+    # Purchase status: available, reserved (checkout in progress), sold.
+    # Derived from `quantity` — recomputed via _recompute_item_status(), never set
+    # directly outside main.py's checkout/reservation logic: quantity > 0 => available;
+    # quantity == 0 => reserved (an active pending checkout still holds it) or sold.
     status = Column(String, default="available", nullable=False, index=True)
-    reserved_until = Column(DateTime, nullable=True)
+
+    # Slot-visibility flag for the free/premium vendor tier: True when this item
+    # is over its vendor's free slot limit (or the vendor's premium lapsed).
+    # Maintained by vendor_premium.sync_vendor_item_visibility() — never set
+    # directly elsewhere. Sold items are exempt and never hidden by this flag.
+    is_hidden = Column(Boolean, default=False, nullable=False, server_default="false", index=True)
+
+    __table_args__ = (
+        Index("ix_items_vendor_id_is_hidden", "vendor_id", "is_hidden"),
+    )
 
 class ItemImage(Base):
     __tablename__ = "item_images"
@@ -204,6 +216,7 @@ class OrderItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    quantity = Column(Integer, nullable=False, server_default="1")
     price_at_purchase = Column(Float, nullable=False)
     item_name_snapshot = Column(String, nullable=False)
 
@@ -214,7 +227,7 @@ class Payment(Base):
     __tablename__ = "payments"
     id = Column(Integer, primary_key=True, index=True)
     checkout_id = Column(Integer, ForeignKey("checkouts.id", ondelete="CASCADE"), nullable=False, unique=True)
-    provider = Column(String, nullable=False)  # "pesapal" | "nylon" (once built)
+    provider = Column(String, nullable=False)  # "nylon"
     tx_ref = Column(String, unique=True, index=True, nullable=False)
     provider_tx_id = Column(String, nullable=True)
     status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed
@@ -249,3 +262,22 @@ class VendorPayout(Base):
 
     vendor = relationship("Vendor")
     order = relationship("Order", back_populates="payout")
+
+class VendorSubscription(Base):
+    __tablename__ = "vendor_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False)  # "nylon"
+    tx_ref = Column(String, unique=True, index=True, nullable=False)
+    provider_tx_id = Column(String, nullable=True, index=True)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed
+    amount = Column(Float, nullable=False)
+    currency = Column(String, default="UGX", nullable=False)
+    period_days = Column(Integer, nullable=False, default=30)
+    starts_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
+    raw_response = Column(Text, nullable=True)  # JSON-encoded
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    vendor = relationship("Vendor")

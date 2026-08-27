@@ -39,12 +39,6 @@ class Settings(BaseSettings):
     POSTHOG_PROJECT_API_KEY: Optional[str] = os.getenv("POSTHOG_PROJECT_API_KEY")
     POSTHOG_CAPTURE_HOST: str = os.getenv("POSTHOG_CAPTURE_HOST", "https://eu.i.posthog.com")
 
-    # Pesapal (payments)
-    PESAPAL_CONSUMER_KEY: Optional[str] = os.getenv("PESAPAL_CONSUMER_KEY")
-    PESAPAL_CONSUMER_SECRET: Optional[str] = os.getenv("PESAPAL_CONSUMER_SECRET")
-    PESAPAL_IPN_ID: Optional[str] = os.getenv("PESAPAL_IPN_ID")
-    PESAPAL_ENV: str = os.getenv("PESAPAL_ENV", "sandbox")  # "sandbox" | "live"
-
     # Nylon Pay (payments)
     NYLONPAY_API_KEY: Optional[str] = os.getenv("NYLONPAY_API_KEY")
     NYLONPAY_API_SECRET: Optional[str] = os.getenv("NYLONPAY_API_SECRET")
@@ -53,10 +47,16 @@ class Settings(BaseSettings):
     NYLONPAY_WEBHOOK_SECRET: Optional[str] = os.getenv("NYLONPAY_WEBHOOK_SECRET")
 
     # Checkout / commerce
-    DEFAULT_PAYMENT_PROVIDER: str = os.getenv("DEFAULT_PAYMENT_PROVIDER", "pesapal")
+    DEFAULT_PAYMENT_PROVIDER: str = os.getenv("DEFAULT_PAYMENT_PROVIDER", "nylon")
     DELIVERY_FEE_UGX: float = float(os.getenv("DELIVERY_FEE_UGX", "5000"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
+
+    # Vendor premium tier
+    VENDOR_FREE_ITEM_LIMIT: int = int(os.getenv("VENDOR_FREE_ITEM_LIMIT", "10"))
+    # Placeholder — confirm the real price before launch.
+    VENDOR_PREMIUM_PRICE_UGX: float = float(os.getenv("VENDOR_PREMIUM_PRICE_UGX", "50000"))
+    VENDOR_PREMIUM_PERIOD_DAYS: int = int(os.getenv("VENDOR_PREMIUM_PERIOD_DAYS", "30"))
 
     # Frontend base URL (used to build absolute links, e.g. vendor verification emails)
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")

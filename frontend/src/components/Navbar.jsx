@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -201,7 +201,7 @@ const Navbar = ({
 
             {user && (
               <Link
-                to={user.is_vendor ? '/vendor/orders' : '/orders'}
+                to={user.is_vendor ? `/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders` : '/orders'}
                 className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
                 title="Orders"
               >
@@ -223,7 +223,10 @@ const Navbar = ({
 
             {user ? (
               <div className="flex flex-col items-center gap-1 ml-1">
-                <span className="hidden lg:inline text-[10px] text-gray-500 font-medium">{user.is_vendor ? 'Vendor' : 'User'}</span>
+                <span className="hidden lg:inline text-[10px] text-gray-500 font-medium flex items-center gap-1">
+                  {user.is_vendor && user.is_premium && <Crown className="w-3 h-3 text-[#EAAD11]" />}
+                  {user.is_vendor ? (user.is_premium ? 'Premium Vendor' : 'Vendor') : 'User'}
+                </span>
                 <button
                   onClick={onLogout}
                   className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow banner-text-shadow"

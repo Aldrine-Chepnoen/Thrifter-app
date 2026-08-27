@@ -1,10 +1,9 @@
 from .base import PaymentProvider
-from .pesapal import PesapalProvider
 from .nylon import NylonPayProvider
 
-# Flutterwave and DPO were dropped (Flutterwave KYC stalled, DPO never went live).
+# Flutterwave, DPO, and Pesapal were dropped (Flutterwave KYC stalled, DPO never
+# went live, Pesapal was replaced by Nylon Pay as the sole provider).
 _PROVIDERS = {
-    "pesapal": PesapalProvider,
     "nylon": NylonPayProvider,
 }
 

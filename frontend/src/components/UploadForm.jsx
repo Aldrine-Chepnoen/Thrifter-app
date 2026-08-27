@@ -1,8 +1,9 @@
 // This is the UploadForm component for the Thrifter frontend application. It provides a form for vendors to list new items for sale. The form includes fields for item details such as name, price, size, market, vendor information, and a description, as well as an image upload feature with a preview. The component checks if the user is authenticated and has a vendor account before allowing them to submit the form. Upon submission, it sends the form data to the backend API and handles success and error responses accordingly. The component also uses Tailwind CSS for styling and React hooks for managing state and side effects.
 import React, { useState, useEffect } from 'react';
 import { Upload, X } from 'lucide-react';
-import api from '../api';
+import api, { fetchVendorSlotStatus } from '../api';
 import { useNavigate } from 'react-router-dom';
+import UpgradeToPremiumModal from './UpgradeToPremiumModal';
 
 const MAX_DIMENSION = 1200;
 const JPEG_QUALITY = 0.85;
@@ -47,6 +48,9 @@ const UploadForm = () => {
   const [canUpload, setCanUpload] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [slotBlocked, setSlotBlocked] = useState(false);
+  const formDisabled = !canUpload || slotBlocked;
 
   useEffect(() => {
     (async () => {
@@ -60,6 +64,18 @@ const UploadForm = () => {
             vendor_name: prev.vendor_name || me.data.vendor_name || '',
             vendor_whatsapp: prev.vendor_whatsapp || me.data.vendor_whatsapp || ''
           }));
+          // Check slot status up front so a maxed-out vendor sees the upgrade
+          // prompt immediately, before filling in the whole form only to hit
+          // a rejection on submit.
+          try {
+            const slotStatus = await fetchVendorSlotStatus();
+            if (!slotStatus.is_premium && slotStatus.active_item_count >= slotStatus.free_item_limit) {
+              setSlotBlocked(true);
+              setShowUpgradeModal(true);
+            }
+          } catch {
+            // Non-fatal — fall through to the normal submit-time check.
+          }
         }
       } catch {
         setCanUpload(false);
@@ -94,6 +110,10 @@ const UploadForm = () => {
       navigate('/');
       return;
     }
+    if (slotBlocked) {
+      setShowUpgradeModal(true);
+      return;
+    }
     if (files.length === 0) {
       alert('Please upload at least one image');
       return;
@@ -111,8 +131,13 @@ const UploadForm = () => {
       navigate('/');
     } catch (error) {
       console.error('Upload failed:', error);
-      const errorMsg = error.response?.data?.detail || 'Failed to upload item';
-      alert(`Upload failed: ${errorMsg}`);
+      const detail = error.response?.data?.detail;
+      if (detail && typeof detail === 'object' && detail.code === 'slot_limit_reached') {
+        setShowUpgradeModal(true);
+      } else {
+        const errorMsg = (typeof detail === 'string' && detail) || 'Failed to upload item';
+        alert(`Upload failed: ${errorMsg}`);
+      }
     } finally {
       setUploadStatus(null);
     }
@@ -125,6 +150,17 @@ const UploadForm = () => {
         <div className="mb-4 text-sm text-gray-600">Checking account...</div>
       ) : !canUpload ? (
         <div className="mb-4 text-sm text-red-600">You need a business account to list items.</div>
+      ) : slotBlocked ? (
+        <div className="mb-4 text-sm text-red-600 flex items-center gap-3">
+          <span>You've reached your free plan's item limit.</span>
+          <button
+            type="button"
+            onClick={() => setShowUpgradeModal(true)}
+            className="text-[#EAAD11] font-semibold hover:underline"
+          >
+            Upgrade to Premium
+          </button>
+        </div>
       ) : null}
       
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -175,7 +211,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
           <div>
@@ -187,7 +223,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
         </div>
@@ -202,7 +238,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
           <div>
@@ -213,7 +249,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none bg-white"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             >
               <option value="top">Top (Shirt, Jacket, etc.)</option>
               <option value="bottom">Bottom (Pants, Skirt, etc.)</option>
@@ -231,7 +267,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
         </div>
@@ -246,7 +282,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
           <div>
@@ -259,7 +295,7 @@ const UploadForm = () => {
               placeholder="e.g. +2348012345678"
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
-              disabled={!canUpload}
+              disabled={formDisabled}
             />
           </div>
         </div>
@@ -272,13 +308,13 @@ const UploadForm = () => {
             onChange={handleChange}
             rows="4"
             className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
-            disabled={!canUpload}
+            disabled={formDisabled}
           />
         </div>
 
         <button
           type="submit"
-          disabled={!!uploadStatus || !canUpload}
+          disabled={!!uploadStatus || formDisabled}
           className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
         >
           {uploadStatus && (
@@ -290,6 +326,7 @@ const UploadForm = () => {
           {uploadStatus === 'uploading' ? 'Listing item...' : 'List Item'}
         </button>
       </form>
+      <UpgradeToPremiumModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
     </div>
   );
 };

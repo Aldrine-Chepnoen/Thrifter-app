@@ -7,9 +7,12 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-const Cart = ({ cartItems, onRemove, user, openAuthModal }) => {
+const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFee, user, openAuthModal }) => {
   const navigate = useNavigate();
-  const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
+  const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
+  const hasDeliveryFee = deliveryFee != null;
+  const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
+  const total = subtotal + (deliveryFee || 0) + tax;
 
   const handleCheckout = () => {
     if (!user) {
@@ -21,7 +24,17 @@ const Cart = ({ cartItems, onRemove, user, openAuthModal }) => {
 
   return (
     <main className="max-w-3xl mx-auto px-4 md:px-6 py-8">
-      <h2 className="text-xl font-serif font-bold mb-6">Your Cart</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-serif font-bold">Your Cart</h2>
+        {cartItems.length > 0 && (
+          <button
+            onClick={onClearCart}
+            className="text-sm font-semibold text-[#EAAD11] hover:underline"
+          >
+            Remove all
+          </button>
+        )}
+      </div>
       {cartItems.length === 0 ? (
         <div className="text-center py-20 text-gray-500">
           <ShoppingBag className="w-10 h-10 mx-auto mb-3 opacity-40" />
@@ -32,16 +45,36 @@ const Cart = ({ cartItems, onRemove, user, openAuthModal }) => {
         <>
           <div className="space-y-3 mb-8">
             {cartItems.map((item) => (
-              <div key={item.id} className="flex items-center gap-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3">
+              <div key={item.id} className="flex items-center gap-4 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3">
                 <img src={getImageSrc(item, 160)} alt={item.name} className="w-16 h-20 object-cover rounded-lg flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{item.name}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-semibold truncate">{item.name}</p>
+                    <p className="text-sm font-bold flex-shrink-0">{formatUGX(item.price)}</p>
+                  </div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{item.vendor_name}</p>
-                  <p className="text-sm font-bold mt-1">{formatUGX(item.price)}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Size - <span className="font-semibold text-gray-700 dark:text-gray-300">{item.size}</span></p>
+                  {item.quantity > 1 && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        onClick={() => onUpdateQuantity(item.id, Math.max(1, (item.cartQuantity || 1) - 1))}
+                        className="w-7 h-7 rounded-full bg-[#EAAD11] text-black flex items-center justify-center font-bold hover:opacity-90"
+                      >
+                        −
+                      </button>
+                      <span className="w-5 text-center text-sm font-semibold">{item.cartQuantity || 1}</span>
+                      <button
+                        onClick={() => onUpdateQuantity(item.id, Math.min(item.quantity, (item.cartQuantity || 1) + 1))}
+                        className="w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-black flex items-center justify-center font-bold hover:opacity-90"
+                      >
+                        +
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => onRemove(item.id)}
-                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-red-600"
+                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-red-600 self-start"
                   title="Remove"
                 >
                   <X className="w-4 h-4" />
@@ -50,16 +83,34 @@ const Cart = ({ cartItems, onRemove, user, openAuthModal }) => {
             ))}
           </div>
 
-          <div className="border-t border-gray-200 dark:border-gray-800 pt-4 flex items-center justify-between mb-6">
-            <span className="text-gray-500 dark:text-gray-400">Subtotal ({cartItems.length} item{cartItems.length !== 1 ? 's' : ''})</span>
-            <span className="text-lg font-bold">{formatUGX(subtotal)}</span>
+          <div className="border-t border-gray-200 dark:border-gray-800 pt-4 space-y-2 mb-6">
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Subtotal</span>
+              <span>{formatUGX(subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Shipping Cost</span>
+              <span>{hasDeliveryFee ? formatUGX(deliveryFee) : '—'}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Tax</span>
+              <span>{formatUGX(tax)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+              <span className="font-semibold">Total</span>
+              <span className="text-lg font-bold">{formatUGX(total)}</span>
+            </div>
           </div>
+
+          {/* Coupon codes are not implemented yet — no promo/discount model or
+              checkout-side validation exists. Add an "Enter Coupon Code" field
+              here once that system is built. */}
 
           <button
             onClick={handleCheckout}
             className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors"
           >
-            Proceed to Checkout
+            Checkout
           </button>
         </>
       )}

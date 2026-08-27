@@ -32,6 +32,7 @@ import search_engine
 import cache
 import payments
 import vendor_verify
+import vendor_premium
 
 # Tables are managed by Alembic migrations
 # models.Base.metadata.create_all(bind=engine)
@@ -124,6 +125,8 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
+        "delivery_fee_ugx": settings.DELIVERY_FEE_UGX,
+        "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
 # Mount images directory
@@ -425,6 +428,7 @@ def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_
                     db.query(models.Item)
                     .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
                     .filter(models.Item.id.in_(sample_ids))
+                    .filter(models.Item.is_hidden == False)
                     .all()
                 )
                 item_map = {i.id: i for i in items_q}
@@ -466,6 +470,7 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
             .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
             .filter(models.Item.item_type == item_type)
             .filter(models.Item.embedding.isnot(None))
+            .filter(models.Item.is_hidden == False)
             .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
             .limit(limit)
             .all()
@@ -522,7 +527,11 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
     db.commit()
     db.refresh(u)
     logger.info(f"User registered successfully: {u.id}")
-    return schemas.UserInfo(id=u.id, email=u.email, is_vendor=u.is_vendor, vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp)
+    return schemas.UserInfo(
+        id=u.id, email=u.email, is_vendor=u.is_vendor,
+        vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp,
+        is_premium=vendor_premium.is_vendor_premium(db, vendor_id),
+    )
 
 @app.post("/auth/login", response_model=schemas.Token)
 @limiter.limit("10/minute")
@@ -594,7 +603,8 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
 
     return schemas.UserInfo(
         id=current.id, email=current.email, is_vendor=current.is_vendor,
-        is_admin=current.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp
+        is_admin=current.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
+        is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
 @app.get("/auth/me", response_model=schemas.UserInfo)
@@ -617,7 +627,8 @@ def me(current = Depends(get_current_user), db: Session = Depends(get_db)):
     result = schemas.UserInfo(
         id=current.id, email=current.email,
         is_vendor=current.is_vendor, is_admin=current.is_admin,
-        vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp
+        vendor_name=vendor_name, vendor_whatsapp=vendor_whatsapp,
+        is_premium=vendor_premium.is_vendor_premium(db, current.vendor_id),
     )
     cache.me_set(current.id, result)
     return result
@@ -681,6 +692,24 @@ def cloudinary_fallback_url(public_id: Optional[str]) -> Optional[str]:
     return cloudinary_url(public_id, secure=True)[0]
 
 
+def _display_image(item: models.Item):
+    """Returns (image_path, cloudinary_public_id, fallback_url) for an item's
+    primary/display image, bridging the legacy columns and the ItemImage table."""
+    item_images = list(item.images) if hasattr(item, 'images') else []
+    primary = next((img for img in item_images if img.is_primary), None) or (item_images[0] if item_images else None)
+
+    if primary:
+        image_path = primary.image_path
+        cloudinary_id = primary.cloudinary_public_id
+        fallback_url = cloudinary_fallback_url(primary.cloudinary_public_id) if storage.is_r2_url(primary.image_path) else None
+    else:
+        image_path = item.image_path
+        cloudinary_id = item.cloudinary_public_id
+        fallback_url = cloudinary_fallback_url(item.cloudinary_public_id) if storage.is_r2_url(item.image_path) else None
+
+    return image_path, cloudinary_id, fallback_url
+
+
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
@@ -699,18 +728,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
             ) for img in item.images
         ]
 
-    primary_image = next((img for img in images if img.is_primary), None)
-    if not primary_image and images:
-        primary_image = images[0]
-
-    display_image_path = primary_image.image_path if primary_image else item.image_path
-    display_cloudinary_id = primary_image.cloudinary_public_id if primary_image else item.cloudinary_public_id
-    if primary_image:
-        display_fallback_url = primary_image.fallback_url
-    elif storage.is_r2_url(item.image_path):
-        display_fallback_url = cloudinary_fallback_url(item.cloudinary_public_id)
-    else:
-        display_fallback_url = None
+    display_image_path, display_cloudinary_id, display_fallback_url = _display_image(item)
 
     return schemas.Item(
         id=item.id,
@@ -729,7 +747,8 @@ def serialize_item(item: models.Item) -> schemas.Item:
         vendor_whatsapp=vendor_whatsapp,
         whatsapp=vendor_whatsapp or None,
         status=item.status or "available",
-        quantity=item.quantity if item.quantity is not None else 1
+        quantity=item.quantity if item.quantity is not None else 1,
+        is_hidden=bool(item.is_hidden)
     )
 
 def _personalised_feed(
@@ -877,14 +896,21 @@ def read_items(
                 models.Vendor.name.ilike(f"%{vendor}%")
             ).first()
         )
+        # Lazy premium/limit resync — only done for vendor-scoped requests, not
+        # the general feed, since resyncing every vendor on every feed page
+        # would be prohibitively expensive.
+        vendor_row = db.query(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%")).first()
+        if vendor_row:
+            vendor_premium.sync_vendor_item_visibility(db, vendor_row)
         query = query.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
         if not is_own_vendor:
-            query = query.filter(models.Vendor.is_active == True)
+            query = query.filter(models.Vendor.is_active == True, models.Item.is_hidden == False)
     else:
         # General feed — hide items from inactive vendors
         query = (query
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+            .filter(models.Item.is_hidden == False)
         )
 
     # Price range filter (also caps promo tab to ≤ 10 000 UGX)
@@ -940,8 +966,11 @@ def read_items(
     cache.feed_set(feed_key, response)
     return response
 
+def _can_view_hidden_item(current_user: Optional[models.User], item: models.Item) -> bool:
+    return bool(current_user and (current_user.is_admin or current_user.vendor_id == item.vendor_id))
+
 @app.get("/items/{item_id}", response_model=schemas.Item)
-def read_item(item_id: int, db: Session = Depends(get_db)):
+def read_item(item_id: int, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(get_optional_user)):
     cached = cache.item_get(item_id)
     if cached is not None:
         return cached
@@ -953,16 +982,23 @@ def read_item(item_id: int, db: Session = Depends(get_db)):
     )
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.is_hidden:
+        # 404, not 403 — don't leak that a hidden item exists to non-owners
+        if not _can_view_hidden_item(current_user, item):
+            raise HTTPException(status_code=404, detail="Item not found")
+        return serialize_item(item)  # viewer-dependent — never cached
     result = serialize_item(item)
     cache.item_set(item_id, result)
     return result
 
 @app.get("/api/items/{item_id}/image")
 @app.get("/items/{item_id}/image")
-def get_item_image_redirect(item_id: int, w: Optional[int] = None, db: Session = Depends(get_db)):
+def get_item_image_redirect(item_id: int, w: Optional[int] = None, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(get_optional_user)):
     """Redirects to the actual image URL for an item ID. Pass ?w=N to get a Cloudinary thumbnail."""
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item or not item.image_path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    if item.is_hidden and not _can_view_hidden_item(current_user, item):
         raise HTTPException(status_code=404, detail="Image not found")
 
     from fastapi.responses import RedirectResponse
@@ -1071,6 +1107,23 @@ async def upload_item(
                 db.add(vendor)
                 db.commit()
                 db.refresh(vendor)
+
+        # 1.5. Lazy premium-expiry resync, then enforce the free-tier slot limit.
+        # Rejecting here — before any R2/Cloudinary upload call — means a
+        # blocked vendor never wastes an upload round trip.
+        vendor_premium.sync_vendor_item_visibility(db, vendor)
+        if not vendor_premium.is_vendor_premium(db, vendor.id):
+            active_count = db.query(func.count(models.Item.id)).filter(
+                models.Item.vendor_id == vendor.id,
+                models.Item.is_hidden == False,
+                models.Item.status != "sold",
+            ).scalar()
+            if active_count >= settings.VENDOR_FREE_ITEM_LIMIT:
+                raise HTTPException(status_code=403, detail={
+                    "message": f"Free accounts can list up to {settings.VENDOR_FREE_ITEM_LIMIT} active items. Upgrade to Premium for unlimited listings.",
+                    "code": "slot_limit_reached",
+                    "limit": settings.VENDOR_FREE_ITEM_LIMIT,
+                })
 
         # 2. Guard against accidental double-upload (same name + price + size from same vendor)
         existing = db.query(models.Item).filter(
@@ -1196,6 +1249,7 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
                 item_id=oi.item_id,
                 item_name_snapshot=oi.item_name_snapshot,
                 price_at_purchase=oi.price_at_purchase,
+                quantity=oi.quantity,
             )
             for oi in order.items
         ],
@@ -1216,6 +1270,43 @@ def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
         orders=[serialize_order(o) for o in checkout.orders],
     )
 
+def _reclaim_expired_checkout(db: Session, checkout: models.Checkout, now: datetime) -> None:
+    """Expire a stale pending checkout and restore all its items' stock.
+    Caller must hold a lock on `checkout` and confirm it's still 'pending'."""
+    checkout.status = "expired"
+    for order in checkout.orders:
+        order.status = "cancelled"
+    order_items = [oi for order in checkout.orders for oi in order.items]
+    # Sort by item id — same deadlock-avoidance convention as create_checkout's lock ordering.
+    for oi in sorted(order_items, key=lambda oi: oi.item_id):
+        item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+        if item:
+            _adjust_item_stock(db, item, +oi.quantity, now)
+
+def _sweep_expired_checkouts_for_items(db: Session, item_ids: list, now: datetime) -> None:
+    """Reclaim stock from any pending-but-expired checkout touching these items,
+    so a fresh checkout attempt sees accurate availability instead of stock
+    being locked forever by a checkout nobody ever paid for or retried."""
+    cutoff = now - timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES)
+    stale_ids = (
+        db.query(models.Checkout.id)
+        .join(models.Order, models.Order.checkout_id == models.Checkout.id)
+        .join(models.OrderItem, models.OrderItem.order_id == models.Order.id)
+        .filter(
+            models.OrderItem.item_id.in_(item_ids),
+            models.Checkout.status == "pending",
+            models.Checkout.created_at < cutoff,
+        )
+        .distinct()
+        .all()
+    )
+    for (checkout_id,) in stale_ids:
+        # Lock the Checkout row itself so two concurrent buyers sweeping the
+        # same stale checkout can't both reclaim it (double-restoring stock).
+        checkout = db.query(models.Checkout).filter(models.Checkout.id == checkout_id).with_for_update().first()
+        if checkout and checkout.status == "pending":
+            _reclaim_expired_checkout(db, checkout, now)
+
 @app.post("/checkout", response_model=schemas.CheckoutOut)
 @limiter.limit("10/minute")
 def create_checkout(
@@ -1231,51 +1322,53 @@ def create_checkout(
     if len(set(item_ids)) != len(item_ids):
         raise HTTPException(status_code=400, detail="Duplicate items in cart")
 
+    qty_by_item_id = {i.item_id: i.quantity for i in body.items}
+
     try:
         now = datetime.utcnow()
 
+        _sweep_expired_checkouts_for_items(db, item_ids, now)
+
         # Lock every requested item row for the life of this transaction so two
-        # concurrent checkouts can never both reserve the same one-of-a-kind item.
+        # concurrent checkouts can never together reserve more than its live stock.
+        # Order by id so overlapping carts always acquire locks in the same
+        # sequence, avoiding a Postgres deadlock under concurrent checkouts.
         items = (
             db.query(models.Item)
             .filter(models.Item.id.in_(item_ids))
+            .order_by(models.Item.id)
             .with_for_update()
             .all()
         )
         items_by_id = {i.id: i for i in items}
 
-        unavailable = []
+        shortfalls = []
         for item_id in item_ids:
             item = items_by_id.get(item_id)
-            if item is None:
-                unavailable.append(item_id)
-                continue
-            if item.status == "sold":
-                unavailable.append(item_id)
-                continue
-            if item.status == "reserved" and item.reserved_until and item.reserved_until > now:
-                unavailable.append(item_id)
-                continue
-            # else: "available", or a "reserved" row whose hold has expired — reclaimable
+            requested = qty_by_item_id[item_id]
+            available = item.quantity if item else 0
+            if available < requested:
+                shortfalls.append({"item_id": item_id, "requested": requested, "available": available})
 
-        if unavailable:
+        if shortfalls:
             raise HTTPException(
                 status_code=409,
-                detail={"message": "Some items are no longer available", "item_ids": unavailable},
+                detail={"message": "Some items don't have enough stock left", "items": shortfalls},
             )
 
-        reserved_until = now + timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES)
         for item_id in item_ids:
             item = items_by_id[item_id]
-            item.status = "reserved"
-            item.reserved_until = reserved_until
+            item.quantity -= qty_by_item_id[item_id]
+            if item.quantity == 0:
+                item.status = "reserved"
+            # else: still some stock left — stays "available" for other buyers
 
         by_vendor: dict = {}
         for item_id in item_ids:
             item = items_by_id[item_id]
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
-        subtotal = sum(item.price for item in items_by_id.values())
+        subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
         delivery_fee = settings.DELIVERY_FEE_UGX
         total_amount = subtotal + delivery_fee
 
@@ -1295,7 +1388,7 @@ def create_checkout(
         db.flush()
 
         for vendor_id, vendor_items in by_vendor.items():
-            vendor_subtotal = sum(i.price for i in vendor_items)
+            vendor_subtotal = sum(i.price * qty_by_item_id[i.id] for i in vendor_items)
             commission = round(vendor_subtotal * settings.VENDOR_COMMISSION_RATE, 2)
             order = models.Order(
                 checkout_id=checkout.id,
@@ -1311,6 +1404,7 @@ def create_checkout(
                 db.add(models.OrderItem(
                     order_id=order.id,
                     item_id=item.id,
+                    quantity=qty_by_item_id[item.id],
                     price_at_purchase=item.price,
                     item_name_snapshot=item.name,
                 ))
@@ -1350,6 +1444,15 @@ def get_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: 
         except Exception as e:
             logger.warning(f"Active re-verify failed for checkout {checkout.id}: {str(e)}")
 
+    # If a genuinely in-flight payment didn't resolve it above and the
+    # reservation window has since passed, reclaim it here too — otherwise a
+    # buyer polling their own abandoned checkout would see "pending" forever.
+    now = datetime.utcnow()
+    if checkout.status == "pending" and checkout.created_at + timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES) < now:
+        _reclaim_expired_checkout(db, checkout, now)
+        db.commit()
+        db.refresh(checkout)
+
     return serialize_checkout(checkout)
 
 @app.get("/orders", response_model=List[schemas.CheckoutOut])
@@ -1364,8 +1467,33 @@ def list_my_orders(db: Session = Depends(get_db), current_user: models.User = De
     )
     return [serialize_checkout(c) for c in checkouts]
 
-def _item_still_reserved(item: Optional[models.Item], now: datetime) -> bool:
-    return item is not None and item.status == "reserved" and (item.reserved_until is None or item.reserved_until >= now)
+def _recompute_item_status(db: Session, item: models.Item, now: datetime) -> None:
+    """Item.status is a derived display label, not independent state: available
+    whenever there's live stock; otherwise reserved iff some other still-live
+    pending checkout holds a claim on it, else sold."""
+    if item.quantity > 0:
+        item.status = "available"
+        return
+    still_pending = (
+        db.query(models.OrderItem)
+        .join(models.Order, models.OrderItem.order_id == models.Order.id)
+        .join(models.Checkout, models.Order.checkout_id == models.Checkout.id)
+        .filter(
+            models.OrderItem.item_id == item.id,
+            models.Checkout.status == "pending",
+            models.Checkout.created_at >= now - timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES),
+        )
+        .first()
+    )
+    item.status = "reserved" if still_pending else "sold"
+
+def _adjust_item_stock(db: Session, item: models.Item, delta: int, now: datetime) -> None:
+    """Restores (or, in principle, further reduces) live stock and keeps
+    `status` consistent. Callers must flip the owning checkout/order to their
+    terminal status BEFORE calling this, so _recompute_item_status's
+    still-pending check doesn't see the very checkout being resolved."""
+    item.quantity = max(item.quantity + delta, 0)
+    _recompute_item_status(db, item, now)
 
 @app.post("/checkout/{checkout_id}/pay", response_model=schemas.PaymentInitiateResponse)
 @limiter.limit("10/minute")
@@ -1388,21 +1516,22 @@ def initiate_payment(
         raise HTTPException(status_code=409, detail=f"Checkout is already {checkout.status}")
 
     now = datetime.utcnow()
-    expired_items = [
-        oi.item_name_snapshot
-        for order in checkout.orders
-        for oi in order.items
-        if not _item_still_reserved(oi.item, now)
-    ]
-    if expired_items:
-        checkout.status = "expired"
-        for order in checkout.orders:
-            order.status = "cancelled"
+    if checkout.created_at + timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES) < now:
+        _reclaim_expired_checkout(db, checkout, now)
         db.commit()
-        raise HTTPException(status_code=409, detail=f"Reservation expired for: {', '.join(expired_items)}")
+        raise HTTPException(status_code=409, detail="Your reservation window expired — please try again")
+
+    redirect_url = f"{settings.FRONTEND_BASE_URL}/checkout/complete?checkout_id={checkout.id}"
+
+    # Cooldown guard: don't fire a second real payment-provider transaction
+    # (e.g. a second mobile-money prompt) for a rapid double-click or
+    # browser-back-button retry — reuse the in-flight attempt instead. A
+    # genuine retry after the cooldown elapses still goes through below.
+    existing_payment = db.query(models.Payment).filter(models.Payment.checkout_id == checkout.id).first()
+    if existing_payment and existing_payment.status == "pending" and now - existing_payment.updated_at < timedelta(seconds=30):
+        return schemas.PaymentInitiateResponse(redirect_url=redirect_url, tx_ref=existing_payment.tx_ref)
 
     tx_ref = f"THR-{checkout.id}-{uuid.uuid4().hex[:10]}"
-    redirect_url = f"{settings.FRONTEND_BASE_URL}/checkout/complete?checkout_id={checkout.id}"
 
     try:
         provider = payments.get_provider(body.provider)
@@ -1421,7 +1550,6 @@ def initiate_payment(
 
     # One Payment row per checkout — replaces any stale prior attempt (e.g. buyer picked
     # one provider, backed out, retried with the other) instead of violating the unique constraint.
-    existing_payment = db.query(models.Payment).filter(models.Payment.checkout_id == checkout.id).first()
     if existing_payment:
         existing_payment.provider = body.provider
         existing_payment.tx_ref = tx_ref
@@ -1448,81 +1576,48 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
     replayed/duplicate webhook deliveries are safe no-ops."""
     if payment.status in ("successful", "failed"):
         return
+    now = datetime.utcnow()
     checkout = payment.checkout
+    if checkout.status != "pending":
+        # Checkout was already resolved via another path (most commonly:
+        # it expired and its stock was reclaimed/resold before this — possibly
+        # delayed — webhook arrived). Must not resurrect it into "paid": that
+        # would double-count stock already given to someone else and create a
+        # duplicate VendorPayout. The buyer's payment may have genuinely gone
+        # through on the provider's side in this case — that isn't recoverable
+        # here and needs manual reconciliation (refund or re-supply).
+        logger.warning(f"Ignoring '{status}' resolution for checkout {checkout.id}: already {checkout.status}")
+        return
     if status == "successful":
         payment.status = "successful"
         checkout.status = "paid"
         for order in checkout.orders:
             order.status = "paid"
-            for oi in order.items:
-                if oi.item:
-                    oi.item.status = "sold"
-                    oi.item.reserved_until = None
             db.add(models.VendorPayout(
                 vendor_id=order.vendor_id,
                 order_id=order.id,
                 amount=order.vendor_payout_amount,
                 status="pending",
             ))
+        # Stock was already decremented at checkout-creation; the sale is now
+        # final, so just recompute status (may still be "reserved" if another
+        # concurrent checkout holds the rest of this item's stock).
+        for order in checkout.orders:
+            for oi in order.items:
+                item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+                if item:
+                    _recompute_item_status(db, item, now)
     elif status == "failed":
         payment.status = "failed"
         checkout.status = "failed"
         for order in checkout.orders:
             order.status = "cancelled"
+        for order in checkout.orders:
             for oi in order.items:
-                if oi.item:
-                    oi.item.status = "available"
-                    oi.item.reserved_until = None
+                item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+                if item:
+                    _adjust_item_stock(db, item, +oi.quantity, now)
     # "pending" — leave everything as-is; a later webhook delivery will resolve it.
-
-@app.api_route("/webhooks/pesapal", methods=["GET", "POST"])
-async def pesapal_webhook(request: Request, db: Session = Depends(get_db)):
-    params = dict(request.query_params)
-    if request.method == "POST":
-        try:
-            body = await request.json()
-            if isinstance(body, dict):
-                params = {**body, **params}
-        except Exception:
-            pass
-    headers = dict(request.headers)
-
-    provider = payments.get_provider("pesapal")
-    # parse_webhook re-verifies via GetTransactionStatus internally — Pesapal's
-    # callback payload itself carries no trustworthy status or signature.
-    result = provider.parse_webhook(headers, params)
-
-    event = models.WebhookEvent(
-        provider="pesapal",
-        tx_ref=result.tx_ref,
-        provider_event_id=result.provider_tx_id,
-        payload=json.dumps(params, default=str),
-        signature_valid=result.valid,
-        processed=False,
-    )
-    db.add(event)
-    db.commit()
-
-    if not result.tx_ref:
-        return {"status": "ignored"}
-
-    payment = db.query(models.Payment).filter(models.Payment.tx_ref == result.tx_ref).first()
-    if not payment:
-        logger.warning(f"Pesapal webhook for unknown tx_ref={result.tx_ref}")
-        return {"status": "ignored"}
-
-    try:
-        if not payment.provider_tx_id and result.provider_tx_id:
-            payment.provider_tx_id = result.provider_tx_id
-        _finalize_payment(db, payment, result.status)
-        event.processed = True
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Failed processing Pesapal webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Webhook processing failed")
-
-    return {"status": "ok"}
 
 @app.post("/webhooks/nylonpay")
 async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
@@ -1560,27 +1655,171 @@ async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
     # initiate() (parsed into result.tx_ref by parse_webhook), which we stored as
     # provider_tx_id — not our internal tx_ref — so look it up by that field.
     payment = db.query(models.Payment).filter(models.Payment.provider_tx_id == result.tx_ref).first()
-    if not payment:
-        logger.warning(f"Nylon Pay webhook for unknown reference={result.tx_ref}")
-        return {"status": "ignored"}
+    if payment:
+        try:
+            if not payment.provider_tx_id and result.provider_tx_id:
+                payment.provider_tx_id = result.provider_tx_id
+            _finalize_payment(db, payment, result.status)
+            event.processed = True
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed processing Nylon Pay webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Webhook processing failed")
+        return {"status": "ok"}
+
+    subscription = db.query(models.VendorSubscription).filter(models.VendorSubscription.provider_tx_id == result.tx_ref).first()
+    if subscription:
+        try:
+            if not subscription.provider_tx_id and result.provider_tx_id:
+                subscription.provider_tx_id = result.provider_tx_id
+            changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, result.status)
+            for item_id in changed_ids:
+                cache.item_invalidate(item_id)
+            if changed_ids:
+                cache.feed_invalidate_all()
+                cache.search_invalidate_all()
+            if subscription.status == "successful":
+                for u in db.query(models.User).filter(models.User.vendor_id == subscription.vendor_id).all():
+                    cache.user_invalidate(u.id)
+            event.processed = True
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed processing Nylon Pay subscription webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Webhook processing failed")
+        return {"status": "ok"}
+
+    logger.warning(f"Nylon Pay webhook for unknown reference={result.tx_ref}")
+    return {"status": "ignored"}
+
+# ---------------------------------------------------------------------------
+# Vendor premium tier
+# ---------------------------------------------------------------------------
+
+@app.get("/vendor/me/subscription", response_model=schemas.VendorSubscriptionStatus)
+def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    latest = (
+        db.query(models.VendorSubscription)
+        .filter(models.VendorSubscription.vendor_id == vendor.id)
+        .order_by(models.VendorSubscription.id.desc())
+        .first()
+    )
+    # Active re-verify if the latest attempt is still pending — mirrors GET
+    # /checkout/{id}'s fallback for environments where the webhook hasn't
+    # arrived yet (e.g. no public URL registered locally).
+    if latest and latest.status == "pending" and latest.provider_tx_id:
+        try:
+            provider = payments.get_provider(latest.provider)
+            status = provider.verify(latest.tx_ref, latest.provider_tx_id)
+            changed_ids = vendor_premium.finalize_subscription_payment(db, latest, status)
+            for item_id in changed_ids:
+                cache.item_invalidate(item_id)
+            if changed_ids:
+                cache.feed_invalidate_all()
+                cache.search_invalidate_all()
+        except Exception as e:
+            logger.warning(f"Active re-verify failed for vendor subscription {latest.id}: {str(e)}")
+
+    vendor_premium.sync_vendor_item_visibility(db, vendor)
+
+    active_count = db.query(func.count(models.Item.id)).filter(
+        models.Item.vendor_id == vendor.id,
+        models.Item.is_hidden == False,
+        models.Item.status != "sold",
+    ).scalar()
+    hidden_count = db.query(func.count(models.Item.id)).filter(
+        models.Item.vendor_id == vendor.id,
+        models.Item.is_hidden == True,
+    ).scalar()
+
+    return schemas.VendorSubscriptionStatus(
+        is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
+        expires_at=latest.expires_at if (latest and latest.status == "successful") else None,
+        active_item_count=active_count,
+        hidden_item_count=hidden_count,
+        free_item_limit=settings.VENDOR_FREE_ITEM_LIMIT,
+        price_ugx=settings.VENDOR_PREMIUM_PRICE_UGX,
+        currency="UGX",
+        pending_payment=bool(latest and latest.status == "pending"),
+    )
+
+@app.post("/vendor/subscription/checkout", response_model=schemas.PaymentInitiateResponse)
+@limiter.limit("10/minute")
+def initiate_vendor_subscription(
+    request: Request,
+    body: schemas.PaymentInitiateRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_vendor),
+):
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    tx_ref = f"PREM-{vendor.id}-{uuid.uuid4().hex[:10]}"
+    redirect_url = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(vendor.name)}?subscription=complete"
 
     try:
-        if not payment.provider_tx_id and result.provider_tx_id:
-            payment.provider_tx_id = result.provider_tx_id
-        _finalize_payment(db, payment, result.status)
-        event.processed = True
-        db.commit()
+        provider = payments.get_provider(body.provider)
+        result = provider.initiate(
+            tx_ref=tx_ref,
+            amount=settings.VENDOR_PREMIUM_PRICE_UGX,
+            currency="UGX",
+            customer_email=current_user.email,
+            customer_name=vendor.name,
+            customer_phone=vendor.whatsapp or "",
+            redirect_url=redirect_url,
+        )
     except Exception as e:
-        db.rollback()
-        logger.error(f"Failed processing Nylon Pay webhook for tx_ref={result.tx_ref}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Webhook processing failed")
+        logger.error(f"Vendor subscription payment initiation failed for vendor {vendor.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
 
-    return {"status": "ok"}
+    db.add(models.VendorSubscription(
+        vendor_id=vendor.id,
+        provider=body.provider,
+        tx_ref=tx_ref,
+        provider_tx_id=result.provider_ref,
+        status="pending",
+        amount=settings.VENDOR_PREMIUM_PRICE_UGX,
+        currency="UGX",
+        period_days=settings.VENDOR_PREMIUM_PERIOD_DAYS,
+    ))
+    db.commit()
+
+    return schemas.PaymentInitiateResponse(redirect_url=result.redirect_url, tx_ref=tx_ref)
 
 _ORDER_STATUS_TRANSITIONS = {
     "paid": {"picked_up"},
     "picked_up": {"delivered"},
 }
+
+def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
+    items = []
+    for oi in order.items:
+        image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        items.append(schemas.OrderItemOut(
+            id=oi.id, item_id=oi.item_id,
+            item_name_snapshot=oi.item_name_snapshot,
+            price_at_purchase=oi.price_at_purchase,
+            quantity=oi.quantity,
+            image_path=image_path,
+            fallback_url=fallback_url,
+        ))
+    return schemas.VendorOrderOut(
+        id=order.id,
+        checkout_id=order.checkout_id,
+        subtotal=order.subtotal,
+        commission_amount=order.commission_amount,
+        vendor_payout_amount=order.vendor_payout_amount,
+        status=order.status,
+        created_at=order.created_at,
+        delivery_day=order.checkout.delivery_day,
+        items=items,
+    )
 
 @app.get("/vendor/orders", response_model=List[schemas.VendorOrderOut])
 def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
@@ -1590,26 +1829,7 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
         .order_by(models.Order.created_at.desc())
         .all()
     )
-    return [
-        schemas.VendorOrderOut(
-            id=order.id,
-            checkout_id=order.checkout_id,
-            subtotal=order.subtotal,
-            commission_amount=order.commission_amount,
-            vendor_payout_amount=order.vendor_payout_amount,
-            status=order.status,
-            delivery_day=order.checkout.delivery_day,
-            items=[
-                schemas.OrderItemOut(
-                    id=oi.id, item_id=oi.item_id,
-                    item_name_snapshot=oi.item_name_snapshot,
-                    price_at_purchase=oi.price_at_purchase,
-                )
-                for oi in order.items
-            ],
-        )
-        for order in orders
-    ]
+    return [_serialize_vendor_order(order) for order in orders]
 
 @app.patch("/vendor/orders/{order_id}/status", response_model=schemas.VendorOrderOut)
 def update_vendor_order_status(
@@ -1631,23 +1851,7 @@ def update_vendor_order_status(
     order.status = body.status
     db.commit()
     db.refresh(order)
-    return schemas.VendorOrderOut(
-        id=order.id,
-        checkout_id=order.checkout_id,
-        subtotal=order.subtotal,
-        commission_amount=order.commission_amount,
-        vendor_payout_amount=order.vendor_payout_amount,
-        status=order.status,
-        delivery_day=order.checkout.delivery_day,
-        items=[
-            schemas.OrderItemOut(
-                id=oi.id, item_id=oi.item_id,
-                item_name_snapshot=oi.item_name_snapshot,
-                price_at_purchase=oi.price_at_purchase,
-            )
-            for oi in order.items
-        ],
-    )
+    return _serialize_vendor_order(order)
 
 @app.get("/admin/payouts", response_model=List[schemas.VendorPayoutOut])
 def list_payouts(status: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -1705,10 +1909,17 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
     vendor = db.query(models.Vendor).filter(models.Vendor.name.ilike(name)).first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
-    item_count = db.query(func.count(models.Item.id)).filter(
-        models.Item.vendor_id == vendor.id
-    ).scalar()
+    vendor_premium.sync_vendor_item_visibility(db, vendor)
     is_owner = bool(current_user and current_user.vendor_id == vendor.id)
+    item_count_query = db.query(func.count(models.Item.id)).filter(models.Item.vendor_id == vendor.id)
+    if not is_owner:
+        item_count_query = item_count_query.filter(models.Item.is_hidden == False)
+    item_count = item_count_query.scalar()
+    hidden_item_count = None
+    if is_owner:
+        hidden_item_count = db.query(func.count(models.Item.id)).filter(
+            models.Item.vendor_id == vendor.id, models.Item.is_hidden == True
+        ).scalar()
     return schemas.VendorProfile(
         id=vendor.id,
         name=vendor.name,
@@ -1721,6 +1932,8 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
         # themselves sees it (used to pre-fill their own settings form),
         # never shown on the public store page.
         location=vendor.location if is_owner else None,
+        is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
+        hidden_item_count=hidden_item_count,
     )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
@@ -1762,7 +1975,8 @@ def update_vendor_profile(
     return schemas.UserInfo(
         id=current.id, email=current.email,
         is_vendor=current.is_vendor, is_admin=current.is_admin,
-        vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp
+        vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
+        is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
 @app.post("/vendor/me/banner")
@@ -1827,7 +2041,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         )
         vector_results = [
             it for it in raw_vector
-            if it.vendor_id is None or (it.vendor and it.vendor.is_active)
+            if (it.vendor_id is None or (it.vendor and it.vendor.is_active)) and not it.is_hidden
         ][:40]
 
         # 3. Keyword search (exact matches)
@@ -1837,6 +2051,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(
                 or_(models.Item.vendor_id == None, models.Vendor.is_active == True),
+                models.Item.is_hidden == False,
                 or_(
                     models.Item.name.ilike(f"%{query}%"),
                     models.Item.description.ilike(f"%{query}%")
@@ -1886,6 +2101,12 @@ async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_
             .limit(50)
             .all()
         )
+        # Filtered in Python (not a JOIN) for the same reason as search_items'
+        # vector branch: preserves the HNSW index query plan.
+        items = [
+            it for it in items
+            if not it.is_hidden and (it.vendor_id is None or (it.vendor and it.vendor.is_active))
+        ]
 
         if not items:
             return []
@@ -1909,9 +2130,15 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
         raise HTTPException(status_code=500, detail=f"Image processing failed: {e}")
     
     # Use pgvector to get top 50 candidates
-    items = db.query(models.Item).order_by(
-        models.Item.embedding.l2_distance(input_emb.tolist())
-    ).limit(50).all()
+    items = (
+        db.query(models.Item)
+        .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
+        .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+        .filter(models.Item.is_hidden == False)
+        .order_by(models.Item.embedding.l2_distance(input_emb.tolist()))
+        .limit(50)
+        .all()
+    )
     
     if not items:
         return {"outfits": []}
@@ -2030,13 +2257,16 @@ def update_item(
     price: float = Form(...),
     size: str = Form(...),
     description: Optional[str] = Form(None),
-    quantity: int = Form(1),
+    quantity_delta: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user)
 ):
     if not current or not current.is_vendor:
         raise HTTPException(status_code=403, detail="Vendor account required")
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    # Lock the row before touching quantity: a vendor's edit form is diffed
+    # against a possibly-stale snapshot (see quantity_delta below), so the
+    # actual mutation must happen against the live, locked value.
+    item = db.query(models.Item).filter(models.Item.id == item_id).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
@@ -2044,14 +2274,22 @@ def update_item(
 
     name = validate_item_fields(name, description)
 
-    if quantity < 0:
-        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
-
     item.name = name
     item.price = price
     item.size = size
     item.description = description
-    item.quantity = quantity
+    # A delta, not an absolute value: the vendor's edit form was opened against
+    # a snapshot of quantity that a concurrent sale may have since changed.
+    # Applying "how much the vendor changed it by" to the current live value
+    # (instead of overwriting with their stale absolute number) can't silently
+    # resurrect stock a paying buyer already has a hold on.
+    if quantity_delta is not None:
+        if item.quantity + quantity_delta < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reduce quantity by {abs(quantity_delta)}: only {item.quantity} currently in stock",
+            )
+        _adjust_item_stock(db, item, quantity_delta, datetime.utcnow())
 
     db.commit()
     db.refresh(item)

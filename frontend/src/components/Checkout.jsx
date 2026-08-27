@@ -6,18 +6,19 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-// Add 'nylon' here once its adapter is wired into the backend factory.
-const PAYMENT_PROVIDERS = ['pesapal'];
-
-const Checkout = ({ cartItems, onOrderPlaced }) => {
+const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes }) => {
+  const [step, setStep] = useState('form'); // 'form' | 'confirm'
+  const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
-  const [provider, setProvider] = useState('pesapal');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
+  const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
+  const hasDeliveryFee = deliveryFee != null;
+  const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
+  const total = subtotal + (deliveryFee || 0) + tax;
 
-  if (cartItems.length === 0) {
+  if (cartItems.length === 0 && step === 'form') {
     return (
       <main className="max-w-2xl mx-auto px-4 md:px-6 py-12 text-center text-gray-500">
         <p>Your cart is empty.</p>
@@ -25,7 +26,7 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
     );
   }
 
-  const handleSubmit = async (e) => {
+  const handleCreateCheckout = async (e) => {
     e.preventDefault();
     setError(null);
     if (!form.delivery_name.trim() || !form.delivery_phone.trim() || !form.delivery_address.trim()) {
@@ -34,22 +35,100 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
     }
     setSubmitting(true);
     try {
-      const checkout = await createCheckout({
-        items: cartItems.map((i) => ({ item_id: i.id })),
+      const created = await createCheckout({
+        items: cartItems.map((i) => ({ item_id: i.id, quantity: i.cartQuantity || 1 })),
         delivery_name: form.delivery_name.trim(),
         delivery_phone: form.delivery_phone.trim(),
         delivery_address: form.delivery_address.trim(),
       });
-      const payment = await payCheckout(checkout.id, provider);
+      setCheckout(created);
+      setStep('confirm');
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      if (detail && typeof detail === 'object' && Array.isArray(detail.items)) {
+        const lines = detail.items.map((s) => {
+          const item = cartItems.find((i) => i.id === s.item_id);
+          const name = item?.name || `Item #${s.item_id}`;
+          return s.available > 0
+            ? `${name}: only ${s.available} left (you requested ${s.requested})`
+            : `${name} is no longer available`;
+        });
+        setError(lines.join('; '));
+      } else {
+        const msg = typeof detail === 'object' ? detail.message : detail;
+        setError(msg || err?.message || 'Checkout failed, please try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmPay = async () => {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const payment = await payCheckout(checkout.id, 'nylon');
       onOrderPlaced?.();
       window.location.href = payment.redirect_url;
     } catch (err) {
       const detail = err?.response?.data?.detail;
       const msg = typeof detail === 'object' ? detail.message : detail;
-      setError(msg || err?.message || 'Checkout failed, please try again.');
+      setError(msg || err?.message || 'Could not start payment, please try again.');
       setSubmitting(false);
     }
   };
+
+  if (step === 'confirm' && checkout) {
+    return (
+      <main className="max-w-2xl mx-auto px-4 md:px-6 py-8">
+        <h2 className="text-xl font-serif font-bold mb-6">Confirm your order</h2>
+
+        <div className="mb-6 space-y-2">
+          {checkout.orders.flatMap((order) => order.items).map((oi) => (
+            <div key={oi.id} className="flex items-center gap-3 text-sm">
+              <span className="flex-1 truncate">
+                {oi.item_name_snapshot}{oi.quantity > 1 ? ` × ${oi.quantity}` : ''}
+              </span>
+              <span className="font-semibold">{formatUGX(oi.price_at_purchase * oi.quantity)}</span>
+            </div>
+          ))}
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-800 space-y-1.5">
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Subtotal</span>
+              <span>{formatUGX(checkout.subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Shipping Cost</span>
+              <span>{formatUGX(checkout.delivery_fee)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <span>Tax</span>
+              <span>{formatUGX(tax)}</span>
+            </div>
+            <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 dark:border-gray-800">
+              <span className="font-semibold">Total</span>
+              <span className="text-lg font-bold">{formatUGX(checkout.total_amount)}</span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-400 mb-6">
+          {reservationMinutes != null && `Complete payment within ${reservationMinutes} minutes — after that these items go back into stock. `}
+          Delivery happens on the next Monday or Thursday pickup day.
+        </p>
+
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
+        <button
+          onClick={handleConfirmPay}
+          disabled={submitting}
+          className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors disabled:opacity-50"
+        >
+          {submitting ? 'Redirecting to payment...' : 'Confirm & Pay'}
+        </button>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-2xl mx-auto px-4 md:px-6 py-8">
@@ -59,18 +138,34 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
         {cartItems.map((item) => (
           <div key={item.id} className="flex items-center gap-3 text-sm">
             <img src={getImageSrc(item, 100)} alt={item.name} className="w-10 h-12 object-cover rounded-md flex-shrink-0" />
-            <span className="flex-1 truncate">{item.name}</span>
-            <span className="font-semibold">{formatUGX(item.price)}</span>
+            <span className="flex-1 truncate">
+              {item.name}{item.cartQuantity > 1 ? ` × ${item.cartQuantity}` : ''}
+            </span>
+            <span className="font-semibold">{formatUGX(item.price * (item.cartQuantity || 1))}</span>
           </div>
         ))}
-        <div className="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-gray-800 text-sm text-gray-500 dark:text-gray-400">
-          <span>Subtotal</span>
-          <span>{formatUGX(subtotal)}</span>
+        <div className="pt-3 border-t border-gray-200 dark:border-gray-800 space-y-1.5">
+          <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+            <span>Subtotal</span>
+            <span>{formatUGX(subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+            <span>Shipping Cost</span>
+            <span>{hasDeliveryFee ? formatUGX(deliveryFee) : '—'}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+            <span>Tax</span>
+            <span>{formatUGX(tax)}</span>
+          </div>
+          <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 dark:border-gray-800">
+            <span className="font-semibold">Total</span>
+            <span className="text-lg font-bold">{formatUGX(total)}</span>
+          </div>
         </div>
-        <p className="text-xs text-gray-400">Delivery fee is added at checkout. Delivery happens on the next Monday or Thursday pickup day.</p>
+        <p className="text-xs text-gray-400">Delivery happens on the next Monday or Thursday pickup day.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleCreateCheckout} className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-1">Full name</label>
           <input
@@ -102,21 +197,8 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
 
         <div>
           <label className="block text-sm font-medium mb-2">Pay with</label>
-          <div className={`grid gap-3 ${PAYMENT_PROVIDERS.length > 1 ? 'grid-cols-3' : 'grid-cols-1'}`}>
-            {PAYMENT_PROVIDERS.map((p) => (
-              <button
-                type="button"
-                key={p}
-                onClick={() => setProvider(p)}
-                className={`py-3 rounded-xl border font-semibold uppercase text-sm transition-colors ${
-                  provider === p
-                    ? 'border-[#EAAD11] bg-[#EAAD11]/10 text-[#EAAD11]'
-                    : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="py-3 px-4 rounded-xl border border-[#EAAD11] bg-[#EAAD11]/10 text-[#EAAD11] font-semibold text-sm text-center">
+            Nylon Pay (Mobile Money)
           </div>
         </div>
 
@@ -127,7 +209,7 @@ const Checkout = ({ cartItems, onOrderPlaced }) => {
           disabled={submitting}
           className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors disabled:opacity-50"
         >
-          {submitting ? 'Redirecting to payment...' : 'Pay Now'}
+          {submitting ? 'Please wait...' : 'Continue'}
         </button>
       </form>
     </main>

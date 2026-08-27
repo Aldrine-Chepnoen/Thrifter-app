@@ -37,4 +37,7 @@ export const fetchMyOrders = () => api.get('/orders').then(r => r.data);
 export const fetchVendorOrders = () => api.get('/vendor/orders').then(r => r.data);
 export const updateVendorOrderStatus = (id, status) => api.patch(`/vendor/orders/${id}/status`, { status }).then(r => r.data);
 
+export const fetchVendorSlotStatus = () => api.get('/vendor/me/subscription').then(r => r.data);
+export const initiateVendorSubscriptionPayment = (provider) => api.post('/vendor/subscription/checkout', { provider }).then(r => r.data);
+
 export default api;

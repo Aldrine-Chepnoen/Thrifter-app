@@ -100,6 +100,7 @@ class UserInfo(BaseModel):
     is_admin: bool = False
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
+    is_premium: bool = False
 
     class Config:
         from_attributes = True
@@ -137,6 +138,7 @@ class Item(ItemBase):
     fallback_url: Optional[str] = None
     images: List[ItemImage] = []
     status: str = "available"
+    is_hidden: bool = False
 
     class Config:
         from_attributes = True
@@ -275,6 +277,8 @@ class VendorProfile(BaseModel):
     banner_fallback_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    is_premium: bool = False
+    hidden_item_count: Optional[int] = None  # owner-only; None for visitors
 
     class Config:
         from_attributes = True
@@ -317,6 +321,7 @@ class DemandEntryUpdate(BaseModel):
 
 class CheckoutItemRequest(BaseModel):
     item_id: int
+    quantity: int = Field(1, ge=1)
 
 class CheckoutCreate(BaseModel):
     items: List[CheckoutItemRequest] = Field(..., min_length=1, max_length=20)
@@ -329,6 +334,9 @@ class OrderItemOut(BaseModel):
     item_id: int
     item_name_snapshot: str
     price_at_purchase: float
+    quantity: int = 1
+    image_path: Optional[str] = None
+    fallback_url: Optional[str] = None
 
 class OrderOut(BaseModel):
     id: int
@@ -352,11 +360,21 @@ class CheckoutOut(BaseModel):
     orders: List[OrderOut] = []
 
 class PaymentInitiateRequest(BaseModel):
-    provider: str = Field(..., pattern="^(pesapal|nylon)$")
+    provider: str = Field(..., pattern="^nylon$")
 
 class PaymentInitiateResponse(BaseModel):
     redirect_url: str
     tx_ref: str
+
+class VendorSubscriptionStatus(BaseModel):
+    is_premium: bool
+    expires_at: Optional[datetime] = None
+    active_item_count: int
+    hidden_item_count: int
+    free_item_limit: int
+    price_ugx: float
+    currency: str = "UGX"
+    pending_payment: bool = False
 
 class VendorOrderStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(picked_up|delivered)$")
@@ -368,6 +386,7 @@ class VendorOrderOut(BaseModel):
     commission_amount: float
     vendor_payout_amount: float
     status: str
+    created_at: datetime
     delivery_day: datetime
     items: List[OrderItemOut] = []
 

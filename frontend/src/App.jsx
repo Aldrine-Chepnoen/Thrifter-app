@@ -25,7 +25,6 @@ import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
-import VendorOrders from './components/VendorOrders';
 
 function App() {
   const [items, setItems] = useState([]);
@@ -62,11 +61,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem('thrifter_cart', JSON.stringify(cartItems));
   }, [cartItems]);
-  const addToCart = (item) => {
-    setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, item]));
+  const addToCart = (item, qty = 1) => {
+    setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
   };
   const removeFromCart = (itemId) => {
     setCartItems((prev) => prev.filter((i) => i.id !== itemId));
+  };
+  const updateCartQuantity = (itemId, qty) => {
+    setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartQuantity: qty } : i)));
   };
   const clearCart = () => setCartItems([]);
   const [darkMode, setDarkMode] = useState(() => {
@@ -527,18 +529,25 @@ function App() {
           <Cart
             cartItems={cartItems}
             onRemove={removeFromCart}
+            onUpdateQuantity={updateCartQuantity}
+            onClearCart={clearCart}
+            deliveryFee={features?.delivery_fee_ugx}
             user={user}
             openAuthModal={openAuthModal}
           />
         } />
         <Route path="/checkout" element={user ? (
-          <Checkout cartItems={cartItems} onOrderPlaced={clearCart} />
+          <Checkout cartItems={cartItems} onOrderPlaced={clearCart} deliveryFee={features?.delivery_fee_ugx} reservationMinutes={features?.reservation_minutes} />
         ) : <Navigate to="/cart" replace />} />
         <Route path="/checkout/complete" element={user ? (
           <OrderConfirmation />
         ) : <Navigate to="/" replace />} />
         <Route path="/orders" element={user ? <Orders /> : <Navigate to="/" replace />} />
-        <Route path="/vendor/orders" element={user?.is_vendor ? <VendorOrders /> : <Navigate to="/" replace />} />
+        <Route path="/vendor/orders" element={
+          user?.is_vendor
+            ? <Navigate to={`/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders`} replace />
+            : <Navigate to="/" replace />
+        } />
         <Route path="/demand-board" element={
           <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
         } />
@@ -676,7 +685,7 @@ function App() {
         }}
         isWardrobe={location.pathname === '/wardrobe'}
         openAuthModal={openAuthModal}
-        onAddToCart={(item) => { addToCart(item); setSelectedItem(null); }}
+        onAddToCart={(item, qty) => { addToCart(item, qty); setSelectedItem(null); }}
         isInCart={selectedItem ? cartItems.some((i) => i.id === selectedItem.id) : false}
       />
     </div>
