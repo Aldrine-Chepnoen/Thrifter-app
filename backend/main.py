@@ -1275,10 +1275,11 @@ def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
         orders=[serialize_order(o) for o in checkout.orders],
     )
 
-def _reclaim_expired_checkout(db: Session, checkout: models.Checkout, now: datetime) -> None:
-    """Expire a stale pending checkout and restore all its items' stock.
-    Caller must hold a lock on `checkout` and confirm it's still 'pending'."""
-    checkout.status = "expired"
+def _release_checkout(db: Session, checkout: models.Checkout, now: datetime, status: str) -> None:
+    """End a pending checkout as `status` ('expired' or 'cancelled') and restore
+    all its items' stock. Caller must hold a lock on `checkout` and confirm
+    it's still 'pending'."""
+    checkout.status = status
     for order in checkout.orders:
         order.status = "cancelled"
     order_items = [oi for order in checkout.orders for oi in order.items]
@@ -1287,6 +1288,9 @@ def _reclaim_expired_checkout(db: Session, checkout: models.Checkout, now: datet
         item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
         if item:
             _adjust_item_stock(db, item, +oi.quantity, now)
+
+def _reclaim_expired_checkout(db: Session, checkout: models.Checkout, now: datetime) -> None:
+    _release_checkout(db, checkout, now, "expired")
 
 def _sweep_expired_checkouts_for_items(db: Session, item_ids: list, now: datetime) -> None:
     """Reclaim stock from any pending-but-expired checkout touching these items,
@@ -1367,6 +1371,7 @@ def create_checkout(
             if item.quantity == 0:
                 item.status = "reserved"
             # else: still some stock left — stays "available" for other buyers
+            cache.item_invalidate(item.id)
 
         by_vendor: dict = {}
         for item_id in item_ids:
@@ -1460,6 +1465,24 @@ def get_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: 
 
     return serialize_checkout(checkout)
 
+@app.post("/checkout/{checkout_id}/cancel")
+def cancel_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Best-effort release of a still-pending checkout's held stock, fired by
+    the frontend when a buyer leaves the confirm step without paying. Purely
+    an early-release optimization — idempotent, and safe to skip or double-fire
+    (the reservation-expiry sweep reclaims the same stock later regardless)."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == checkout_id).with_for_update().first()
+    if not checkout:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+    if checkout.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your checkout")
+    if checkout.status == "pending":
+        _release_checkout(db, checkout, datetime.utcnow(), "cancelled")
+        db.commit()
+    return {"status": "ok"}
+
 @app.get("/orders", response_model=List[schemas.CheckoutOut])
 def list_my_orders(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     if not current_user:
@@ -1478,19 +1501,23 @@ def _recompute_item_status(db: Session, item: models.Item, now: datetime) -> Non
     pending checkout holds a claim on it, else sold."""
     if item.quantity > 0:
         item.status = "available"
-        return
-    still_pending = (
-        db.query(models.OrderItem)
-        .join(models.Order, models.OrderItem.order_id == models.Order.id)
-        .join(models.Checkout, models.Order.checkout_id == models.Checkout.id)
-        .filter(
-            models.OrderItem.item_id == item.id,
-            models.Checkout.status == "pending",
-            models.Checkout.created_at >= now - timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES),
+    else:
+        still_pending = (
+            db.query(models.OrderItem)
+            .join(models.Order, models.OrderItem.order_id == models.Order.id)
+            .join(models.Checkout, models.Order.checkout_id == models.Checkout.id)
+            .filter(
+                models.OrderItem.item_id == item.id,
+                models.Checkout.status == "pending",
+                models.Checkout.created_at >= now - timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES),
+            )
+            .first()
         )
-        .first()
-    )
-    item.status = "reserved" if still_pending else "sold"
+        item.status = "reserved" if still_pending else "sold"
+    # GET /items/{id} caches quantity/status for up to an hour (cache.py's
+    # ITEM_TTL) — every quantity/status change must invalidate it, or buyers
+    # (and this cart's own re-validation pass) keep seeing stale availability.
+    cache.item_invalidate(item.id)
 
 def _adjust_item_stock(db: Session, item: models.Item, delta: int, now: datetime) -> None:
     """Restores (or, in principle, further reduces) live stock and keeps
@@ -1623,6 +1650,71 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
                 if item:
                     _adjust_item_stock(db, item, +oi.quantity, now)
     # "pending" — leave everything as-is; a later webhook delivery will resolve it.
+
+def _run_reconciliation_sweep() -> None:
+    """Two passes, run periodically so checkout resolution doesn't depend on
+    either the buyer's browser still being open or a webhook ever arriving:
+
+    1. Proactively expire any pending checkout past its reservation window,
+       regardless of whether any request has touched it since — the lazy
+       reclaim sweeps elsewhere only fire when someone happens to hit a
+       relevant endpoint, which nothing guarantees for a truly abandoned cart.
+    2. Reconcile still-live pending payments directly against the provider.
+       Nylon Pay's own docs: "treat webhooks as the fast path, not the only
+       path... reconcile anything you have not heard about with getStatus()."
+       The confirmation page only polls for ~60s; a real mobile-money prompt
+       can take much longer, so this is what catches it after the buyer's
+       browser has stopped watching.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES)
+
+        stale = (
+            db.query(models.Checkout)
+            .filter(models.Checkout.status == "pending", models.Checkout.created_at < cutoff)
+            .all()
+        )
+        for checkout in stale:
+            locked = db.query(models.Checkout).filter(models.Checkout.id == checkout.id).with_for_update().first()
+            if locked and locked.status == "pending":
+                _release_checkout(db, locked, now, "expired")
+                db.commit()
+
+        pending_payments = (
+            db.query(models.Payment)
+            .join(models.Checkout, models.Payment.checkout_id == models.Checkout.id)
+            .filter(
+                models.Payment.status == "pending",
+                models.Payment.provider_tx_id.isnot(None),
+                models.Checkout.status == "pending",
+                models.Checkout.created_at >= cutoff,
+            )
+            .all()
+        )
+        for payment in pending_payments:
+            try:
+                provider = payments.get_provider(payment.provider)
+                result_status = provider.verify(payment.tx_ref, payment.provider_tx_id)
+                _finalize_payment(db, payment, result_status)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Reconciliation verify failed for payment {payment.id}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Reconciliation sweep failed: {str(e)}", exc_info=True)
+    finally:
+        db.close()
+
+async def _reconciliation_loop():
+    while True:
+        await asyncio.to_thread(_run_reconciliation_sweep)
+        await asyncio.sleep(settings.RECONCILIATION_INTERVAL_SECONDS)
+
+@app.on_event("startup")
+async def start_reconciliation_loop():
+    asyncio.create_task(_reconciliation_loop())
 
 @app.post("/webhooks/nylonpay")
 async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):

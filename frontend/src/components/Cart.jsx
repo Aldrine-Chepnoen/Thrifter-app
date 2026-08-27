@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, ShoppingBag } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getImageSrc } from '../utils';
+import api from '../api';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -13,6 +14,35 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFee,
   const hasDeliveryFee = deliveryFee != null;
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
   const total = subtotal + (deliveryFee || 0) + tax;
+
+  // Silently correct the cart against live stock on every visit — no banner,
+  // no mention of "reservation": an item that sold out elsewhere just quietly
+  // disappears (or its quantity clamps down) instead of sitting there stale
+  // until checkout rejects it. Checkout's own server-side check remains the
+  // final authority regardless.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      cartItems.map((item) =>
+        api.get(`/items/${item.id}`)
+          .then((res) => ({ id: item.id, quantity: res.data.quantity }))
+          .catch(() => ({ id: item.id, quantity: 0 }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      for (const { id, quantity } of results) {
+        const cartItem = cartItems.find((i) => i.id === id);
+        if (!cartItem) continue;
+        if (quantity <= 0) {
+          onRemove(id);
+        } else if ((cartItem.cartQuantity || 1) > quantity) {
+          onUpdateQuantity(id, quantity);
+        }
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCheckout = () => {
     if (!user) {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { createCheckout, payCheckout } from '../api';
+import React, { useState, useEffect, useRef } from 'react';
+import { createCheckout, payCheckout, API_BASE_URL } from '../api';
 import { getImageSrc } from '../utils';
 
 const formatUGX = (n) => {
@@ -12,6 +12,29 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const didConfirmRef = useRef(false);
+
+  // Release held stock as soon as the buyer leaves the confirm step without
+  // paying, instead of making it wait out the full hold window — silent,
+  // best-effort, no UI ever mentions this. `beforeunload` covers a hard tab
+  // close/refresh; the cleanup function covers navigating elsewhere in the app.
+  useEffect(() => {
+    if (step !== 'confirm' || !checkout) return;
+    const releaseIfAbandoned = () => {
+      if (didConfirmRef.current) return;
+      fetch(`${API_BASE_URL}/checkout/${checkout.id}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('thrifter_token')}` },
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener('beforeunload', releaseIfAbandoned);
+    return () => {
+      window.removeEventListener('beforeunload', releaseIfAbandoned);
+      releaseIfAbandoned();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, checkout]);
 
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
   const hasDeliveryFee = deliveryFee != null;
@@ -64,6 +87,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
   };
 
   const handleConfirmPay = async () => {
+    didConfirmRef.current = true;
     setError(null);
     setSubmitting(true);
     try {
@@ -71,6 +95,9 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
       onOrderPlaced?.();
       window.location.href = payment.redirect_url;
     } catch (err) {
+      // Payment initiation itself failed — the checkout is still just sitting
+      // there pending, so leaving from here should still release it normally.
+      didConfirmRef.current = false;
       const detail = err?.response?.data?.detail;
       const msg = typeof detail === 'object' ? detail.message : detail;
       setError(msg || err?.message || 'Could not start payment, please try again.');

@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     DELIVERY_FEE_UGX: float = float(os.getenv("DELIVERY_FEE_UGX", "5000"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
+    # How often the background reconciliation loop sweeps for stale/pending checkouts.
+    RECONCILIATION_INTERVAL_SECONDS: int = int(os.getenv("RECONCILIATION_INTERVAL_SECONDS", "120"))
 
     # Vendor premium tier
     VENDOR_FREE_ITEM_LIMIT: int = int(os.getenv("VENDOR_FREE_ITEM_LIMIT", "10"))
