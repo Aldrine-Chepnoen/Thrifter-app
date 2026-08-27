@@ -19,9 +19,14 @@ from config import settings
 ACTIVE_STATUSES = ("available", "reserved")
 
 
-def is_vendor_premium(db: Session, vendor_id: Optional[int]) -> bool:
+def get_active_subscription(db: Session, vendor_id: Optional[int]) -> Optional[models.VendorSubscription]:
+    """The VendorSubscription row currently granting premium (successful,
+    not yet expired), or None. This is the single source of truth for both
+    is_vendor_premium() and any caller that needs the actual expiry date —
+    deliberately NOT "the most recently created row" (a newer pending/failed
+    attempt must not shadow an older still-active successful one)."""
     if not vendor_id:
-        return False
+        return None
     latest = (
         db.query(models.VendorSubscription)
         .filter(
@@ -31,7 +36,13 @@ def is_vendor_premium(db: Session, vendor_id: Optional[int]) -> bool:
         .order_by(models.VendorSubscription.expires_at.desc())
         .first()
     )
-    return bool(latest and latest.expires_at and latest.expires_at > datetime.utcnow())
+    if latest and latest.expires_at and latest.expires_at > datetime.utcnow():
+        return latest
+    return None
+
+
+def is_vendor_premium(db: Session, vendor_id: Optional[int]) -> bool:
+    return get_active_subscription(db, vendor_id) is not None
 
 
 def sync_vendor_item_visibility(db: Session, vendor: models.Vendor) -> List[int]:

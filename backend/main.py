@@ -1111,6 +1111,11 @@ async def upload_item(
         # 1.5. Lazy premium-expiry resync, then enforce the free-tier slot limit.
         # Rejecting here — before any R2/Cloudinary upload call — means a
         # blocked vendor never wastes an upload round trip.
+        # Lock the vendor row so two concurrent uploads for the same vendor
+        # can't both read the same active_count before either commits (a
+        # TOCTOU race that would let them jointly exceed the free limit) —
+        # the second request blocks here until the first's transaction ends.
+        vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor.id).with_for_update().first()
         vendor_premium.sync_vendor_item_visibility(db, vendor)
         if not vendor_premium.is_vendor_premium(db, vendor.id):
             active_count = db.query(func.count(models.Item.id)).filter(
@@ -1703,27 +1708,27 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    latest = (
+    latest_pending = (
         db.query(models.VendorSubscription)
-        .filter(models.VendorSubscription.vendor_id == vendor.id)
+        .filter(models.VendorSubscription.vendor_id == vendor.id, models.VendorSubscription.status == "pending")
         .order_by(models.VendorSubscription.id.desc())
         .first()
     )
     # Active re-verify if the latest attempt is still pending — mirrors GET
     # /checkout/{id}'s fallback for environments where the webhook hasn't
     # arrived yet (e.g. no public URL registered locally).
-    if latest and latest.status == "pending" and latest.provider_tx_id:
+    if latest_pending and latest_pending.provider_tx_id:
         try:
-            provider = payments.get_provider(latest.provider)
-            status = provider.verify(latest.tx_ref, latest.provider_tx_id)
-            changed_ids = vendor_premium.finalize_subscription_payment(db, latest, status)
+            provider = payments.get_provider(latest_pending.provider)
+            status = provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
+            changed_ids = vendor_premium.finalize_subscription_payment(db, latest_pending, status)
             for item_id in changed_ids:
                 cache.item_invalidate(item_id)
             if changed_ids:
                 cache.feed_invalidate_all()
                 cache.search_invalidate_all()
         except Exception as e:
-            logger.warning(f"Active re-verify failed for vendor subscription {latest.id}: {str(e)}")
+            logger.warning(f"Active re-verify failed for vendor subscription {latest_pending.id}: {str(e)}")
 
     vendor_premium.sync_vendor_item_visibility(db, vendor)
 
@@ -1737,15 +1742,21 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         models.Item.is_hidden == True,
     ).scalar()
 
+    # get_active_subscription (not latest_pending) is the source of truth for
+    # is_premium/expires_at — a newer pending/failed attempt must never shadow
+    # an older still-active successful subscription.
+    active_subscription = vendor_premium.get_active_subscription(db, vendor.id)
+
     return schemas.VendorSubscriptionStatus(
-        is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
-        expires_at=latest.expires_at if (latest and latest.status == "successful") else None,
+        is_premium=active_subscription is not None,
+        expires_at=active_subscription.expires_at if active_subscription else None,
         active_item_count=active_count,
         hidden_item_count=hidden_count,
         free_item_limit=settings.VENDOR_FREE_ITEM_LIMIT,
         price_ugx=settings.VENDOR_PREMIUM_PRICE_UGX,
         currency="UGX",
-        pending_payment=bool(latest and latest.status == "pending"),
+        # Re-read after the reverify above, which may have just resolved it.
+        pending_payment=(latest_pending.status == "pending") if latest_pending else False,
     )
 
 @app.post("/vendor/subscription/checkout", response_model=schemas.PaymentInitiateResponse)
@@ -1756,9 +1767,50 @@ def initiate_vendor_subscription(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_vendor),
 ):
-    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    # Locked for the same reason as POST /upload: without it, two
+    # near-simultaneous clicks (or a retried request) can each pass the
+    # "no pending/active subscription" checks below before either commits,
+    # minting two real payment-provider charges for the same upgrade.
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).with_for_update().first()
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
+
+    if vendor_premium.is_vendor_premium(db, vendor.id):
+        raise HTTPException(status_code=409, detail={
+            "message": "You already have an active Premium subscription.",
+            "code": "already_premium",
+        })
+
+    latest_pending = (
+        db.query(models.VendorSubscription)
+        .filter(models.VendorSubscription.vendor_id == vendor.id, models.VendorSubscription.status == "pending")
+        .order_by(models.VendorSubscription.id.desc())
+        .first()
+    )
+    if latest_pending:
+        # Re-verify first — it may have already resolved (webhook lag, or the
+        # vendor completed it and came straight back to try again) rather
+        # than actually still being in flight.
+        if latest_pending.provider_tx_id:
+            try:
+                verify_provider = payments.get_provider(latest_pending.provider)
+                verify_status = verify_provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
+                vendor_premium.finalize_subscription_payment(db, latest_pending, verify_status)
+            except Exception as e:
+                logger.warning(f"Active re-verify failed while re-initiating vendor subscription {latest_pending.id}: {str(e)}")
+        if latest_pending.status == "successful":
+            raise HTTPException(status_code=409, detail={
+                "message": "You already have an active Premium subscription.",
+                "code": "already_premium",
+            })
+        if latest_pending.status == "pending":
+            # Still genuinely unresolved — do NOT call the payment provider
+            # again here, that's exactly what would mint a second real charge.
+            raise HTTPException(status_code=409, detail={
+                "message": "You already have a Premium payment in progress. Please finish it, or wait a moment and try again.",
+                "code": "subscription_payment_pending",
+            })
+        # status == "failed" -> fall through, a fresh attempt is safe.
 
     tx_ref = f"PREM-{vendor.id}-{uuid.uuid4().hex[:10]}"
     redirect_url = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(vendor.name)}?subscription=complete"

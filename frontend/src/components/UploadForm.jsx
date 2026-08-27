@@ -50,7 +50,34 @@ const UploadForm = () => {
   const [userInfo, setUserInfo] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [slotBlocked, setSlotBlocked] = useState(false);
-  const formDisabled = !canUpload || slotBlocked;
+  const [slotCheckFailed, setSlotCheckFailed] = useState(false);
+  const [checkingSlot, setCheckingSlot] = useState(false);
+  // Fail closed: until we've positively confirmed the vendor has room, the
+  // form stays disabled — covers the initial load, a slow/failed slot check,
+  // and the confirmed-over-limit case with the same guard, so there's never
+  // a window where the form is fillable but we don't actually know yet.
+  const formDisabled = !authChecked || !canUpload || slotBlocked || slotCheckFailed;
+
+  const checkSlotStatus = async () => {
+    setCheckingSlot(true);
+    setSlotCheckFailed(false);
+    try {
+      const slotStatus = await fetchVendorSlotStatus();
+      if (!slotStatus.is_premium && slotStatus.active_item_count >= slotStatus.free_item_limit) {
+        setSlotBlocked(true);
+        setShowUpgradeModal(true);
+      } else {
+        setSlotBlocked(false);
+      }
+    } catch {
+      // Deliberately fails CLOSED (form stays disabled via slotCheckFailed)
+      // rather than silently letting the vendor fill in a form we can't
+      // confirm they're allowed to submit — surfaced with a retry below.
+      setSlotCheckFailed(true);
+    } finally {
+      setCheckingSlot(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -67,15 +94,7 @@ const UploadForm = () => {
           // Check slot status up front so a maxed-out vendor sees the upgrade
           // prompt immediately, before filling in the whole form only to hit
           // a rejection on submit.
-          try {
-            const slotStatus = await fetchVendorSlotStatus();
-            if (!slotStatus.is_premium && slotStatus.active_item_count >= slotStatus.free_item_limit) {
-              setSlotBlocked(true);
-              setShowUpgradeModal(true);
-            }
-          } catch {
-            // Non-fatal — fall through to the normal submit-time check.
-          }
+          await checkSlotStatus();
         }
       } catch {
         setCanUpload(false);
@@ -114,6 +133,10 @@ const UploadForm = () => {
       setShowUpgradeModal(true);
       return;
     }
+    if (slotCheckFailed) {
+      alert("We couldn't confirm your account status. Please retry the check above before listing an item.");
+      return;
+    }
     if (files.length === 0) {
       alert('Please upload at least one image');
       return;
@@ -150,6 +173,18 @@ const UploadForm = () => {
         <div className="mb-4 text-sm text-gray-600">Checking account...</div>
       ) : !canUpload ? (
         <div className="mb-4 text-sm text-red-600">You need a business account to list items.</div>
+      ) : slotCheckFailed ? (
+        <div className="mb-4 text-sm text-red-600 flex items-center gap-3">
+          <span>We couldn't confirm your account status, so listing is paused for now.</span>
+          <button
+            type="button"
+            onClick={checkSlotStatus}
+            disabled={checkingSlot}
+            className="text-[#EAAD11] font-semibold hover:underline disabled:opacity-50"
+          >
+            {checkingSlot ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
       ) : slotBlocked ? (
         <div className="mb-4 text-sm text-red-600 flex items-center gap-3">
           <span>You've reached your free plan's item limit.</span>
@@ -186,7 +221,7 @@ const UploadForm = () => {
               </div>
             ))}
             {files.length < 3 && (
-              <label className="relative aspect-[4/5] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <label className={`relative aspect-[4/5] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center transition-colors ${formDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                 <Upload className="w-8 h-8 text-gray-400 mb-1" />
                 <span className="text-[11px] text-gray-500 font-medium">Add Photo</span>
                 <input
@@ -194,7 +229,8 @@ const UploadForm = () => {
                   accept="image/*"
                   multiple
                   onChange={handleFileChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  disabled={formDisabled}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                 />
               </label>
             )}

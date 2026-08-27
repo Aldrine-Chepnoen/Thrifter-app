@@ -40,9 +40,25 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const bannerInputRef = useRef(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [refreshingSubscription, setRefreshingSubscription] = useState(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
+
+  // GET /vendor/me/subscription actively re-verifies a still-pending payment
+  // against the provider, so re-calling this is how "Check payment status"
+  // resolves a pending payment without waiting for the webhook.
+  const refreshSubscriptionStatus = async () => {
+    setRefreshingSubscription(true);
+    try {
+      const res = await fetchVendorSlotStatus();
+      setSubscriptionStatus(res);
+    } catch {
+      // Leave the last-known status displayed rather than clearing it.
+    } finally {
+      setRefreshingSubscription(false);
+    }
+  };
 
   const fetchVendorItems = async () => {
     setLoading(true);
@@ -525,10 +541,20 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                     <span className="font-bold text-gray-900 dark:text-white">
                       {subscriptionStatus.is_premium ? 'Premium plan' : 'Free plan'}
                     </span>
+                    {subscriptionStatus.pending_payment && (
+                      <span className="text-[11px] font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full">
+                        Payment pending
+                      </span>
+                    )}
                   </div>
                   {subscriptionStatus.is_premium && subscriptionStatus.expires_at && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                       Renews / expires {new Date(subscriptionStatus.expires_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  {subscriptionStatus.pending_payment && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      We're waiting on confirmation from your payment provider. This can take a minute — no need to pay again.
                     </p>
                   )}
                   <div className="flex justify-between text-sm mt-2">
@@ -544,7 +570,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                     </div>
                   )}
                 </div>
-                {!subscriptionStatus.is_premium && (
+                {subscriptionStatus.pending_payment ? (
+                  <button
+                    onClick={refreshSubscriptionStatus}
+                    disabled={refreshingSubscription}
+                    className="w-full bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 py-3.5 rounded-xl font-bold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {refreshingSubscription ? 'Checking…' : 'Check payment status'}
+                  </button>
+                ) : !subscriptionStatus.is_premium && (
                   <button
                     onClick={() => setShowUpgradeModal(true)}
                     className="w-full bg-[#EAAD11] text-black py-3.5 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
