@@ -55,3 +55,14 @@ export const getImageSrc = (image, width = 400) => {
   }
   return getOptimizedCloudinaryUrl(toAbsoluteUrl(image.image_path), width);
 };
+
+// Display labels for backend Order.status values. Purely presentational —
+// the underlying values (pending/paid/picked_up/delivered/cancelled) are
+// unchanged, shared by the buyer's order history and the vendor orders tab.
+export const ORDER_STATUS_LABELS = {
+  pending: 'Pending',
+  paid: 'Order placed',
+  picked_up: 'On delivery',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+};

@@ -52,7 +52,9 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         sessionStorage.setItem(sessionKey, '1');
       }
     }
-    if (isOwnerNow && isOnOwnVendorPage) {
+    if (isOwnerNow && isOnOwnVendorPage && user?.is_premium) {
+      // View stats are Premium-only — skip the call for a free vendor rather
+      // than firing a request we know the backend will 403.
       api.get(`/items/${item.id}/views`).then(res => setViewStats(res.data)).catch(() => {});
     } else {
       setViewStats(null);

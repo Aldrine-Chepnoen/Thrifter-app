@@ -70,9 +70,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setItems(itemsRes.data || []);
       setVendorInfo(vendorRes.data || null);
       if (isOwnProfile) {
-        api.get(`/vendors/${encodeURIComponent(name)}/views`)
-          .then(res => setViewStats(res.data || {}))
-          .catch(() => {});
+        // View stats are Premium-only — skip the call entirely for a free
+        // vendor rather than firing a request we know the backend will 403.
+        if (vendorRes.data?.is_premium) {
+          api.get(`/vendors/${encodeURIComponent(name)}/views`)
+            .then(res => setViewStats(res.data || {}))
+            .catch(() => {});
+        } else {
+          setViewStats({});
+        }
         fetchVendorSlotStatus()
           .then(setSubscriptionStatus)
           .catch(() => {});

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchMyOrders } from '../api';
+import { ORDER_STATUS_LABELS } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const formatUGX = (n) => {
@@ -34,7 +35,7 @@ const Orders = () => {
               {c.orders.map((order) => (
                 <div key={order.id} className="mb-2 last:mb-0">
                   <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
-                    {order.vendor_name} · <span className="capitalize">{order.status}</span>
+                    {order.vendor_name} · <span>{ORDER_STATUS_LABELS[order.status] || order.status}</span>
                   </p>
                   {order.items.map((oi) => (
                     <p key={oi.id} className="text-sm">

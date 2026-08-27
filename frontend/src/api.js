@@ -37,7 +37,6 @@ export const getCheckout = (id) => api.get(`/checkout/${id}`).then(r => r.data);
 export const payCheckout = (id, provider) => api.post(`/checkout/${id}/pay`, { provider }).then(r => r.data);
 export const fetchMyOrders = () => api.get('/orders').then(r => r.data);
 export const fetchVendorOrders = () => api.get('/vendor/orders').then(r => r.data);
-export const updateVendorOrderStatus = (id, status) => api.patch(`/vendor/orders/${id}/status`, { status }).then(r => r.data);
 
 export const fetchVendorSlotStatus = () => api.get('/vendor/me/subscription').then(r => r.data);
 export const initiateVendorSubscriptionPayment = (provider) => api.post('/vendor/subscription/checkout', { provider }).then(r => r.data);

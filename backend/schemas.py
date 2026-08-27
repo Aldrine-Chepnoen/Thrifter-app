@@ -376,9 +376,6 @@ class VendorSubscriptionStatus(BaseModel):
     currency: str = "UGX"
     pending_payment: bool = False
 
-class VendorOrderStatusUpdate(BaseModel):
-    status: str = Field(..., pattern="^(picked_up|delivered)$")
-
 class VendorOrderOut(BaseModel):
     id: int
     checkout_id: int

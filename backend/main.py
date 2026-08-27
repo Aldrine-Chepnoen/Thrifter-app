@@ -1936,11 +1936,6 @@ def initiate_vendor_subscription(
 
     return schemas.PaymentInitiateResponse(redirect_url=result.redirect_url, tx_ref=tx_ref)
 
-_ORDER_STATUS_TRANSITIONS = {
-    "paid": {"picked_up"},
-    "picked_up": {"delivered"},
-}
-
 def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
     items = []
     for oi in order.items:
@@ -1974,28 +1969,6 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
         .all()
     )
     return [_serialize_vendor_order(order) for order in orders]
-
-@app.patch("/vendor/orders/{order_id}/status", response_model=schemas.VendorOrderOut)
-def update_vendor_order_status(
-    order_id: int,
-    body: schemas.VendorOrderStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_vendor),
-):
-    order = db.query(models.Order).filter(models.Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    if order.vendor_id != current_user.vendor_id:
-        raise HTTPException(status_code=403, detail="Not your order")
-
-    allowed_next = _ORDER_STATUS_TRANSITIONS.get(order.status, set())
-    if body.status not in allowed_next:
-        raise HTTPException(status_code=409, detail=f"Cannot move order from '{order.status}' to '{body.status}'")
-
-    order.status = body.status
-    db.commit()
-    db.refresh(order)
-    return _serialize_vendor_order(order)
 
 @app.get("/admin/payouts", response_model=List[schemas.VendorPayoutOut])
 def list_payouts(status: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2500,6 +2473,12 @@ def get_vendor_view_summary(name: str, current_user: Optional[models.User] = Dep
     if not current_user.is_admin and current_user.vendor_id != vendor.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if not current_user.is_admin and not vendor_premium.is_vendor_premium(db, vendor.id):
+        raise HTTPException(status_code=403, detail={
+            "message": "View stats are a Premium feature.",
+            "code": "premium_required",
+        })
+
     item_ids = [row.id for row in db.query(models.Item.id).filter(models.Item.vendor_id == vendor.id).all()]
     if not item_ids:
         return {}
@@ -2563,6 +2542,11 @@ def get_item_view_stats(item_id: int, current_user: models.User = Depends(get_cu
     if not current_user.is_admin:
         if not current_user.vendor_id or current_user.vendor_id != item.vendor_id:
             raise HTTPException(status_code=403, detail="Access denied")
+        if not vendor_premium.is_vendor_premium(db, item.vendor_id):
+            raise HTTPException(status_code=403, detail={
+                "message": "View stats are a Premium feature.",
+                "code": "premium_required",
+            })
 
     now = datetime.utcnow()
     cutoff_7 = now - timedelta(days=7)
