@@ -33,6 +33,8 @@ import cache
 import payments
 import vendor_verify
 import vendor_premium
+import sms
+from phone_utils import format_whatsapp_number
 
 # Tables are managed by Alembic migrations
 # models.Base.metadata.create_all(bind=engine)
@@ -151,30 +153,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 JWT_SECRET = settings.JWT_SECRET
 JWT_EXP_SECONDS = settings.JWT_EXP_SECONDS
 SEED_DEMO = settings.SEED_DEMO
-
-def format_whatsapp_number(number: str) -> str:
-    if not number:
-        return ""
-    # Remove all spaces, dashes, brackets
-    number = number.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    
-    # Already has correct format
-    if number.startswith("+256"):
-        return number
-    
-    # Has 256 without the +
-    if number.startswith("256"):
-        return "+" + number
-    
-    # Local format starting with 0 (e.g. 0772123456)
-    if number.startswith("0"):
-        return "+256" + number[1:]
-    
-    # Just the 9 digit number (e.g. 772123456)
-    if len(number) == 9:
-        return "+256" + number
-    
-    return number
 
 def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Optional[str] = None) -> "models.Vendor":
     formatted_whatsapp = format_whatsapp_number(whatsapp or "")
@@ -1616,6 +1594,9 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
                 item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
                 if item:
                     _recompute_item_status(db, item, now)
+        sms.send_sms(checkout.delivery_phone, sms.order_confirmed_buyer_message(checkout))
+        for order in checkout.orders:
+            sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_confirmed_vendor_message(order))
     elif status == "failed":
         payment.status = "failed"
         checkout.status = "failed"
@@ -2035,12 +2016,17 @@ def update_admin_order_status(
         # unique constraint on VendorWalletTransaction is a second line of
         # defense against double-crediting on top of the state machine above
         # already preventing a re-transition into "delivered".
+        old_balance = _vendor_wallet_balance(db, order.vendor_id)
         db.add(models.VendorWalletTransaction(
             vendor_id=order.vendor_id,
             amount=order.vendor_payout_amount,
             reason="delivery",
             order_id=order.id,
         ))
+        new_balance = old_balance + order.vendor_payout_amount
+        sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_delivered_vendor_message(order, new_balance))
+    elif body.status == "picked_up":
+        sms.send_sms(order.checkout.delivery_phone if order.checkout else None, sms.order_picked_up_message(order))
     db.commit()
     db.refresh(order)
     return _serialize_admin_order(order)
@@ -2115,6 +2101,9 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     ))
     db.commit()
 
+    for phone in sms.admin_alert_phones():
+        sms.send_sms(phone, sms.withdrawal_requested_admin_message(withdrawal, vendor.name))
+
     return schemas.VendorWalletStatus(
         balance=0.0,
         currency="UGX",
@@ -2143,13 +2132,16 @@ def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.U
 
 def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> None:
     """Restores the vendor's balance for a withdrawal that didn't go
-    through — used by both reject and a failed payout attempt."""
+    through — used by both reject and a failed payout attempt. Covers the
+    "rejected"/"failed" SMS too, so a future 4th call site can't miss it."""
     db.add(models.VendorWalletTransaction(
         vendor_id=withdrawal.vendor_id,
         amount=withdrawal.amount,
         reason="withdrawal_reversed",
         withdrawal_id=withdrawal.id,
     ))
+    vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
+    sms.send_sms(withdrawal.destination_phone, sms.withdrawal_reversed_message(withdrawal, vendor_name))
 
 @app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
 def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2189,6 +2181,7 @@ def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), curren
     if result.success:
         withdrawal.status = "paid"
         withdrawal.provider_ref = result.provider_ref
+        sms.send_sms(withdrawal.destination_phone, sms.withdrawal_paid_message(withdrawal, vendor.name if vendor else "there"))
     else:
         withdrawal.status = "failed"
         withdrawal.failure_reason = result.failure_reason

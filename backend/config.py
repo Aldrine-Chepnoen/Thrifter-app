@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     VENDOR_PREMIUM_PRICE_UGX: float = float(os.getenv("VENDOR_PREMIUM_PRICE_UGX", "50000"))
     VENDOR_PREMIUM_PERIOD_DAYS: int = int(os.getenv("VENDOR_PREMIUM_PERIOD_DAYS", "30"))
 
+    # SMS (EgoSMS / Pahappa Comms API — live transactional sends; see sms.py)
+    EGOSMS_USERNAME: Optional[str] = os.getenv("EGOSMS_USERNAME")
+    EGOSMS_PASSWORD: Optional[str] = os.getenv("EGOSMS_PASSWORD")
+    EGOSMS_SENDER: str = os.getenv("EGOSMS_SENDER", "Thrifter")
+    # Comma-separated phone numbers to alert on a vendor withdrawal request, e.g. "0700111222,0700333444"
+    ADMIN_ALERT_PHONES: str = os.getenv("ADMIN_ALERT_PHONES", "")
+
     # Frontend base URL (used to build absolute links, e.g. vendor verification emails)
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
