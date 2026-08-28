@@ -272,13 +272,6 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-2">Pay with</label>
-          <div className="py-3 px-4 rounded-xl border border-[#EAAD11] bg-[#EAAD11]/10 text-[#EAAD11] font-semibold text-sm text-center">
-            Nylon Pay (Mobile Money)
-          </div>
-        </div>
-
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button
