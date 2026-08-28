@@ -143,8 +143,8 @@ const UploadForm = () => {
     files.forEach(file => data.append('files', file));
 
     try {
-      await api.post('/upload', data);
-      navigate('/');
+      const res = await api.post('/upload', data);
+      navigate(`/vendor/${encodeURIComponent(res.data.vendor_name)}`);
     } catch (error) {
       console.error('Upload failed:', error);
       const detail = error.response?.data?.detail;
