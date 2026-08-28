@@ -174,7 +174,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
 
         <p className="text-xs text-gray-400 mb-6">
           {reservationMinutes != null && `Complete payment within ${reservationMinutes} minutes — after that these items go back into stock. `}
-          Delivery happens on the next Monday or Thursday pickup day.
+          Delivery happens the next day (orders placed after 9pm are delivered in two days).
         </p>
 
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
@@ -222,7 +222,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
             <span className="text-lg font-bold">{formatUGX(total)}</span>
           </div>
         </div>
-        <p className="text-xs text-gray-400">Delivery happens on the next Monday or Thursday pickup day.</p>
+        <p className="text-xs text-gray-400">Delivery happens the next day (orders placed after 9pm are delivered in two days).</p>
       </div>
 
       <form onSubmit={handleCreateCheckout} className="space-y-4">

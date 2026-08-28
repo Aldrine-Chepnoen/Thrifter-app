@@ -1215,15 +1215,19 @@ async def upload_item(
 # Checkout / Orders / Payments
 # ---------------------------------------------------------------------------
 
+# Uganda is East Africa Time, UTC+3 year-round (no DST), so a fixed offset is
+# correct here without pulling in zoneinfo/tzdata.
+EAT_OFFSET = timedelta(hours=3)
+
 def next_delivery_day(now: Optional[datetime] = None) -> datetime:
-    """Next upcoming Monday or Thursday (midnight), matching the Mon/Thu pickup schedule."""
+    """Pickup/delivery is scheduled for the next day. Orders placed at or
+    after 9pm East Africa Time push out to two days instead, since next-day
+    dispatch isn't realistic that late in the evening."""
     now = now or datetime.utcnow()
-    target_weekdays = (0, 3)  # Monday=0, Thursday=3
-    for offset in range(1, 8):
-        candidate = now + timedelta(days=offset)
-        if candidate.weekday() in target_weekdays:
-            return candidate.replace(hour=0, minute=0, second=0, microsecond=0)
-    return now  # unreachable — one of the next 7 days is always Mon or Thu
+    local_now = now + EAT_OFFSET
+    offset_days = 2 if local_now.hour >= 21 else 1
+    target_local = local_now + timedelta(days=offset_days)
+    return target_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
 def serialize_order(order: models.Order) -> schemas.OrderOut:
     return schemas.OrderOut(
