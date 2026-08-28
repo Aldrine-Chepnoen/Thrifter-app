@@ -194,31 +194,37 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
 
       <form onSubmit={handleCreateCheckout} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Full name</label>
+          <label className="block text-sm font-medium mb-1">Full name <span className="text-red-500">*</span></label>
           <input
             type="text"
             value={form.delivery_name}
             onChange={(e) => setForm((f) => ({ ...f, delivery_name: e.target.value }))}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+            required
+            minLength={2}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Phone number</label>
+          <label className="block text-sm font-medium mb-1">Phone number <span className="text-red-500">*</span></label>
           <input
             type="tel"
             value={form.delivery_phone}
             onChange={(e) => setForm((f) => ({ ...f, delivery_phone: e.target.value }))}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+            required
+            minLength={7}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Delivery address</label>
+          <label className="block text-sm font-medium mb-1">Delivery address <span className="text-red-500">*</span></label>
           <textarea
             value={form.delivery_address}
             onChange={(e) => setForm((f) => ({ ...f, delivery_address: e.target.value }))}
             rows={3}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
             placeholder="Area, street, landmark..."
+            required
+            minLength={5}
           />
         </div>
 

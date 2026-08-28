@@ -243,45 +243,51 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                 <div className="space-y-4">
                   <h3 className="text-lg font-bold">Edit Item Details</h3>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Item Name</label>
-                    <input 
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Item Name <span className="text-red-500 normal-case">*</span></label>
+                    <input
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                       value={editedData.name}
                       onChange={(e) => setEditedData({...editedData, name: e.target.value})}
+                      required
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX)</label>
+                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX) <span className="text-red-500 normal-case">*</span></label>
                       <input
                         type="number"
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.price}
                         onChange={(e) => setEditedData({...editedData, price: e.target.value})}
+                        required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size</label>
+                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size <span className="text-red-500 normal-case">*</span></label>
                       <input
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.size}
                         onChange={(e) => setEditedData({...editedData, size: e.target.value})}
+                        required
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity</label>
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity <span className="text-red-500 normal-case">*</span></label>
                     <input
                       type="number"
                       min="0"
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                       value={editedData.quantity}
                       onChange={(e) => setEditedData({...editedData, quantity: e.target.value})}
+                      required
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Description</label>
-                    <textarea 
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">
+                      Description <span className="text-gray-400 normal-case font-normal">(optional)</span>
+                    </label>
+                    <textarea
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 min-h-[100px] transition-all"
                       value={editedData.description}
                       onChange={(e) => setEditedData({...editedData, description: e.target.value})}
@@ -327,8 +333,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   <>
                     <button
                       onClick={handleConfirmEdit}
-                      disabled={updating}
-                      className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-500/10"
+                      disabled={updating || !String(editedData.name).trim() || !String(editedData.price).trim() || !String(editedData.size).trim() || String(editedData.quantity).trim() === ''}
+                      className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#25D366]"
                     >
                       {updating ? (
                         <div className="flex items-center gap-2">

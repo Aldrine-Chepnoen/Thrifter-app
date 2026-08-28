@@ -1042,8 +1042,6 @@ async def upload_item(
     size: str = Form(...),
     market: Optional[str] = Form(None),
     item_type: str = Form("top"),
-    vendor_name: Optional[str] = Form(None),
-    vendor_whatsapp: Optional[str] = Form(None),
     description: str = Form(None),
     quantity: int = Form(1),
     files: List[UploadFile] = File(...),
@@ -1069,11 +1067,7 @@ async def upload_item(
     if quantity < 0:
         raise HTTPException(status_code=400, detail="Quantity cannot be negative")
 
-    if not current_user.vendor_id:
-        if not vendor_whatsapp or not re.fullmatch(r"\+?\d{10,15}", vendor_whatsapp.replace(" ","").replace("-","").replace("(","").replace(")","")):
-            raise HTTPException(status_code=400, detail="Invalid WhatsApp number format")
-
-    logger.info(f"Uploading item '{name}' with {len(files)} images for vendor {current_user.vendor_id or 'new'}")
+    logger.info(f"Uploading item '{name}' with {len(files)} images for vendor {current_user.vendor_id}")
 
     # Read all file bytes upfront — UploadFile streams close after the request
     file_contents = []
@@ -1086,27 +1080,14 @@ async def upload_item(
     backup_public_ids = []
 
     try:
-        # 1. Resolve vendor
-        vendor = None
-        if current_user.vendor_id:
-            vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
-            if vendor and vendor_whatsapp:
-                formatted_wa = format_whatsapp_number(vendor_whatsapp)
-                vendor.whatsapp = formatted_wa
-                db.add(vendor)
-                db.commit()
-                db.refresh(vendor)
-
+        # 1. Resolve vendor — every is_vendor user already has a vendor_id
+        # (set atomically at registration/vendor-upgrade), so there's no
+        # "create a new vendor from this form" case to handle here. Vendor
+        # profile fields (name, WhatsApp, location) are edited on the vendor's
+        # own store settings page (PUT /vendor/me), not re-entered per upload.
+        vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
         if not vendor:
-            if not vendor_name:
-                raise HTTPException(status_code=400, detail="Vendor name is required")
-            vendor = db.query(models.Vendor).filter(models.Vendor.name == vendor_name).first()
-            if not vendor:
-                formatted_wa = format_whatsapp_number(vendor_whatsapp or "")
-                vendor = models.Vendor(name=vendor_name, whatsapp=formatted_wa)
-                db.add(vendor)
-                db.commit()
-                db.refresh(vendor)
+            raise HTTPException(status_code=404, detail="Vendor account not found")
 
         # 1.5. Lazy premium-expiry resync, then enforce the free-tier slot limit.
         # Rejecting here — before any R2/Cloudinary upload call — means a

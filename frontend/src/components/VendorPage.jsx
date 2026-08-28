@@ -440,26 +440,31 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           </div>
           <div className="space-y-4 max-w-md">
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Store Name</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Store Name <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+                required
+                minLength={2}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">WhatsApp Number</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">WhatsApp Number <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={editWhatsapp}
                 onChange={e => setEditWhatsapp(e.target.value)}
                 placeholder="+256..."
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+                required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Bio</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">
+                Bio <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
               <textarea
                 value={editDescription}
                 onChange={e => setEditDescription(e.target.value)}
@@ -496,7 +501,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
             <div className="flex gap-3 pt-1">
               <button
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !editName.trim() || !editWhatsapp.trim()}
                 className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all input-shadow disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Save Changes'}

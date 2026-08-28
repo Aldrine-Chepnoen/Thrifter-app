@@ -39,8 +39,6 @@ const UploadForm = () => {
     size: '',
     item_type: 'top',
     quantity: 1,
-    vendor_name: '',
-    vendor_whatsapp: '',
     description: '',
   });
   const [files, setFiles] = useState([]);
@@ -86,11 +84,6 @@ const UploadForm = () => {
         setUserInfo(me.data);
         setCanUpload(!!me.data?.is_vendor);
         if (me.data?.is_vendor) {
-          setFormData((prev) => ({
-            ...prev,
-            vendor_name: prev.vendor_name || me.data.vendor_name || '',
-            vendor_whatsapp: prev.vendor_whatsapp || me.data.vendor_whatsapp || ''
-          }));
           // Check slot status up front so a maxed-out vendor sees the upgrade
           // prompt immediately, before filling in the whole form only to hit
           // a rejection on submit.
@@ -201,7 +194,7 @@ const UploadForm = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Image Upload */}
         <div className="w-full">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Item Photos (Up to 3)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Item Photos (Up to 3) <span className="text-red-500">*</span></label>
           <div className="grid grid-cols-3 gap-4 mb-4">
             {previews.map((preview, index) => (
               <div key={index} className="relative aspect-[4/5] bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden group">
@@ -239,7 +232,7 @@ const UploadForm = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Name <span className="text-red-500">*</span></label>
             <input 
               type="text" 
               name="name"
@@ -251,7 +244,7 @@ const UploadForm = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UGX)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UGX) <span className="text-red-500">*</span></label>
             <input 
               type="number" 
               name="price"
@@ -266,7 +259,7 @@ const UploadForm = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Size <span className="text-red-500">*</span></label>
             <input 
               type="text" 
               name="size"
@@ -278,7 +271,7 @@ const UploadForm = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Category</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Category <span className="text-red-500">*</span></label>
             <select 
               name="item_type"
               value={formData.item_type} 
@@ -294,7 +287,7 @@ const UploadForm = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity <span className="text-red-500">*</span></label>
             <input
               type="number"
               name="quantity"
@@ -308,39 +301,13 @@ const UploadForm = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vendor Name</label>
-            <input 
-              type="text" 
-              name="vendor_name"
-              value={formData.vendor_name} 
-              onChange={handleChange}
-              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
-              required
-              disabled={formDisabled}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vendor WhatsApp</label>
-            <input 
-              type="text" 
-              name="vendor_whatsapp"
-              value={formData.vendor_whatsapp} 
-              onChange={handleChange}
-              placeholder="e.g. +2348012345678"
-              className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
-              required
-              disabled={formDisabled}
-            />
-          </div>
-        </div>
-
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-          <textarea 
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Description <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <textarea
             name="description"
-            value={formData.description} 
+            value={formData.description}
             onChange={handleChange}
             rows="4"
             className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
