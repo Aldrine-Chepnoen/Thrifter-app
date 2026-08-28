@@ -6,7 +6,7 @@ import logging
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, defer, selectinload
-from sqlalchemy import or_, func, case
+from sqlalchemy import or_, and_, func, case
 from sqlalchemy.orm import joinedload
 import shutil
 import os
@@ -2256,6 +2256,32 @@ def list_vendors(db: Session = Depends(get_db)):
         count = db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
         result.append(schemas.VendorInfo(id=v.id, name=v.name, whatsapp=v.whatsapp, item_count=count))
     return result
+
+@app.get("/vendors/search", response_model=List[schemas.VendorSearchResult])
+@limiter.limit("30/minute")
+def search_vendors(request: Request, q: str, db: Session = Depends(get_db)):
+    # Registered ahead of /vendors/{name} — a literal "search" segment would
+    # otherwise be swallowed by that route's {name} path param.
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    rows = (
+        db.query(models.Vendor, func.count(models.Item.id))
+        .outerjoin(models.Item, and_(models.Item.vendor_id == models.Vendor.id, models.Item.is_hidden == False))
+        .filter(models.Vendor.is_active == True, models.Vendor.name.ilike(f"%{q}%"))
+        .group_by(models.Vendor.id)
+        .order_by(models.Vendor.is_pinned.desc(), models.Vendor.name.asc())
+        .limit(5)
+        .all()
+    )
+    return [
+        schemas.VendorSearchResult(
+            id=v.id, name=v.name, banner_image=v.banner_image,
+            banner_fallback_url=cloudinary_fallback_url(v.banner_cloudinary_id),
+            location=v.location, item_count=count,
+        )
+        for v, count in rows
+    ]
 
 @app.get("/vendors/{name}", response_model=schemas.VendorProfile)
 def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[models.User] = Depends(get_optional_user)):

@@ -20,7 +20,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
-  const [cartQty, setCartQty] = useState(1);
   const location = useLocation();
   const navigate = useNavigate();
   const isOnOwnVendorPage = location.pathname.toLowerCase() === `/vendor/${user?.vendor_name?.toLowerCase()}`;
@@ -37,7 +36,6 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       });
       setOriginalQuantity(qty);
       setActiveImageIndex(0);
-      setCartQty(1);
     }
     setEditMode(false);
   }, [item, isOpen]);
@@ -162,9 +160,9 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       item_id: item.id,
       item_name: item.name,
       vendor_name: item.vendor_name,
-      quantity: cartQty
+      quantity: 1
     });
-    onAddToCart(item, cartQty);
+    onAddToCart(item, 1);
   };
 
   return (
@@ -394,37 +392,13 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     In Cart — View Cart
                   </button>
                 ) : (
-                  <>
-                    {item.quantity > 1 && (
-                      <div className="flex items-center justify-between mt-3 mb-1">
-                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Quantity ({item.quantity} available)</span>
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setCartQty((q) => Math.max(1, q - 1))}
-                            className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 flex items-center justify-center font-bold hover:bg-gray-100 dark:hover:bg-gray-800"
-                          >
-                            −
-                          </button>
-                          <span className="w-6 text-center font-semibold">{cartQty}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCartQty((q) => Math.min(item.quantity, q + 1))}
-                            className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-700 flex items-center justify-center font-bold hover:bg-gray-100 dark:hover:bg-gray-800"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <button
-                      onClick={handleAddToCart}
-                      className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-colors mt-3"
-                    >
-                      <ShoppingBag className="w-5 h-5" />
-                      Add to Cart
-                    </button>
-                  </>
+                  <button
+                    onClick={handleAddToCart}
+                    className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-colors mt-3"
+                  >
+                    <ShoppingBag className="w-5 h-5" />
+                    Add to Cart
+                  </button>
                 )}
               </>
             )}

@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
+import { searchVendors } from '../api';
+import { getImageSrc } from '../utils';
 
 const TikTokIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
@@ -53,6 +55,101 @@ const ContactDropdown = ({ onClose }) => (
     </a>
   </div>
 );
+
+// Typeahead: as the user types, a matching vendor or two surfaces in a
+// dropdown beneath the item search bar (which keeps searching items as
+// normal via onSearch) — lets "look up a shop" ride the same input instead
+// of needing a separate search mode.
+const SearchBox = ({ onSearch, onImageSearchClick, handleProtectedAction, placeholder, inputId }) => {
+  const [query, setQuery] = useState('');
+  const [vendorResults, setVendorResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setVendorResults([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      searchVendors(trimmed)
+        .then((results) => setVendorResults(results))
+        .catch(() => setVendorResults([]));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (!containerRef.current?.contains(e.target)) setShowDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleChange = (value) => {
+    setQuery(value);
+    setShowDropdown(true);
+    onSearch(value);
+  };
+
+  return (
+    <div ref={containerRef} className="relative flex-1 input-shadow rounded-full">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+      <input
+        id={inputId}
+        type="text"
+        value={query}
+        placeholder={placeholder}
+        className="w-full pl-10 pr-10 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => query.trim().length >= 2 && setShowDropdown(true)}
+      />
+      <button
+        onClick={() => handleProtectedAction(onImageSearchClick)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EAAD11] transition-colors"
+        title="Image search"
+      >
+        <Camera className="w-4 h-4" />
+      </button>
+
+      {showDropdown && vendorResults.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50 text-left">
+          <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+            Vendors
+          </p>
+          {vendorResults.map((v) => (
+            <Link
+              key={v.id}
+              to={`/vendor/${encodeURIComponent(v.name)}`}
+              onClick={() => setShowDropdown(false)}
+              className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                {v.banner_image || v.banner_fallback_url ? (
+                  <img
+                    src={getImageSrc({ image_path: v.banner_image, fallback_url: v.banner_fallback_url }, 64)}
+                    alt={v.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Store className="w-3.5 h-3.5 text-gray-400" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{v.name}</p>
+                <p className="text-xs text-gray-400 truncate">
+                  {v.item_count} item{v.item_count === 1 ? '' : 's'}{v.location ? ` · ${v.location}` : ''}
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Navbar = ({
   onSearch,
@@ -283,22 +380,13 @@ const Navbar = ({
         {isHomePage && (
           <div className="w-full md:hidden mt-1">
             <div className="flex items-center gap-2">
-              <div className="relative flex-1 input-shadow rounded-full">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  placeholder="Search items or categories..."
-                  className="w-full pl-10 pr-10 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
-                  onChange={(e) => handleSearchInput(e.target.value)}
-                />
-                <button
-                  onClick={() => handleProtectedAction(onImageSearchClick)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EAAD11] transition-colors"
-                  title="Image search"
-                >
-                  <Camera className="w-4 h-4" />
-                </button>
-              </div>
+              <SearchBox
+                inputId="search-mobile"
+                placeholder="Search items, categories, or vendors..."
+                onSearch={handleSearchInput}
+                onImageSearchClick={onImageSearchClick}
+                handleProtectedAction={handleProtectedAction}
+              />
               <button
                 onClick={onFilterClick}
                 className="relative flex-shrink-0 p-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full input-shadow hover:border-gray-400 dark:hover:border-gray-500 transition-all"
@@ -317,22 +405,13 @@ const Navbar = ({
       {isHomePage && (
         <>
           <div className="max-w-7xl mx-auto hidden md:flex md:items-center md:gap-2 mt-3 md:mt-4">
-            <div className="relative flex-1 input-shadow rounded-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Search items or categories..."
-                className="w-full pl-10 pr-10 py-2 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
-                onChange={(e) => handleSearchInput(e.target.value)}
-              />
-              <button
-                onClick={() => handleProtectedAction(onImageSearchClick)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#EAAD11] transition-colors"
-                title="Image search"
-              >
-                <Camera className="w-4 h-4" />
-              </button>
-            </div>
+            <SearchBox
+              inputId="search-desktop"
+              placeholder="Search items, categories, or vendors..."
+              onSearch={handleSearchInput}
+              onImageSearchClick={onImageSearchClick}
+              handleProtectedAction={handleProtectedAction}
+            />
             <button
               onClick={onFilterClick}
               className="relative flex-shrink-0 p-2.5 bg-white border border-gray-200 rounded-full input-shadow hover:border-gray-400 transition-all"

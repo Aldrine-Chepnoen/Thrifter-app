@@ -269,6 +269,14 @@ class VendorInfo(BaseModel):
     class Config:
         from_attributes = True
 
+class VendorSearchResult(BaseModel):
+    id: int
+    name: str
+    banner_image: Optional[str] = None
+    banner_fallback_url: Optional[str] = None
+    location: Optional[str] = None
+    item_count: int = 0
+
 class VendorProfile(BaseModel):
     id: int
     name: str
