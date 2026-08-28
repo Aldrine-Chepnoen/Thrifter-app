@@ -147,10 +147,24 @@ function App() {
 
       const newItems = response.data;
       if (isNew) {
-        setItems(newItems);
+        // Dedupe within the page itself too — cheap insurance against the
+        // same edge case that causes duplicates across pages (see the
+        // append branch below).
+        const seenInPage = new Set();
+        setItems(newItems.filter(i => (seenInPage.has(i.id) ? false : seenInPage.add(i.id))));
         setPage(1);
       } else {
-        setItems(prev => [...prev, ...newItems]);
+        // The personalised feed's similar+random split can occasionally
+        // resurface an item already shown on an earlier page (each page
+        // re-randomizes independently rather than excluding everything
+        // shown so far). Duplicate ids in `items` cause React to render two
+        // cards under the same key — one renders blank, the other renders
+        // fine elsewhere — so dedupe on append rather than fixing this
+        // server-side for now.
+        setItems(prev => {
+          const seen = new Set(prev.map(i => i.id));
+          return [...prev, ...newItems.filter(i => (seen.has(i.id) ? false : seen.add(i.id)))];
+        });
         setPage(currentPage + 1);
       }
       setHasMore(newItems.length === limit);
