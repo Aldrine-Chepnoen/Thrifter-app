@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -49,9 +49,17 @@ const ContactDropdown = ({ onClose }) => (
       href="https://wa.me/256794185787"
       target="_blank" rel="noopener noreferrer"
       onClick={onClose}
-      className="flex items-center gap-3 px-4 pb-3 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+      className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
     >
       <WhatsAppIcon />WhatsApp
+    </a>
+    <a
+      href="/thrifter-terms-and-conditions.pdf"
+      target="_blank" rel="noopener noreferrer"
+      onClick={onClose}
+      className="flex items-center gap-3 px-4 pb-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+    >
+      <FileText className="w-4 h-4" />Terms & Conditions
     </a>
   </div>
 );

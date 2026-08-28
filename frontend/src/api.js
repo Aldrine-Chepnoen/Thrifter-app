@@ -40,6 +40,8 @@ export const fetchVendorOrders = () => api.get('/vendor/orders').then(r => r.dat
 
 export const fetchVendorSlotStatus = () => api.get('/vendor/me/subscription').then(r => r.data);
 
+export const sendVendorPhoneVerification = () => api.post('/vendor/me/verify-sms').then(r => r.data);
+
 export const searchVendors = (q) => api.get('/vendors/search', { params: { q } }).then(r => r.data);
 
 export const fetchAdminOrders = () => api.get('/admin/orders').then(r => r.data);

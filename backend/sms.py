@@ -117,3 +117,12 @@ def withdrawal_reversed_message(withdrawal, vendor_name: str) -> str:
         f"Thrifter: Hi {vendor_name}, your withdrawal request of {_ugx(withdrawal.amount)} "
         f"could not be completed and has been returned to your wallet."
     )
+
+
+def phone_verification_message(vendor_name: str, short_link: str) -> str:
+    # Same wording as the bulk campaign in send_sms_verification.py, for a
+    # consistent voice regardless of which path sent it.
+    return (
+        f"Thrifter: Hello {vendor_name}, Please click this link to verify your phone "
+        f"number on Thrifter and keep your account active: {short_link}"
+    )

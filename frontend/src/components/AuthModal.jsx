@@ -459,7 +459,15 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             </button>
             
             <p className="text-center text-xs text-gray-500 mt-4 px-4">
-              By continuing, you agree to discover and support local thrift brands.
+              By continuing, you agree to discover and support local thrift brands, and to our{' '}
+              <a
+                href="/thrifter-terms-and-conditions.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Terms & Conditions
+              </a>.
             </p>
           </div>
           </>

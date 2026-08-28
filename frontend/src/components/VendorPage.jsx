@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle } from 'lucide-react';
+import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
-import api, { fetchVendorSlotStatus } from '../api';
+import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
@@ -41,6 +41,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [refreshingSubscription, setRefreshingSubscription] = useState(false);
+  const [verifySmsSending, setVerifySmsSending] = useState(false);
+  const [verifySmsSent, setVerifySmsSent] = useState(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
@@ -169,7 +171,24 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     setEditDescription(vendorInfo?.description || '');
     setEditLocation(vendorInfo?.location || '');
     setError('');
+    setVerifySmsSent(false);
     setSettingsOpen(true);
+  };
+
+  const handleSendVerifySms = async () => {
+    setVerifySmsSending(true);
+    try {
+      const res = await sendVendorPhoneVerification();
+      if (res.status === 'already_verified') {
+        setVendorInfo(prev => prev ? { ...prev, phone_verified: true } : prev);
+      } else {
+        setVerifySmsSent(true);
+      }
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Could not send verification SMS. Please try again.');
+    } finally {
+      setVerifySmsSending(false);
+    }
   };
 
   const handleBannerUpload = async (e) => {
@@ -467,6 +486,30 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
                 required
               />
+              {vendorInfo?.phone_verified ? (
+                <p className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 mt-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Verified
+                </p>
+              ) : editWhatsapp.trim() !== (user?.vendor_whatsapp || '').trim() ? (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
+                  Save changes first, then send the verification link to this number.
+                </p>
+              ) : verifySmsSent ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                  Verification link sent — check your WhatsApp/SMS.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSendVerifySms}
+                  disabled={verifySmsSending || !editWhatsapp.trim()}
+                  className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50 mt-1.5"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {verifySmsSending ? 'Sending…' : 'Send verification SMS'}
+                </button>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">

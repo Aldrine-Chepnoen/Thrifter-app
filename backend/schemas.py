@@ -288,6 +288,7 @@ class VendorProfile(BaseModel):
     is_premium: bool = False
     hidden_item_count: Optional[int] = None  # owner-only; None for visitors
     marketplace_visible: Optional[bool] = None  # owner-only; None for visitors
+    phone_verified: Optional[bool] = None  # owner-only; None for visitors
 
     class Config:
         from_attributes = True

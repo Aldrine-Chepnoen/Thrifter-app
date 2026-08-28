@@ -2327,6 +2327,7 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
         hidden_item_count=hidden_item_count,
         marketplace_visible=_vendor_is_visible(vendor) if is_owner else None,
+        phone_verified=(vendor.phone_verified_at is not None) if is_owner else None,
     )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
@@ -2371,6 +2372,30 @@ def update_vendor_profile(
         vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
+
+@app.post("/vendor/me/verify-sms")
+@limiter.limit("3/minute")
+def send_vendor_phone_verification(request: Request, current_user: models.User = Depends(require_vendor), db: Session = Depends(get_db)):
+    """Self-serve alternative to the admin's bulk SMS campaign — a vendor can
+    request their own verification link on demand from their settings panel."""
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    if not vendor.whatsapp:
+        raise HTTPException(status_code=400, detail="Add a WhatsApp number before requesting verification.")
+    if vendor.phone_verified_at:
+        return {"status": "already_verified"}
+
+    token = vendor_verify.make_vendor_verify_token(vendor.id, channel="sms")
+    code = secrets.token_urlsafe(6)
+    while db.query(models.ShortLink).filter(models.ShortLink.code == code).first():
+        code = secrets.token_urlsafe(6)
+    db.add(models.ShortLink(code=code, vendor_id=vendor.id, token=token))
+    db.commit()
+
+    short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
+    sms.send_sms(vendor.whatsapp, sms.phone_verification_message(vendor.name, short_link))
+    return {"status": "sent"}
 
 @app.post("/vendor/me/banner")
 async def upload_vendor_banner(
