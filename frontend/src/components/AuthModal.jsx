@@ -275,9 +275,9 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                         type="button"
                         onClick={handleUseMyLocation}
                         disabled={locating}
-                        className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                        className="flex items-center gap-1.5 text-sm font-bold text-[#EAAD11] hover:underline disabled:opacity-50"
                       >
-                        <MapPin className="w-3.5 h-3.5" />
+                        <MapPin className="w-4 h-4" />
                         {locating ? 'Locating…' : 'Use my location'}
                       </button>
                     </div>
@@ -422,9 +422,9 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                           type="button"
                           onClick={handleUseMyLocation}
                           disabled={locating}
-                          className="flex items-center gap-1 text-xs font-semibold text-black dark:text-white hover:underline disabled:opacity-50"
+                          className="flex items-center gap-1.5 text-sm font-bold text-[#EAAD11] hover:underline disabled:opacity-50"
                         >
-                          <MapPin className="w-3.5 h-3.5" />
+                          <MapPin className="w-4 h-4" />
                           {locating ? 'Locating…' : 'Use my location'}
                         </button>
                       </div>
