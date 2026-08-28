@@ -2842,11 +2842,16 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
     ).filter(models.Item.id.in_(item_ids)).all()
     id_to_item = {i.id: i for i in items}
     # Silently drop items whose vendor has since become invisible (deactivated,
-    # unverified, or no location), or that have sold out — the buyer's saved
-    # list just quietly shrinks; nothing is deleted, it just stops rendering.
+    # unverified, or no location), that have sold out, or that the vendor has
+    # hidden (manually, or for exceeding the free item limit) — the buyer's
+    # saved list just quietly shrinks; nothing is deleted, it just stops
+    # rendering. Matches the is_hidden gate every other buyer-facing surface
+    # already applies (feed, search, item detail, etc.) — wardrobe was the
+    # one gap.
     return [
         serialize_item(id_to_item[iid]) for iid in item_ids
         if iid in id_to_item
+        and not id_to_item[iid].is_hidden
         and id_to_item[iid].quantity > 0
         and (id_to_item[iid].vendor_id is None or _vendor_is_visible(id_to_item[iid].vendor))
     ]
@@ -2858,7 +2863,7 @@ def add_wardrobe(item_id: int, current: models.User = Depends(get_current_user),
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if item.vendor_id is not None and not _vendor_is_visible(item.vendor):
+    if item.is_hidden or (item.vendor_id is not None and not _vendor_is_visible(item.vendor)):
         raise HTTPException(status_code=404, detail="Item not found")
     exists = db.query(models.Wardrobe).filter(models.Wardrobe.user_id == current.id, models.Wardrobe.item_id == item_id).first()
     if exists:
