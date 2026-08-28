@@ -405,8 +405,10 @@ def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_
                 items_q = (
                     db.query(models.Item)
                     .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
+                    .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
                     .filter(models.Item.id.in_(sample_ids))
                     .filter(models.Item.is_hidden == False)
+                    .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
                     .all()
                 )
                 item_map = {i.id: i for i in items_q}
@@ -443,16 +445,20 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
             return []
         
         centroid_str = "[" + ",".join(str(x) for x in cluster.centroid_embedding) + "]"
-        return (
+        # No JOIN here — same HNSW-index reasoning as search_items' vector
+        # branch. Over-fetch and filter vendor visibility in Python, since
+        # some candidates may drop out below the requested limit.
+        items = (
             db.query(models.Item)
             .options(defer(models.Item.embedding), selectinload(models.Item.images), selectinload(models.Item.vendor))
             .filter(models.Item.item_type == item_type)
             .filter(models.Item.embedding.isnot(None))
             .filter(models.Item.is_hidden == False)
             .order_by(text(f"embedding <=> '{centroid_str}'::vector"))
-            .limit(limit)
+            .limit(limit * 2)
             .all()
         )
+        return [it for it in items if it.vendor_id is None or _vendor_is_visible(it.vendor)][:limit]
 
     return schemas.StyleCategoryItems(
         tops=[serialize_item(i) for i in get_cluster_items(style.top_cluster, "top")],
@@ -882,12 +888,12 @@ def read_items(
             vendor_premium.sync_vendor_item_visibility(db, vendor_row)
         query = query.join(models.Vendor).filter(models.Vendor.name.ilike(f"%{vendor}%"))
         if not is_own_vendor:
-            query = query.filter(models.Vendor.is_active == True, models.Item.is_hidden == False)
+            query = query.filter(_vendor_visible_filter(), models.Item.is_hidden == False)
     else:
-        # General feed — hide items from inactive vendors
+        # General feed — hide items from vendors that aren't marketplace-visible
         query = (query
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
-            .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+            .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
             .filter(models.Item.is_hidden == False)
         )
 
@@ -944,6 +950,24 @@ def read_items(
     cache.feed_set(feed_key, response)
     return response
 
+def _vendor_visible_filter():
+    """SQLAlchemy condition: vendor is eligible to show items / be found by
+    buyers — active, phone-verified, and has a location on file. Launch
+    criteria to keep "ghost" vendors (untested contact info) out of buyer-
+    facing surfaces."""
+    return and_(
+        models.Vendor.is_active == True,
+        models.Vendor.phone_verified_at.isnot(None),
+        models.Vendor.location.isnot(None),
+        models.Vendor.location != "",
+    )
+
+def _vendor_is_visible(vendor) -> bool:
+    """Python-side equivalent of _vendor_visible_filter(), for branches that
+    filter in Python rather than SQL (a JOIN there would break the HNSW
+    index — see the comment in search_items)."""
+    return bool(vendor and vendor.is_active and vendor.phone_verified_at is not None and vendor.location)
+
 def _can_view_hidden_item(current_user: Optional[models.User], item: models.Item) -> bool:
     return bool(current_user and (current_user.is_admin or current_user.vendor_id == item.vendor_id))
 
@@ -960,8 +984,9 @@ def read_item(item_id: int, db: Session = Depends(get_db), current_user: Optiona
     )
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if item.is_hidden:
-        # 404, not 403 — don't leak that a hidden item exists to non-owners
+    vendor_invisible = item.vendor_id is not None and not _vendor_is_visible(item.vendor)
+    if item.is_hidden or vendor_invisible:
+        # 404, not 403 — don't leak that a hidden/vendor-invisible item exists to non-owners
         if not _can_view_hidden_item(current_user, item):
             raise HTTPException(status_code=404, detail="Item not found")
         return serialize_item(item)  # viewer-dependent — never cached
@@ -2224,7 +2249,7 @@ def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):
-    vendors = db.query(models.Vendor).all()
+    vendors = db.query(models.Vendor).filter(_vendor_visible_filter()).all()
     result = []
     for v in vendors:
         count = db.query(models.Item).filter(models.Item.vendor_id == v.id).count()
@@ -2242,7 +2267,7 @@ def search_vendors(request: Request, q: str, db: Session = Depends(get_db)):
     rows = (
         db.query(models.Vendor, func.count(models.Item.id))
         .outerjoin(models.Item, and_(models.Item.vendor_id == models.Vendor.id, models.Item.is_hidden == False))
-        .filter(models.Vendor.is_active == True, models.Vendor.name.ilike(f"%{q}%"))
+        .filter(_vendor_visible_filter(), models.Vendor.name.ilike(f"%{q}%"))
         .group_by(models.Vendor.id)
         .order_by(models.Vendor.is_pinned.desc(), models.Vendor.name.asc())
         .limit(5)
@@ -2267,7 +2292,9 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
     item_count_query = db.query(func.count(models.Item.id)).filter(models.Item.vendor_id == vendor.id)
     if not is_owner:
         item_count_query = item_count_query.filter(models.Item.is_hidden == False)
-    item_count = item_count_query.scalar()
+    # A non-owner viewing a vendor that isn't marketplace-visible sees the
+    # profile itself, just with nothing listed — not a 404.
+    item_count = 0 if (not is_owner and not _vendor_is_visible(vendor)) else item_count_query.scalar()
     hidden_item_count = None
     if is_owner:
         hidden_item_count = db.query(func.count(models.Item.id)).filter(
@@ -2287,6 +2314,7 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
         location=vendor.location if is_owner else None,
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
         hidden_item_count=hidden_item_count,
+        marketplace_visible=_vendor_is_visible(vendor) if is_owner else None,
     )
 
 @app.put("/vendor/me", response_model=schemas.UserInfo)
@@ -2394,7 +2422,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         )
         vector_results = [
             it for it in raw_vector
-            if (it.vendor_id is None or (it.vendor and it.vendor.is_active)) and not it.is_hidden
+            if (it.vendor_id is None or _vendor_is_visible(it.vendor)) and not it.is_hidden
         ][:40]
 
         # 3. Keyword search (exact matches)
@@ -2403,7 +2431,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
             .options(defer(models.Item.embedding))
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(
-                or_(models.Item.vendor_id == None, models.Vendor.is_active == True),
+                or_(models.Item.vendor_id == None, _vendor_visible_filter()),
                 models.Item.is_hidden == False,
                 or_(
                     models.Item.name.ilike(f"%{query}%"),
@@ -2458,7 +2486,7 @@ async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_
         # vector branch: preserves the HNSW index query plan.
         items = [
             it for it in items
-            if not it.is_hidden and (it.vendor_id is None or (it.vendor and it.vendor.is_active))
+            if not it.is_hidden and (it.vendor_id is None or _vendor_is_visible(it.vendor))
         ]
 
         if not items:
@@ -2486,7 +2514,7 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
     items = (
         db.query(models.Item)
         .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
-        .filter(or_(models.Item.vendor_id == None, models.Vendor.is_active == True))
+        .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
         .filter(models.Item.is_hidden == False)
         .order_by(models.Item.embedding.l2_distance(input_emb.tolist()))
         .limit(50)
@@ -2665,7 +2693,12 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
         selectinload(models.Item.vendor),
     ).filter(models.Item.id.in_(item_ids)).all()
     id_to_item = {i.id: i for i in items}
-    return [serialize_item(id_to_item[iid]) for iid in item_ids if iid in id_to_item]
+    # Silently drop items whose vendor has since become invisible (deactivated,
+    # unverified, or no location) — the buyer's saved list just quietly shrinks.
+    return [
+        serialize_item(id_to_item[iid]) for iid in item_ids
+        if iid in id_to_item and (id_to_item[iid].vendor_id is None or _vendor_is_visible(id_to_item[iid].vendor))
+    ]
 
 @app.post("/wardrobe/{item_id}", status_code=204)
 def add_wardrobe(item_id: int, current: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2673,6 +2706,8 @@ def add_wardrobe(item_id: int, current: models.User = Depends(get_current_user),
         raise HTTPException(status_code=401, detail="Unauthorized")
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.vendor_id is not None and not _vendor_is_visible(item.vendor):
         raise HTTPException(status_code=404, detail="Item not found")
     exists = db.query(models.Wardrobe).filter(models.Wardrobe.user_id == current.id, models.Wardrobe.item_id == item_id).first()
     if exists:
@@ -3087,6 +3122,12 @@ def admin_toggle_vendor(vendor_id: int, db: Session = Depends(get_db), _: models
     cache.feed_invalidate_all()
     cache.search_invalidate_all()
     cache.admin_stats_invalidate()
+    if not vendor.is_active:
+        # Per-item cache (ITEM_TTL = 1hr) isn't touched by the invalidations
+        # above — bust it too so a cached "visible" item-detail response
+        # can't keep being served after the vendor goes invisible.
+        for item in vendor.items:
+            cache.item_invalidate(item.id)
     return schemas.AdminVendor(
         id=vendor.id, name=vendor.name, whatsapp=vendor.whatsapp,
         is_active=vendor.is_active, is_pinned=vendor.is_pinned,

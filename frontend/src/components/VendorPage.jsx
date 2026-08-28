@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera, MapPin, Crown } from 'lucide-react';
+import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
@@ -428,6 +428,13 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           {copied ? 'Copied!' : 'share profile'}
         </button>
       </div>
+
+      {isOwnProfile && vendorInfo?.marketplace_visible === false && (
+        <div className="px-4 md:px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2.5 text-sm text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>your items aren't visible to buyers — verify your phone and set a valid pickup location</span>
+        </div>
+      )}
 
       {/* Settings panel */}
       {isOwnProfile && settingsOpen && (
