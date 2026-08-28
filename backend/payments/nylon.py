@@ -1,10 +1,10 @@
 import uuid
 from typing import Optional, Dict, Any
 
-from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature
+from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination
 
 from config import settings
-from .base import PaymentProvider, InitiateResult, WebhookResult
+from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult
 
 
 class NylonPayProvider(PaymentProvider):
@@ -90,3 +90,47 @@ class NylonPayProvider(PaymentProvider):
             status=status_map.get(payload.get("status"), "pending"),
             raw=data,
         )
+
+    def payout(
+        self,
+        *,
+        tx_ref: str,
+        amount: float,
+        currency: str,
+        destination_phone: str,
+        destination_name: str,
+        description: str,
+    ) -> PayoutResult:
+        client = self._get_client()
+        reference = str(uuid.uuid4())
+        # Mobile-money payout: the "account" is the phone number itself, so
+        # account_number and phone both carry it. No bank_name — this isn't
+        # a bank transfer. NOTE: this field mapping is inferred from the SDK's
+        # type signatures alone (account_holder_name/account_number/bank_name/
+        # phone on Destination) — it has not been validated against Nylon
+        # Pay's actual docs or a real payout, and should be confirmed with a
+        # small real transfer before any vendor relies on it.
+        try:
+            result = client.make_payout_and_resolve(
+                amount=int(round(amount)),
+                currency=currency,
+                customer=Customer(name=destination_name, phone_number=destination_phone, email=None),
+                destination=Destination(
+                    account_holder_name=destination_name,
+                    account_number=destination_phone,
+                    bank_name=None,
+                    phone=destination_phone,
+                ),
+                description=description,
+                reference=reference,
+            )
+        except SdkException as e:
+            return PayoutResult(success=False, status="failed", failure_reason=f"[{e.category}] {e}")
+
+        if result.is_err:
+            return PayoutResult(success=False, status="failed", failure_reason=str(result.error))
+
+        txn = result.value
+        if txn.status == "successful":
+            return PayoutResult(success=True, status="successful", provider_ref=txn.id)
+        return PayoutResult(success=False, status=txn.status, provider_ref=txn.id, failure_reason=txn.failure_reason)

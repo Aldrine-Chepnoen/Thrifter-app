@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { fetchVendorOrders } from '../api';
+import { Wallet } from 'lucide-react';
+import { fetchVendorOrders, fetchVendorWallet, requestVendorWithdrawal } from '../api';
 import { getImageSrc, ORDER_STATUS_LABELS } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
@@ -22,10 +23,26 @@ const STATUS_STYLES = {
 const VendorOrders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [wallet, setWallet] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     fetchVendorOrders().then(setOrders).catch(() => {}).finally(() => setLoading(false));
+    fetchVendorWallet().then(setWallet).catch(() => {});
   }, []);
+
+  const handleWithdraw = async () => {
+    if (!window.confirm(`Withdraw ${formatUGX(wallet.balance)}? An admin will review and send it to your WhatsApp number.`)) return;
+    setWithdrawing(true);
+    try {
+      const updated = await requestVendorWithdrawal();
+      setWallet(updated);
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Could not request withdrawal.');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   if (loading) return <ThrifterLoader />;
 
@@ -36,7 +53,37 @@ const VendorOrders = () => {
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
+    <div>
+      {wallet && (
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-5 mb-6 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#EAAD11]/15 flex items-center justify-center shrink-0">
+              <Wallet className="w-5 h-5 text-[#EAAD11]" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Wallet balance</p>
+              <p className="text-xl font-bold">{formatUGX(wallet.balance)}</p>
+            </div>
+          </div>
+          {wallet.pending_withdrawal ? (
+            <div className="text-right">
+              <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                {formatUGX(wallet.pending_withdrawal.amount)} pending admin approval
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">Requested {formatDate(wallet.pending_withdrawal.requested_at)}</p>
+            </div>
+          ) : (
+            <button
+              onClick={handleWithdraw}
+              disabled={withdrawing || wallet.balance <= 0}
+              className="text-sm bg-[#EAAD11] text-black font-bold px-4 py-2.5 rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+            >
+              {withdrawing ? 'Requesting…' : 'Withdraw'}
+            </button>
+          )}
+        </div>
+      )}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
       <table className="w-full text-sm min-w-[820px]">
         <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
           <tr>
@@ -82,6 +129,7 @@ const VendorOrders = () => {
       {orders.length === 0 && (
         <p className="text-center py-12 text-gray-400 text-sm">No orders yet.</p>
       )}
+      </div>
     </div>
   );
 };

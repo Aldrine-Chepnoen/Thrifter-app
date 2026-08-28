@@ -209,7 +209,6 @@ class Order(Base):
     checkout = relationship("Checkout", back_populates="orders")
     vendor = relationship("Vendor")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
-    payout = relationship("VendorPayout", back_populates="order", uselist=False, cascade="all, delete-orphan")
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -250,18 +249,46 @@ class WebhookEvent(Base):
     processed = Column(Boolean, default=False, nullable=False, index=True)
     received_at = Column(DateTime, default=datetime.utcnow)
 
-class VendorPayout(Base):
-    __tablename__ = "vendor_payouts"
+# NOTE: the old VendorPayout model (and its "vendor_payouts" table) has been
+# retired in favor of VendorWalletTransaction/VendorWithdrawal below — it
+# credited at payment time rather than delivery time and never got a UI. The
+# "vendor_payouts" table itself is deliberately left in place in the DB
+# (unused, not dropped) rather than risk a destructive migration on a live
+# database for a handful of rows nothing ever read.
+
+class VendorWalletTransaction(Base):
+    """Append-only ledger — a vendor's wallet balance is always
+    SUM(amount) for their vendor_id, never a stored mutable field, so it
+    can't drift out of sync with reality."""
+    __tablename__ = "vendor_wallet_transactions"
     id = Column(Integer, primary_key=True, index=True)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, unique=True)
-    amount = Column(Float, nullable=False)
-    status = Column(String, default="pending", nullable=False, index=True)  # pending, paid
-    paid_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    amount = Column(Float, nullable=False)  # positive = credit, negative = debit
+    reason = Column(String, nullable=False, index=True)  # delivery, withdrawal_requested, withdrawal_reversed
+    # Set only for reason="delivery" — UNIQUE blocks double-crediting the same order.
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True, unique=True)
+    withdrawal_id = Column(Integer, ForeignKey("vendor_withdrawals.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     vendor = relationship("Vendor")
-    order = relationship("Order", back_populates="payout")
+
+class VendorWithdrawal(Base):
+    __tablename__ = "vendor_withdrawals"
+    id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    # Snapshot of vendor.whatsapp at request time — protects against the
+    # vendor changing it between requesting and an admin approving.
+    destination_phone = Column(String, nullable=False)
+    status = Column(String, default="pending_approval", nullable=False, index=True)  # pending_approval, paid, rejected, failed
+    provider = Column(String, nullable=True)
+    provider_ref = Column(String, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    vendor = relationship("Vendor")
 
 class VendorSubscription(Base):
     __tablename__ = "vendor_subscriptions"

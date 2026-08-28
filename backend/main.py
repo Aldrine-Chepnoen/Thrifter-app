@@ -1625,15 +1625,11 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
         checkout.status = "paid"
         for order in checkout.orders:
             order.status = "paid"
-            db.add(models.VendorPayout(
-                vendor_id=order.vendor_id,
-                order_id=order.id,
-                amount=order.vendor_payout_amount,
-                status="pending",
-            ))
-        # Stock was already decremented at checkout-creation; the sale is now
-        # final, so just recompute status (may still be "reserved" if another
-        # concurrent checkout holds the rest of this item's stock).
+        # Vendor wallet crediting happens on delivery confirmation, not here
+        # — see update_admin_order_status(). Stock was already decremented at
+        # checkout-creation; the sale is now final, so just recompute status
+        # (may still be "reserved" if another concurrent checkout holds the
+        # rest of this item's stock).
         for order in checkout.orders:
             for oi in order.items:
                 item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
@@ -1970,48 +1966,6 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
     )
     return [_serialize_vendor_order(order) for order in orders]
 
-@app.get("/admin/payouts", response_model=List[schemas.VendorPayoutOut])
-def list_payouts(status: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
-    query = db.query(models.VendorPayout)
-    if status:
-        query = query.filter(models.VendorPayout.status == status)
-    payouts = query.order_by(models.VendorPayout.created_at.desc()).all()
-    return [
-        schemas.VendorPayoutOut(
-            id=p.id,
-            vendor_id=p.vendor_id,
-            vendor_name=p.vendor.name if p.vendor else None,
-            order_id=p.order_id,
-            amount=p.amount,
-            status=p.status,
-            paid_at=p.paid_at,
-            created_at=p.created_at,
-        )
-        for p in payouts
-    ]
-
-@app.patch("/admin/payouts/{payout_id}/mark-paid", response_model=schemas.VendorPayoutOut)
-def mark_payout_paid(payout_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
-    payout = db.query(models.VendorPayout).filter(models.VendorPayout.id == payout_id).first()
-    if not payout:
-        raise HTTPException(status_code=404, detail="Payout not found")
-    if payout.status == "paid":
-        raise HTTPException(status_code=409, detail="Payout already marked paid")
-    payout.status = "paid"
-    payout.paid_at = datetime.utcnow()
-    db.commit()
-    db.refresh(payout)
-    return schemas.VendorPayoutOut(
-        id=payout.id,
-        vendor_id=payout.vendor_id,
-        vendor_name=payout.vendor.name if payout.vendor else None,
-        order_id=payout.order_id,
-        amount=payout.amount,
-        status=payout.status,
-        paid_at=payout.paid_at,
-        created_at=payout.created_at,
-    )
-
 # ---------------------------------------------------------------------------
 # Admin order fulfillment
 # ---------------------------------------------------------------------------
@@ -2081,7 +2035,12 @@ def update_admin_order_status(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_admin),
 ):
-    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    # Locked so two concurrent PATCHes for the same order (a double-click, or
+    # a retried request) can't both pass the transition check before either
+    # commits — without this, the second one would fail at commit time with
+    # an unhandled IntegrityError from the wallet transaction's order_id
+    # unique constraint instead of a clean, expected response.
+    order = db.query(models.Order).filter(models.Order.id == order_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
@@ -2090,9 +2049,204 @@ def update_admin_order_status(
         raise HTTPException(status_code=409, detail=f"Cannot move order from '{order.status}' to '{body.status}'")
 
     order.status = body.status
+    if body.status == "delivered":
+        # Credits the vendor's wallet with their 95% share. The order_id
+        # unique constraint on VendorWalletTransaction is a second line of
+        # defense against double-crediting on top of the state machine above
+        # already preventing a re-transition into "delivered".
+        db.add(models.VendorWalletTransaction(
+            vendor_id=order.vendor_id,
+            amount=order.vendor_payout_amount,
+            reason="delivery",
+            order_id=order.id,
+        ))
     db.commit()
     db.refresh(order)
     return _serialize_admin_order(order)
+
+# ---------------------------------------------------------------------------
+# Vendor wallet & withdrawals
+# ---------------------------------------------------------------------------
+
+def _vendor_wallet_balance(db: Session, vendor_id: int) -> float:
+    return db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).filter(
+        models.VendorWalletTransaction.vendor_id == vendor_id
+    ).scalar()
+
+def _serialize_withdrawal(w: models.VendorWithdrawal) -> schemas.VendorWithdrawalOut:
+    return schemas.VendorWithdrawalOut(
+        id=w.id, amount=w.amount, status=w.status,
+        requested_at=w.requested_at, reviewed_at=w.reviewed_at,
+        failure_reason=w.failure_reason,
+    )
+
+@app.get("/vendor/me/wallet", response_model=schemas.VendorWalletStatus)
+def get_vendor_wallet(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
+    balance = _vendor_wallet_balance(db, current_user.vendor_id)
+    pending = (
+        db.query(models.VendorWithdrawal)
+        .filter(models.VendorWithdrawal.vendor_id == current_user.vendor_id, models.VendorWithdrawal.status == "pending_approval")
+        .order_by(models.VendorWithdrawal.id.desc())
+        .first()
+    )
+    return schemas.VendorWalletStatus(
+        balance=balance,
+        currency="UGX",
+        pending_withdrawal=_serialize_withdrawal(pending) if pending else None,
+    )
+
+@app.post("/vendor/me/wallet/withdraw", response_model=schemas.VendorWalletStatus)
+def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
+    # Locked so two rapid clicks (or a retry) can't both pass the
+    # no-pending-withdrawal check before either commits.
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).with_for_update().first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    existing_pending = (
+        db.query(models.VendorWithdrawal)
+        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status == "pending_approval")
+        .first()
+    )
+    if existing_pending:
+        raise HTTPException(status_code=409, detail="You already have a withdrawal awaiting approval.")
+
+    balance = _vendor_wallet_balance(db, vendor.id)
+    if balance <= 0:
+        raise HTTPException(status_code=400, detail="Your wallet balance is empty.")
+
+    withdrawal = models.VendorWithdrawal(
+        vendor_id=vendor.id,
+        amount=balance,
+        destination_phone=vendor.whatsapp,
+        status="pending_approval",
+    )
+    db.add(withdrawal)
+    db.flush()
+    # Debited immediately — the vendor's balance drops to 0 the moment they
+    # request a withdrawal, not once an admin later approves it. If the
+    # request is rejected or the payout fails, a reversing credit restores it.
+    db.add(models.VendorWalletTransaction(
+        vendor_id=vendor.id,
+        amount=-balance,
+        reason="withdrawal_requested",
+        withdrawal_id=withdrawal.id,
+    ))
+    db.commit()
+
+    return schemas.VendorWalletStatus(
+        balance=0.0,
+        currency="UGX",
+        pending_withdrawal=_serialize_withdrawal(withdrawal),
+    )
+
+@app.get("/admin/withdrawals", response_model=List[schemas.AdminWithdrawalOut])
+def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    withdrawals = (
+        db.query(models.VendorWithdrawal)
+        .options(joinedload(models.VendorWithdrawal.vendor))
+        .order_by(models.VendorWithdrawal.requested_at.desc())
+        .all()
+    )
+    return [
+        schemas.AdminWithdrawalOut(
+            id=w.id, vendor_id=w.vendor_id,
+            vendor_name=w.vendor.name if w.vendor else None,
+            destination_phone=w.destination_phone,
+            amount=w.amount, status=w.status,
+            failure_reason=w.failure_reason,
+            requested_at=w.requested_at, reviewed_at=w.reviewed_at,
+        )
+        for w in withdrawals
+    ]
+
+def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> None:
+    """Restores the vendor's balance for a withdrawal that didn't go
+    through — used by both reject and a failed payout attempt."""
+    db.add(models.VendorWalletTransaction(
+        vendor_id=withdrawal.vendor_id,
+        amount=withdrawal.amount,
+        reason="withdrawal_reversed",
+        withdrawal_id=withdrawal.id,
+    ))
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
+def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "pending_approval":
+        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+    tx_ref = f"PAYOUT-{withdrawal.id}-{uuid.uuid4().hex[:10]}"
+    provider_name = settings.DEFAULT_PAYMENT_PROVIDER
+    try:
+        provider = payments.get_provider(provider_name)
+        result = provider.payout(
+            tx_ref=tx_ref,
+            amount=withdrawal.amount,
+            currency="UGX",
+            destination_phone=withdrawal.destination_phone,
+            destination_name=vendor.name if vendor else "Thrifter vendor",
+            description=f"Thrifter payout #{withdrawal.id}",
+        )
+    except Exception as e:
+        logger.error(f"Payout attempt failed for withdrawal {withdrawal.id}: {str(e)}", exc_info=True)
+        withdrawal.status = "failed"
+        withdrawal.failure_reason = str(e)
+        withdrawal.provider = provider_name
+        withdrawal.reviewed_at = datetime.utcnow()
+        withdrawal.reviewed_by_user_id = current_user.id
+        _reverse_withdrawal(db, withdrawal)
+        db.commit()
+        raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
+
+    withdrawal.provider = provider_name
+    withdrawal.reviewed_at = datetime.utcnow()
+    withdrawal.reviewed_by_user_id = current_user.id
+    if result.success:
+        withdrawal.status = "paid"
+        withdrawal.provider_ref = result.provider_ref
+    else:
+        withdrawal.status = "failed"
+        withdrawal.failure_reason = result.failure_reason
+        withdrawal.provider_ref = result.provider_ref
+        _reverse_withdrawal(db, withdrawal)
+    db.commit()
+    db.refresh(withdrawal)
+    return schemas.AdminWithdrawalOut(
+        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
+        vendor_name=vendor.name if vendor else None,
+        destination_phone=withdrawal.destination_phone,
+        amount=withdrawal.amount, status=withdrawal.status,
+        failure_reason=withdrawal.failure_reason,
+        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
+    )
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/reject", response_model=schemas.AdminWithdrawalOut)
+def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "pending_approval":
+        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
+
+    withdrawal.status = "rejected"
+    withdrawal.reviewed_at = datetime.utcnow()
+    withdrawal.reviewed_by_user_id = current_user.id
+    _reverse_withdrawal(db, withdrawal)
+    db.commit()
+    db.refresh(withdrawal)
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+    return schemas.AdminWithdrawalOut(
+        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
+        vendor_name=vendor.name if vendor else None,
+        destination_phone=withdrawal.destination_phone,
+        amount=withdrawal.amount, status=withdrawal.status,
+        failure_reason=withdrawal.failure_reason,
+        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
+    )
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):

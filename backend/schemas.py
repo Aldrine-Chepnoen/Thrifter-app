@@ -408,15 +408,29 @@ class AdminOrderOut(BaseModel):
     delivery_day: datetime
     items: List[OrderItemOut] = []
 
-class VendorPayoutOut(BaseModel):
+class VendorWithdrawalOut(BaseModel):
+    id: int
+    amount: float
+    status: str
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
+    failure_reason: Optional[str] = None
+
+class VendorWalletStatus(BaseModel):
+    balance: float
+    currency: str = "UGX"
+    pending_withdrawal: Optional[VendorWithdrawalOut] = None
+
+class AdminWithdrawalOut(BaseModel):
     id: int
     vendor_id: int
     vendor_name: Optional[str] = None
-    order_id: int
+    destination_phone: str
     amount: float
     status: str
-    paid_at: Optional[datetime] = None
-    created_at: datetime
+    failure_reason: Optional[str] = None
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
 
 class DailyViewCount(BaseModel):
     date: str
