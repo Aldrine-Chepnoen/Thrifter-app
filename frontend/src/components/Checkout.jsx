@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createCheckout, payCheckout, API_BASE_URL } from '../api';
+import { MapPin } from 'lucide-react';
+import api, { createCheckout, payCheckout, API_BASE_URL } from '../api';
 import { getImageSrc } from '../utils';
 
 const formatUGX = (n) => {
@@ -12,7 +13,39 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [locating, setLocating] = useState(false);
   const didConfirmRef = useRef(false);
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser. Please type your delivery address instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your delivery address?')) {
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setForm((f) => ({ ...f, delivery_address: res.data.address }));
+        } catch (e) {
+          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your delivery address instead.');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        alert('Could not get your location. Please type your delivery address instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   // Release held stock as soon as the buyer leaves the confirm step without
   // paying, instead of making it wait out the full hold window — silent,
@@ -216,7 +249,18 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Delivery address <span className="text-red-500">*</span></label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm font-medium">Delivery address <span className="text-red-500">*</span></label>
+            <button
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={locating}
+              className="flex items-center gap-1 text-xs font-semibold text-[#EAAD11] hover:underline disabled:opacity-50"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              {locating ? 'Locating…' : 'Use my location'}
+            </button>
+          </div>
           <textarea
             value={form.delivery_address}
             onChange={(e) => setForm((f) => ({ ...f, delivery_address: e.target.value }))}
