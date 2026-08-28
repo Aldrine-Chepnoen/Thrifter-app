@@ -8,12 +8,14 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFee, user, openAuthModal }) => {
+const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFeeSingleVendor, deliveryFeeMultiVendor, user, openAuthModal }) => {
   const navigate = useNavigate();
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
-  const hasDeliveryFee = deliveryFee != null;
+  const vendorCount = new Set(cartItems.map((i) => i.vendor_id)).size;
+  const hasDeliveryFee = deliveryFeeSingleVendor != null && deliveryFeeMultiVendor != null;
+  const deliveryFee = vendorCount > 1 ? deliveryFeeMultiVendor : deliveryFeeSingleVendor;
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
-  const total = subtotal + (deliveryFee || 0) + tax;
+  const total = subtotal + (hasDeliveryFee ? deliveryFee : 0) + tax;
 
   // Silently correct the cart against live stock on every visit — no banner,
   // no mention of "reservation": an item that sold out elsewhere just quietly

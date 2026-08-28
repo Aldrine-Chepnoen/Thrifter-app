@@ -127,7 +127,8 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
-        "delivery_fee_ugx": settings.DELIVERY_FEE_UGX,
+        "delivery_fee_single_vendor_ugx": settings.DELIVERY_FEE_SINGLE_VENDOR_UGX,
+        "delivery_fee_multi_vendor_ugx": settings.DELIVERY_FEE_MULTI_VENDOR_UGX,
         "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
@@ -720,6 +721,7 @@ def serialize_item(item: models.Item) -> schemas.Item:
 
     return schemas.Item(
         id=item.id,
+        vendor_id=item.vendor_id,
         # Truncate defensively: one over-long row must never 500 a whole feed
         name=(item.name or "")[:100],
         price=item.price,
@@ -1396,7 +1398,10 @@ def create_checkout(
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
         subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
-        delivery_fee = settings.DELIVERY_FEE_UGX
+        delivery_fee = (
+            settings.DELIVERY_FEE_SINGLE_VENDOR_UGX if len(by_vendor) == 1
+            else settings.DELIVERY_FEE_MULTI_VENDOR_UGX
+        )
         total_amount = subtotal + delivery_fee
 
         checkout = models.Checkout(

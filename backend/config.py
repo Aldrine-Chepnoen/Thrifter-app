@@ -48,7 +48,10 @@ class Settings(BaseSettings):
 
     # Checkout / commerce
     DEFAULT_PAYMENT_PROVIDER: str = os.getenv("DEFAULT_PAYMENT_PROVIDER", "nylon")
-    DELIVERY_FEE_UGX: float = float(os.getenv("DELIVERY_FEE_UGX", "5000"))
+    # Flat per-checkout fee when every item in the cart comes from one vendor;
+    # a checkout spanning multiple vendors costs more to fulfil, hence the split.
+    DELIVERY_FEE_SINGLE_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_SINGLE_VENDOR_UGX", "5000"))
+    DELIVERY_FEE_MULTI_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_MULTI_VENDOR_UGX", "10000"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
     # How often the background reconciliation loop sweeps for stale/pending checkouts.

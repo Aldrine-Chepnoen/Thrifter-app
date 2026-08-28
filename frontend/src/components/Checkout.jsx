@@ -7,7 +7,7 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes }) => {
+const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryFeeMultiVendor, reservationMinutes }) => {
   const [step, setStep] = useState('form'); // 'form' | 'confirm'
   const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
@@ -70,9 +70,11 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
   }, [step, checkout]);
 
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
-  const hasDeliveryFee = deliveryFee != null;
+  const vendorCount = new Set(cartItems.map((i) => i.vendor_id)).size;
+  const hasDeliveryFee = deliveryFeeSingleVendor != null && deliveryFeeMultiVendor != null;
+  const deliveryFee = vendorCount > 1 ? deliveryFeeMultiVendor : deliveryFeeSingleVendor;
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
-  const total = subtotal + (deliveryFee || 0) + tax;
+  const total = subtotal + (hasDeliveryFee ? deliveryFee : 0) + tax;
 
   if (cartItems.length === 0 && step === 'form') {
     return (

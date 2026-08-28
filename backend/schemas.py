@@ -133,6 +133,7 @@ class ItemImage(BaseModel):
 
 class Item(ItemBase):
     id: int
+    vendor_id: Optional[int] = None
     image_path: str
     cloudinary_public_id: Optional[str] = None
     fallback_url: Optional[str] = None
