@@ -11,7 +11,6 @@ import VendorPage from './components/VendorPage';
 import AdminDashboard from './components/AdminDashboard';
 import FilterSheet from './components/FilterSheet';
 import ThrifterLoader from './components/ThrifterLoader';
-import SurveyPopup from './components/SurveyPopup';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { onImageHostChange } from './imageHost';
 import posthog from 'posthog-js';
@@ -43,7 +42,6 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
-  const [showSurvey, setShowSurvey] = useState(false);
   const [activeStyle, setActiveStyle] = useState(null);
   const [isBuilderMode, setIsBuilderMode] = useState(false);
   const [styleModalOpen, setStyleModalOpen] = useState(false);
@@ -238,19 +236,6 @@ function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    if (localStorage.getItem(`survey_seen_${user.id}`)) return;
-    if (sessionStorage.getItem(`survey_dismissed_${user.id}`)) return;
-    const t = setTimeout(() => setShowSurvey(true), 1000);
-    return () => clearTimeout(t);
-  }, [user?.id]);
-
-  const handleSurveyDismiss = () => {
-    if (user?.id) sessionStorage.setItem(`survey_dismissed_${user.id}`, 'true');
-    setShowSurvey(false);
-  };
-
   const handleSearch = (query) => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -419,7 +404,6 @@ function App() {
           onImageSearchClick={handleImageSearchClick}
           user={user}
           onLogout={() => {
-            if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
             localStorage.removeItem('thrifter_token');
             setUser(null);
             setWardrobeIds(new Set());
@@ -652,10 +636,6 @@ function App() {
         activeFilters={activeFilters}
         onApply={handleFiltersApply}
       />
-
-      {showSurvey && (
-        <SurveyPopup user={user} onDismiss={handleSurveyDismiss} />
-      )}
 
       <AnimatePresence>
         {styleModalOpen && activeStyleForModal && (
