@@ -1639,7 +1639,7 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
     # "pending" — leave everything as-is; a later webhook delivery will resolve it.
 
 def _run_reconciliation_sweep() -> None:
-    """Two passes, run periodically so checkout resolution doesn't depend on
+    """Run periodically so checkout/subscription resolution doesn't depend on
     either the buyer's browser still being open or a webhook ever arriving:
 
     1. Proactively expire any pending checkout past its reservation window,
@@ -1652,6 +1652,11 @@ def _run_reconciliation_sweep() -> None:
        The confirmation page only polls for ~60s; a real mobile-money prompt
        can take much longer, so this is what catches it after the buyer's
        browser has stopped watching.
+    3. Same idea for vendor premium-upgrade payments (VendorSubscription):
+       reconcile still-recent pending ones against the provider, and
+       proactively fail any that have gone stale past the window — so
+       GET /vendor/me/subscription never has to live-verify an old abandoned
+       attempt on every page load.
     """
     db = SessionLocal()
     try:
@@ -1689,6 +1694,53 @@ def _run_reconciliation_sweep() -> None:
             except Exception as e:
                 db.rollback()
                 logger.warning(f"Reconciliation verify failed for payment {payment.id}: {str(e)}")
+
+        # Same two-pass treatment for vendor premium-upgrade payments, so a
+        # vendor who abandons a Nylon Pay prompt doesn't leave a pending row
+        # that GET /vendor/me/subscription would otherwise have to live-verify
+        # forever (see VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES there).
+        subscription_cutoff = now - timedelta(minutes=settings.VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES)
+
+        pending_subscriptions = (
+            db.query(models.VendorSubscription)
+            .filter(
+                models.VendorSubscription.status == "pending",
+                models.VendorSubscription.provider_tx_id.isnot(None),
+                models.VendorSubscription.created_at >= subscription_cutoff,
+            )
+            .all()
+        )
+        for subscription in pending_subscriptions:
+            try:
+                provider = payments.get_provider(subscription.provider)
+                result_status = provider.verify(subscription.tx_ref, subscription.provider_tx_id)
+                changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, result_status)
+                for item_id in changed_ids:
+                    cache.item_invalidate(item_id)
+                if changed_ids:
+                    cache.feed_invalidate_all()
+                    cache.search_invalidate_all()
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Reconciliation verify failed for vendor subscription {subscription.id}: {str(e)}")
+
+        stale_subscriptions = (
+            db.query(models.VendorSubscription)
+            .filter(
+                models.VendorSubscription.status == "pending",
+                models.VendorSubscription.created_at < subscription_cutoff,
+            )
+            .all()
+        )
+        for subscription in stale_subscriptions:
+            locked = (
+                db.query(models.VendorSubscription)
+                .filter(models.VendorSubscription.id == subscription.id)
+                .with_for_update()
+                .first()
+            )
+            if locked and locked.status == "pending":
+                vendor_premium.finalize_subscription_payment(db, locked, "failed")
     except Exception as e:
         logger.error(f"Reconciliation sweep failed: {str(e)}", exc_info=True)
     finally:
@@ -1793,10 +1845,14 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         .order_by(models.VendorSubscription.id.desc())
         .first()
     )
-    # Active re-verify if the latest attempt is still pending — mirrors GET
-    # /checkout/{id}'s fallback for environments where the webhook hasn't
-    # arrived yet (e.g. no public URL registered locally).
-    if latest_pending and latest_pending.provider_tx_id:
+    # Active re-verify if the latest attempt is still pending AND recent —
+    # mirrors GET /checkout/{id}'s fallback for environments where the webhook
+    # hasn't arrived yet (e.g. no public URL registered locally). Bounded by
+    # age so a long-abandoned pending row (which the background reconciliation
+    # sweep will eventually expire anyway — see _run_reconciliation_sweep)
+    # doesn't force a slow live Nylon Pay call on every single page load.
+    pending_cutoff = datetime.utcnow() - timedelta(minutes=settings.VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES)
+    if latest_pending and latest_pending.provider_tx_id and latest_pending.created_at >= pending_cutoff:
         try:
             provider = payments.get_provider(latest_pending.provider)
             status = provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)

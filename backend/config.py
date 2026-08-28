@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Placeholder — confirm the real price before launch.
     VENDOR_PREMIUM_PRICE_UGX: float = float(os.getenv("VENDOR_PREMIUM_PRICE_UGX", "50000"))
     VENDOR_PREMIUM_PERIOD_DAYS: int = int(os.getenv("VENDOR_PREMIUM_PERIOD_DAYS", "30"))
+    # How long a pending VendorSubscription is young enough to be worth a live,
+    # synchronous Nylon Pay verify() call on page load. Past this window the
+    # background reconciliation sweep takes over instead (see
+    # _run_reconciliation_sweep) — mirrors CHECKOUT_RESERVATION_MINUTES.
+    VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES: int = int(os.getenv("VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES", "20"))
 
     # SMS (EgoSMS / Pahappa Comms API — live transactional sends; see sms.py)
     EGOSMS_USERNAME: Optional[str] = os.getenv("EGOSMS_USERNAME")
