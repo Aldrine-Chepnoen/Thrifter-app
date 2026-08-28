@@ -3198,7 +3198,7 @@ def admin_deactivate_vendors_bulk(body: schemas.BulkVendorIds, db: Session = Dep
 def confirm_vendor_verification(request: Request, body: schemas.VendorVerifyRequest, db: Session = Depends(get_db)):
     result = vendor_verify.decode_vendor_verify_token(body.token)
     if result["status"] != "ok":
-        return schemas.VendorVerifyResponse(status=result["status"])
+        return schemas.VendorVerifyResponse(status=result["status"], channel=result["channel"])
 
     vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
     if not vendor:
@@ -3220,7 +3220,7 @@ def confirm_vendor_verification(request: Request, body: schemas.VendorVerifyRequ
 def update_vendor_verification_location(request: Request, body: schemas.VendorVerifyLocationRequest, db: Session = Depends(get_db)):
     result = vendor_verify.decode_vendor_verify_token(body.token)
     if result["status"] != "ok":
-        return schemas.VendorVerifyResponse(status=result["status"])
+        return schemas.VendorVerifyResponse(status=result["status"], channel=result["channel"])
 
     vendor = db.query(models.Vendor).filter(models.Vendor.id == result["vendor_id"]).first()
     if not vendor:

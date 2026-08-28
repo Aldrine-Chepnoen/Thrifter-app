@@ -180,6 +180,7 @@ class VendorVerifyRequest(BaseModel):
 class VendorVerifyResponse(BaseModel):
     status: str  # "confirmed" | "expired" | "invalid"
     vendor_name: Optional[str] = None
+    channel: Optional[str] = None  # "sms" | "email" | None — lets the frontend avoid assuming email on failure
 
 class VendorVerifyLocationRequest(BaseModel):
     token: str

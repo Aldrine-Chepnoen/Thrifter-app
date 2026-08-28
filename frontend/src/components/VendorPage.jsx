@@ -19,6 +19,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const verifyToken = searchParams.get('verify');
   const [confirmedToken] = useState(() => verifyToken);
   const [verifyState, setVerifyState] = useState(verifyToken ? 'checking' : null);
+  const [verifyChannel, setVerifyChannel] = useState(null);
   const [verifyLocationInput, setVerifyLocationInput] = useState('');
   const [verifyLocationSaving, setVerifyLocationSaving] = useState(false);
   const [verifyLocationSaved, setVerifyLocationSaved] = useState(false);
@@ -99,7 +100,10 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   useEffect(() => {
     if (!verifyToken) return;
     api.post('/vendors/verify', { token: verifyToken })
-      .then(res => setVerifyState(res.data.status))
+      .then(res => {
+        setVerifyState(res.data.status);
+        setVerifyChannel(res.data.channel || null);
+      })
       .catch(() => setVerifyState('invalid'))
       .finally(() => {
         searchParams.delete('verify');
@@ -274,10 +278,24 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  // Never assume email — a SMS-origin link that fails to verify must not
+  // tell the vendor to go check their inbox. verifyChannel is only known
+  // when the backend could actually recover it (see decode_vendor_verify_token);
+  // otherwise the copy stays medium-neutral rather than guessing.
   const verifyModalContent = {
     checking: { title: 'Confirming…', body: null },
-    expired: { title: 'This link has expired', body: "This verification window has closed. Contact us if you're still an active seller." },
-    invalid: { title: "This link isn't valid", body: 'Please use the confirmation link from your email.' },
+    expired: {
+      title: 'This link has expired',
+      body: verifyChannel === 'sms'
+        ? 'This verification link has expired. Go to Store Settings and tap "Send verification SMS" to get a new one.'
+        : "This verification window has closed. Contact us if you're still an active seller.",
+    },
+    invalid: {
+      title: "This link isn't valid",
+      body: verifyChannel === 'sms'
+        ? 'This verification link isn\'t valid. Go to Store Settings and tap "Send verification SMS" to request a new one.'
+        : "This confirmation link isn't valid. Please request a new one and try again.",
+    },
   }[verifyState];
 
   return (

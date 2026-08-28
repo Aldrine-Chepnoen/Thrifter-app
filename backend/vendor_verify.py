@@ -39,7 +39,17 @@ def decode_vendor_verify_token(token: str) -> VerifyResult:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
-        return {"status": "expired", "vendor_id": None, "channel": None}
+        # Still signature-verified, just past its exp — safe to peek at the
+        # channel claim so an expired SMS link doesn't tell the vendor to
+        # check their email (or vice versa).
+        try:
+            expired_payload = jwt.decode(
+                token, settings.JWT_SECRET, algorithms=["HS256"], options={"verify_exp": False}
+            )
+            channel = expired_payload.get("channel", "email")
+        except jwt.InvalidTokenError:
+            channel = None
+        return {"status": "expired", "vendor_id": None, "channel": channel}
     except jwt.InvalidTokenError:
         return {"status": "invalid", "vendor_id": None, "channel": None}
 
