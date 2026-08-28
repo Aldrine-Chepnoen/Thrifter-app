@@ -408,6 +408,7 @@ def get_outfit_styles(db: Session = Depends(get_db), current_user = Depends(get_
                     .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
                     .filter(models.Item.id.in_(sample_ids))
                     .filter(models.Item.is_hidden == False)
+                    .filter(models.Item.quantity > 0)
                     .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
                     .all()
                 )
@@ -458,7 +459,10 @@ def get_style_items(slug: str, db: Session = Depends(get_db)):
             .limit(limit * 2)
             .all()
         )
-        return [it for it in items if it.vendor_id is None or _vendor_is_visible(it.vendor)][:limit]
+        return [
+            it for it in items
+            if it.quantity > 0 and (it.vendor_id is None or _vendor_is_visible(it.vendor))
+        ][:limit]
 
     return schemas.StyleCategoryItems(
         tops=[serialize_item(i) for i in get_cluster_items(style.top_cluster, "top")],
@@ -897,6 +901,12 @@ def read_items(
             .filter(models.Item.is_hidden == False)
         )
 
+    # Sold-out items (quantity 0 — sold or reserved) stop being listed
+    # anywhere, no exceptions — including the vendor's own view of their own
+    # store. Once sold there's nothing to browse; they stay fully intact in
+    # the DB and in past orders, just never rendered as a card again.
+    query = query.filter(models.Item.quantity > 0)
+
     # Price range filter (also caps promo tab to ≤ 10 000 UGX)
     if sort == "promo":
         query = query.filter(models.Item.price <= 10000)
@@ -1271,11 +1281,21 @@ def _release_checkout(db: Session, checkout: models.Checkout, now: datetime, sta
     for order in checkout.orders:
         order.status = "cancelled"
     order_items = [oi for order in checkout.orders for oi in order.items]
+    restocked = False
     # Sort by item id — same deadlock-avoidance convention as create_checkout's lock ordering.
     for oi in sorted(order_items, key=lambda oi: oi.item_id):
         item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
         if item:
+            was_sold_out = item.quantity == 0
             _adjust_item_stock(db, item, +oi.quantity, now)
+            if was_sold_out and item.quantity > 0:
+                restocked = True
+    if restocked:
+        # Mirror of create_checkout's sold_out invalidation — an item going
+        # from invisible back to available needs the feed/search caches
+        # busted immediately too, not whenever their TTL happens to expire.
+        cache.feed_invalidate_all()
+        cache.search_invalidate_all()
 
 def _reclaim_expired_checkout(db: Session, checkout: models.Checkout, now: datetime) -> None:
     _release_checkout(db, checkout, now, "expired")
@@ -1353,13 +1373,22 @@ def create_checkout(
                 detail={"message": "Some items don't have enough stock left", "items": shortfalls},
             )
 
+        sold_out = False
         for item_id in item_ids:
             item = items_by_id[item_id]
             item.quantity -= qty_by_item_id[item_id]
             if item.quantity == 0:
                 item.status = "reserved"
+                sold_out = True
             # else: still some stock left — stays "available" for other buyers
             cache.item_invalidate(item.id)
+        if sold_out:
+            # A reserved/sold item must stop appearing in feed/search
+            # immediately, not whenever FEED_TTL/SEARCH_TTL next expires —
+            # unlike an ordinary partial-stock checkout, which doesn't need
+            # the wider caches busted since the item is still browsable.
+            cache.feed_invalidate_all()
+            cache.search_invalidate_all()
 
         by_vendor: dict = {}
         for item_id in item_ids:
@@ -1631,11 +1660,20 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
         checkout.status = "failed"
         for order in checkout.orders:
             order.status = "cancelled"
+        restocked = False
         for order in checkout.orders:
             for oi in order.items:
                 item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
                 if item:
+                    was_sold_out = item.quantity == 0
                     _adjust_item_stock(db, item, +oi.quantity, now)
+                    if was_sold_out and item.quantity > 0:
+                        restocked = True
+        if restocked:
+            # Same reasoning as _release_checkout — an item coming back from
+            # sold-out needs the feed/search caches busted right away.
+            cache.feed_invalidate_all()
+            cache.search_invalidate_all()
     # "pending" — leave everything as-is; a later webhook delivery will resolve it.
 
 def _run_reconciliation_sweep() -> None:
@@ -2361,7 +2399,9 @@ def get_vendor(name: str, db: Session = Depends(get_db), current_user: Optional[
         raise HTTPException(status_code=404, detail="Vendor not found")
     vendor_premium.sync_vendor_item_visibility(db, vendor)
     is_owner = bool(current_user and current_user.vendor_id == vendor.id)
-    item_count_query = db.query(func.count(models.Item.id)).filter(models.Item.vendor_id == vendor.id)
+    item_count_query = db.query(func.count(models.Item.id)).filter(
+        models.Item.vendor_id == vendor.id, models.Item.quantity > 0
+    )
     if not is_owner:
         item_count_query = item_count_query.filter(models.Item.is_hidden == False)
     # A non-owner viewing a vendor that isn't marketplace-visible sees the
@@ -2519,7 +2559,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         )
         vector_results = [
             it for it in raw_vector
-            if (it.vendor_id is None or _vendor_is_visible(it.vendor)) and not it.is_hidden
+            if it.quantity > 0 and (it.vendor_id is None or _vendor_is_visible(it.vendor)) and not it.is_hidden
         ][:40]
 
         # 3. Keyword search (exact matches)
@@ -2529,6 +2569,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
             .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
             .filter(
                 or_(models.Item.vendor_id == None, _vendor_visible_filter()),
+                models.Item.quantity > 0,
                 models.Item.is_hidden == False,
                 or_(
                     models.Item.name.ilike(f"%{query}%"),
@@ -2583,7 +2624,7 @@ async def outfit_search(file: UploadFile = File(...), db: Session = Depends(get_
         # vector branch: preserves the HNSW index query plan.
         items = [
             it for it in items
-            if not it.is_hidden and (it.vendor_id is None or _vendor_is_visible(it.vendor))
+            if not it.is_hidden and it.quantity > 0 and (it.vendor_id is None or _vendor_is_visible(it.vendor))
         ]
 
         if not items:
@@ -2612,6 +2653,7 @@ async def outfit_builder(file: UploadFile = File(...), db: Session = Depends(get
         db.query(models.Item)
         .outerjoin(models.Vendor, models.Item.vendor_id == models.Vendor.id)
         .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
+        .filter(models.Item.quantity > 0)
         .filter(models.Item.is_hidden == False)
         .order_by(models.Item.embedding.l2_distance(input_emb.tolist()))
         .limit(50)
@@ -2700,6 +2742,15 @@ def delete_item(
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only delete your own items")
+    # order_items.item_id has no cascade — deleting an item that's ever been
+    # part of an order would otherwise destroy its Cloudinary/R2 images below
+    # (not rollback-able) and then fail at the DB delete itself, leaving the
+    # item stuck with broken images. Check first, before touching storage.
+    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
+        raise HTTPException(
+            status_code=409,
+            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
+        )
     # Delete ItemImage storage assets and rows first to avoid FK constraint error
     for img in (item.images or []):
         try:
@@ -2791,10 +2842,13 @@ def get_wardrobe(current: models.User = Depends(get_current_user), db: Session =
     ).filter(models.Item.id.in_(item_ids)).all()
     id_to_item = {i.id: i for i in items}
     # Silently drop items whose vendor has since become invisible (deactivated,
-    # unverified, or no location) — the buyer's saved list just quietly shrinks.
+    # unverified, or no location), or that have sold out — the buyer's saved
+    # list just quietly shrinks; nothing is deleted, it just stops rendering.
     return [
         serialize_item(id_to_item[iid]) for iid in item_ids
-        if iid in id_to_item and (id_to_item[iid].vendor_id is None or _vendor_is_visible(id_to_item[iid].vendor))
+        if iid in id_to_item
+        and id_to_item[iid].quantity > 0
+        and (id_to_item[iid].vendor_id is None or _vendor_is_visible(id_to_item[iid].vendor))
     ]
 
 @app.post("/wardrobe/{item_id}", status_code=204)
@@ -3191,6 +3245,7 @@ def admin_list_items(
             selectinload(models.Item.images),
             selectinload(models.Item.vendor),
         )
+        .filter(models.Item.quantity > 0)
         .order_by(models.Item.id.desc())
         .offset(skip)
         .limit(limit)
@@ -3268,6 +3323,13 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    # See delete_item's comment — order_items.item_id has no cascade, so check
+    # before destroying storage assets, not after.
+    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
+        raise HTTPException(
+            status_code=409,
+            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
+        )
     for img in (item.images or []):
         try:
             # Dual-written images have an asset in both stores — clean up each
