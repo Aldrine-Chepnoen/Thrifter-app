@@ -20,7 +20,7 @@ slowapi
 pyjwt
 google-auth
 requests
-nylonpay-py
+nylonpay-py==0.5.0
 pydantic-settings
 email-validator
 cachetools

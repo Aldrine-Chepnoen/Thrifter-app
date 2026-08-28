@@ -105,11 +105,9 @@ class NylonPayProvider(PaymentProvider):
         reference = str(uuid.uuid4())
         # Mobile-money payout: the "account" is the phone number itself, so
         # account_number and phone both carry it. No bank_name — this isn't
-        # a bank transfer. NOTE: this field mapping is inferred from the SDK's
-        # type signatures alone (account_holder_name/account_number/bank_name/
-        # phone on Destination) — it has not been validated against Nylon
-        # Pay's actual docs or a real payout, and should be confirmed with a
-        # small real transfer before any vendor relies on it.
+        # a bank transfer. Field mapping confirmed against Nylon Pay's
+        # published Destination spec (account_holder_name/account_number/
+        # bank_name/phone).
         try:
             result = client.make_payout_and_resolve(
                 amount=int(round(amount)),

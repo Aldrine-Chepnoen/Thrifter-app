@@ -2060,6 +2060,10 @@ def update_admin_order_status(
 # Vendor wallet & withdrawals
 # ---------------------------------------------------------------------------
 
+# Mirrors Nylon Pay's own MIN_DISBURSEMENT_AMOUNT — a payout below this fails
+# at the provider regardless of what we send.
+MIN_PAYOUT_AMOUNT_UGX = 5000
+
 def _vendor_wallet_balance(db: Session, vendor_id: int) -> float:
     return db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).filter(
         models.VendorWalletTransaction.vendor_id == vendor_id
@@ -2106,6 +2110,14 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     balance = _vendor_wallet_balance(db, vendor.id)
     if balance <= 0:
         raise HTTPException(status_code=400, detail="Your wallet balance is empty.")
+    # Nylon Pay rejects payouts below this at the provider level (MIN_DISBURSEMENT_AMOUNT).
+    # Blocking it here avoids an admin approving a withdrawal that's doomed to fail
+    # and get auto-reversed by approve_withdrawal()'s error path.
+    if balance < MIN_PAYOUT_AMOUNT_UGX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Your balance (UGX {balance:,.0f}) is below the UGX {MIN_PAYOUT_AMOUNT_UGX:,} minimum withdrawal amount.",
+        )
 
     withdrawal = models.VendorWithdrawal(
         vendor_id=vendor.id,
