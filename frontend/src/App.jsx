@@ -21,6 +21,10 @@ import StyleDiscovery from './components/StyleDiscovery';
 import StyleModal from './components/StyleModal';
 import StyleBuilder from './components/StyleBuilder';
 import DemandBoard from './components/DemandBoard';
+import Cart from './components/Cart';
+import Checkout from './components/Checkout';
+import OrderConfirmation from './components/OrderConfirmation';
+import Orders from './components/Orders';
 
 function App() {
   const [items, setItems] = useState([]);
@@ -46,6 +50,27 @@ function App() {
   const [activeStyleForModal, setActiveStyleForModal] = useState(null);
   const [showWelcomeToast, setShowWelcomeToast] = useState(false);
   const [wardrobeIds, setWardrobeIds] = useState(new Set());
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem('thrifter_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem('thrifter_cart', JSON.stringify(cartItems));
+  }, [cartItems]);
+  const addToCart = (item, qty = 1) => {
+    setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
+  };
+  const removeFromCart = (itemId) => {
+    setCartItems((prev) => prev.filter((i) => i.id !== itemId));
+  };
+  const updateCartQuantity = (itemId, qty) => {
+    setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartQuantity: qty } : i)));
+  };
+  const clearCart = () => setCartItems([]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -408,6 +433,7 @@ function App() {
           hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
+          cartCount={cartItems.length}
         />
       )}
       
@@ -499,6 +525,29 @@ function App() {
         } />
         
         <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/" replace />} />
+        <Route path="/cart" element={
+          <Cart
+            cartItems={cartItems}
+            onRemove={removeFromCart}
+            onUpdateQuantity={updateCartQuantity}
+            onClearCart={clearCart}
+            deliveryFee={features?.delivery_fee_ugx}
+            user={user}
+            openAuthModal={openAuthModal}
+          />
+        } />
+        <Route path="/checkout" element={user ? (
+          <Checkout cartItems={cartItems} onOrderPlaced={clearCart} deliveryFee={features?.delivery_fee_ugx} reservationMinutes={features?.reservation_minutes} />
+        ) : <Navigate to="/cart" replace />} />
+        <Route path="/checkout/complete" element={user ? (
+          <OrderConfirmation />
+        ) : <Navigate to="/" replace />} />
+        <Route path="/orders" element={user ? <Orders /> : <Navigate to="/" replace />} />
+        <Route path="/vendor/orders" element={
+          user?.is_vendor
+            ? <Navigate to={`/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders`} replace />
+            : <Navigate to="/" replace />
+        } />
         <Route path="/demand-board" element={
           <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
         } />
@@ -636,6 +685,8 @@ function App() {
         }}
         isWardrobe={location.pathname === '/wardrobe'}
         openAuthModal={openAuthModal}
+        onAddToCart={(item, qty) => { addToCart(item, qty); setSelectedItem(null); }}
+        isInCart={selectedItem ? cartItems.some((i) => i.id === selectedItem.id) : false}
       />
     </div>
   );

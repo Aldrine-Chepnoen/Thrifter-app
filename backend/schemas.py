@@ -100,6 +100,7 @@ class UserInfo(BaseModel):
     is_admin: bool = False
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
+    is_premium: bool = False
 
     class Config:
         from_attributes = True
@@ -136,6 +137,8 @@ class Item(ItemBase):
     cloudinary_public_id: Optional[str] = None
     fallback_url: Optional[str] = None
     images: List[ItemImage] = []
+    status: str = "available"
+    is_hidden: bool = False
 
     class Config:
         from_attributes = True
@@ -266,6 +269,14 @@ class VendorInfo(BaseModel):
     class Config:
         from_attributes = True
 
+class VendorSearchResult(BaseModel):
+    id: int
+    name: str
+    banner_image: Optional[str] = None
+    banner_fallback_url: Optional[str] = None
+    location: Optional[str] = None
+    item_count: int = 0
+
 class VendorProfile(BaseModel):
     id: int
     name: str
@@ -274,6 +285,10 @@ class VendorProfile(BaseModel):
     banner_fallback_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    is_premium: bool = False
+    hidden_item_count: Optional[int] = None  # owner-only; None for visitors
+    marketplace_visible: Optional[bool] = None  # owner-only; None for visitors
+    phone_verified: Optional[bool] = None  # owner-only; None for visitors
 
     class Config:
         from_attributes = True
@@ -313,6 +328,119 @@ class DemandEntryUpdate(BaseModel):
     item_name: Optional[str] = Field(None, min_length=2, max_length=100)
     price: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=300)
+
+class CheckoutItemRequest(BaseModel):
+    item_id: int
+    quantity: int = Field(1, ge=1)
+
+class CheckoutCreate(BaseModel):
+    items: List[CheckoutItemRequest] = Field(..., min_length=1, max_length=20)
+    delivery_name: str = Field(..., min_length=2, max_length=100)
+    delivery_phone: str = Field(..., min_length=7, max_length=20)
+    delivery_address: str = Field(..., min_length=5, max_length=500)
+
+class OrderItemOut(BaseModel):
+    id: int
+    item_id: int
+    item_name_snapshot: str
+    price_at_purchase: float
+    quantity: int = 1
+    image_path: Optional[str] = None
+    fallback_url: Optional[str] = None
+
+class OrderOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    subtotal: float
+    status: str
+    items: List[OrderItemOut] = []
+
+class CheckoutOut(BaseModel):
+    id: int
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    delivery_day: datetime
+    subtotal: float
+    delivery_fee: float
+    total_amount: float
+    currency: str
+    status: str
+    orders: List[OrderOut] = []
+
+class PaymentInitiateRequest(BaseModel):
+    provider: str = Field(..., pattern="^nylon$")
+
+class PaymentInitiateResponse(BaseModel):
+    redirect_url: str
+    tx_ref: str
+
+class VendorSubscriptionStatus(BaseModel):
+    is_premium: bool
+    expires_at: Optional[datetime] = None
+    active_item_count: int
+    hidden_item_count: int
+    free_item_limit: int
+    price_ugx: float
+    currency: str = "UGX"
+    pending_payment: bool = False
+
+class VendorOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    created_at: datetime
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+
+class AdminOrderStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(picked_up|delivered)$")
+
+class AdminOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = None
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    created_at: datetime
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+
+class VendorWithdrawalOut(BaseModel):
+    id: int
+    amount: float
+    status: str
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
+    failure_reason: Optional[str] = None
+
+class VendorWalletStatus(BaseModel):
+    balance: float
+    currency: str = "UGX"
+    pending_withdrawal: Optional[VendorWithdrawalOut] = None
+
+class AdminWithdrawalOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    destination_phone: str
+    amount: float
+    status: str
+    failure_reason: Optional[str] = None
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
 
 class DailyViewCount(BaseModel):
     date: str

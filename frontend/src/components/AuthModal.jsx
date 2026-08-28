@@ -247,27 +247,30 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
               {isVendor && (
                 <div className="grid grid-cols-1 gap-4 pt-1">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name</label>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       value={vendorName}
                       onChange={(e) => setVendorName(e.target.value)}
                       className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                      required
+                      minLength={2}
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp</label>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       value={vendorWhatsapp}
                       onChange={(e) => setVendorWhatsapp(e.target.value)}
                       placeholder="+256..."
                       className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                      required
                     />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location</label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location <span className="text-red-500">*</span></label>
                       <button
                         type="button"
                         onClick={handleUseMyLocation}
@@ -283,13 +286,15 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                       value={vendorLocation}
                       onChange={(e) => setVendorLocation(e.target.value)}
                       className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                      required
+                      minLength={2}
                     />
                   </div>
                 </div>
               )}
 
               <button
-                disabled={loading}
+                disabled={loading || (isVendor && (!vendorName.trim() || !vendorWhatsapp.trim() || !vendorLocation.trim()))}
                 onClick={isVendor ? handleVendorUpgrade : resetAndClose}
                 className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:bg-gray-400 mt-4 shadow-lg shadow-black/10"
               >
@@ -336,18 +341,19 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Email <span className="text-red-500">*</span></label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
                 className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Password <span className="text-red-500">*</span></label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -355,6 +361,8 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none pr-12 transition-all"
+                  required
+                  minLength={mode === 'register' ? 8 : undefined}
                 />
                 <button
                   type="button"
@@ -386,27 +394,30 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                 {isVendor && (
                   <div className="grid grid-cols-1 gap-4 pt-1">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name</label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Business/brand name <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={vendorName}
                         onChange={(e) => setVendorName(e.target.value)}
                         className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                        required
+                        minLength={2}
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp</label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={vendorWhatsapp}
                         onChange={(e) => setVendorWhatsapp(e.target.value)}
                         placeholder="+256..."
                         className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                        required
                       />
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location</label>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Pickup Location <span className="text-red-500">*</span></label>
                         <button
                           type="button"
                           onClick={handleUseMyLocation}
@@ -423,6 +434,8 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                         onChange={(e) => setVendorLocation(e.target.value)}
                         placeholder="e.g. Kampala, Uganda"
                         className="w-full p-3.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none transition-all"
+                        required
+                        minLength={2}
                       />
                     </div>
                   </div>
@@ -431,7 +444,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             )}
 
             <button
-              disabled={loading}
+              disabled={loading || !email.trim() || !password || (mode === 'register' && password.length < 8) || (mode === 'register' && isVendor && (!vendorName.trim() || !vendorWhatsapp.trim() || !vendorLocation.trim()))}
               onClick={mode === 'login' ? handleLogin : handleRegister}
               className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:bg-gray-400 mt-4 shadow-lg shadow-black/10"
             >
@@ -446,7 +459,15 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             </button>
             
             <p className="text-center text-xs text-gray-500 mt-4 px-4">
-              By continuing, you agree to discover and support local thrift brands.
+              By continuing, you agree to discover and support local thrift brands, and to our{' '}
+              <a
+                href="/thrifter-terms-and-conditions.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Terms & Conditions
+              </a>.
             </p>
           </div>
           </>

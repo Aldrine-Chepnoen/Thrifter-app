@@ -1,13 +1,13 @@
 // This is the ProductModal component for the Thrifter frontend application. It displays detailed information about a specific product. For users, it provides options to add to wardrobe or chat with the vendor. For the item owner (vendor), it provides "Edit Listing" and "Delete Listing" buttons. The edit mode allows vendors to update the name, price, size, and description of their items without having to re-upload.
 import React, { useState, useEffect } from 'react';
-import { X, MessageCircle, Heart, Edit, Check, Eye } from 'lucide-react';
+import { X, ShoppingBag, Heart, Edit, Check, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 import { getImageSrc } from '../utils';
 
-const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated }) => {
+const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated, onAddToCart, isInCart }) => {
   const [editMode, setEditMode] = useState(false);
   const [editedData, setEditedData] = useState({
     name: '',
@@ -16,21 +16,25 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     description: '',
     quantity: 1
   });
+  const [originalQuantity, setOriginalQuantity] = useState(1);
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const isOnOwnVendorPage = location.pathname.toLowerCase() === `/vendor/${user?.vendor_name?.toLowerCase()}`;
 
   useEffect(() => {
     if (item) {
+      const qty = item.quantity ?? 1;
       setEditedData({
         name: item.name,
         price: item.price,
         size: item.size,
         description: item.description || '',
-        quantity: item.quantity ?? 1
+        quantity: qty
       });
+      setOriginalQuantity(qty);
       setActiveImageIndex(0);
     }
     setEditMode(false);
@@ -46,7 +50,9 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         sessionStorage.setItem(sessionKey, '1');
       }
     }
-    if (isOwnerNow && isOnOwnVendorPage) {
+    if (isOwnerNow && isOnOwnVendorPage && user?.is_premium) {
+      // View stats are Premium-only — skip the call for a free vendor rather
+      // than firing a request we know the backend will 403.
       api.get(`/items/${item.id}/views`).then(res => setViewStats(res.data)).catch(() => {});
     } else {
       setViewStats(null);
@@ -112,7 +118,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       formData.append('price', editedData.price);
       formData.append('size', editedData.size);
       formData.append('description', editedData.description);
-      formData.append('quantity', qty);
+      // Send a delta, not the absolute value: this form was opened against a
+      // snapshot that a concurrent sale may have since changed, so "how much
+      // did the vendor change it by" is what the backend actually needs.
+      formData.append('quantity_delta', qty - originalQuantity);
 
       const res = await api.put(`/items/${item.id}`, formData);
       onUpdated && onUpdated(res.data);
@@ -141,18 +150,19 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     });
   };
 
-  const handleWhatsAppClick = (e) => {
+  const handleAddToCart = () => {
     if (!user) {
-      e.preventDefault();
       onClose();
       openAuthModal();
       return;
     }
-    posthog.capture('whatsapp_contact_clicked', {
+    posthog.capture('item_added_to_cart', {
       item_id: item.id,
       item_name: item.name,
-      vendor_name: item.vendor_name
+      vendor_name: item.vendor_name,
+      quantity: 1
     });
+    onAddToCart(item, 1);
   };
 
   return (
@@ -233,45 +243,51 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                 <div className="space-y-4">
                   <h3 className="text-lg font-bold">Edit Item Details</h3>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Item Name</label>
-                    <input 
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Item Name <span className="text-red-500 normal-case">*</span></label>
+                    <input
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                       value={editedData.name}
                       onChange={(e) => setEditedData({...editedData, name: e.target.value})}
+                      required
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX)</label>
+                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Price (UGX) <span className="text-red-500 normal-case">*</span></label>
                       <input
                         type="number"
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.price}
                         onChange={(e) => setEditedData({...editedData, price: e.target.value})}
+                        required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size</label>
+                      <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Size <span className="text-red-500 normal-case">*</span></label>
                       <input
                         className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                         value={editedData.size}
                         onChange={(e) => setEditedData({...editedData, size: e.target.value})}
+                        required
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity</label>
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Quantity <span className="text-red-500 normal-case">*</span></label>
                     <input
                       type="number"
                       min="0"
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 transition-all"
                       value={editedData.quantity}
                       onChange={(e) => setEditedData({...editedData, quantity: e.target.value})}
+                      required
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">Description</label>
-                    <textarea 
+                    <label className="block text-xs font-bold uppercase text-gray-400 mb-1">
+                      Description <span className="text-gray-400 normal-case font-normal">(optional)</span>
+                    </label>
+                    <textarea
                       className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 min-h-[100px] transition-all"
                       value={editedData.description}
                       onChange={(e) => setEditedData({...editedData, description: e.target.value})}
@@ -317,8 +333,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   <>
                     <button
                       onClick={handleConfirmEdit}
-                      disabled={updating}
-                      className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-500/10"
+                      disabled={updating || !String(editedData.name).trim() || !String(editedData.price).trim() || !String(editedData.size).trim() || String(editedData.quantity).trim() === ''}
+                      className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors shadow-lg shadow-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#25D366]"
                     >
                       {updating ? (
                         <div className="flex items-center gap-2">
@@ -366,16 +382,30 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                   </button>
                 )}
 
-                <a 
-                  href={`https://wa.me/${(item.vendor_whatsapp || item.whatsapp) ?? ''}?text=${encodeURIComponent(`Hi, I saw your "${item.name}" on Thrifter. Is it still available?`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleWhatsAppClick}
-                  className="w-full bg-[#25D366] text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#20bd5a] transition-colors mt-3"
-                >
-                  <MessageCircle className="w-5 h-5" />
-                  Chat with Vendor
-                </a>
+                {item.is_hidden || (item.status && item.status !== 'available') ? (
+                  <button
+                    disabled
+                    className="w-full bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed mt-3"
+                  >
+                    {item.is_hidden ? 'Unavailable' : item.status === 'sold' ? 'Sold' : 'Reserved'}
+                  </button>
+                ) : isInCart ? (
+                  <button
+                    onClick={() => { onClose(); navigate('/cart'); }}
+                    className="w-full bg-black text-white py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors mt-3"
+                  >
+                    <ShoppingBag className="w-5 h-5" />
+                    In Cart — View Cart
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAddToCart}
+                    className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-colors mt-3"
+                  >
+                    <ShoppingBag className="w-5 h-5" />
+                    Add to Cart
+                  </button>
+                )}
               </>
             )}
           </div>

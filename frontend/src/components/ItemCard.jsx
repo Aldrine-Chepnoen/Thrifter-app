@@ -1,10 +1,10 @@
 // This is the ItemCard component for the Thrifter frontend application. It displays an individual item with its image, name, market, vendor name (if available), and price formatted in Ugandan Shillings (UGX). The component uses Framer Motion for smooth animations when items are added or removed from the view. It also includes a button to remove the item from the wardrobe if the onRemove prop is provided. The image source is determined based on whether the image_path is a full URL or a relative path, and it handles both cases accordingly.
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { X, Heart, Eye } from 'lucide-react';
+import { X, Heart, Eye, Lock } from 'lucide-react';
 import { getImageSrc } from '../utils';
 
-const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData }) => {
+const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData, hiddenBannerText }) => {
   const [saved, setSaved] = useState(() => wardrobeIds?.has(item.id) ?? false);
   // ~190 CSS px tile x 2-3x phone pixel density -> ask for 400
   const imgSrc = getImageSrc(item, 400);
@@ -26,10 +26,18 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
             src={imgSrc}
             alt={item.name}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${item.is_hidden ? 'grayscale opacity-60' : ''}`}
           />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
-          {viewData && (
+          {item.is_hidden && (
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent pt-8 pb-2 px-2.5 pointer-events-none">
+              <div className="flex items-center gap-1 text-white">
+                <Lock className="w-3 h-3 flex-shrink-0" />
+                <span className="text-xs font-semibold">{hiddenBannerText || 'Unavailable — upgrade to unlock'}</span>
+              </div>
+            </div>
+          )}
+          {viewData && !item.is_hidden && (
             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-2 px-2.5 pointer-events-none">
               <div className="flex items-center gap-1 text-white">
                 <Eye className="w-3 h-3 flex-shrink-0" />
