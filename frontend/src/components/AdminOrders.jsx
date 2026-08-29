@@ -52,6 +52,9 @@ const AdminOrders = () => {
   const handleAdvance = async (order) => {
     const nextStatus = NEXT_STATUS[order.status];
     if (!nextStatus) return;
+    if (!window.confirm(`Mark Order #${order.id} as "${STATUS_LABELS[nextStatus]}"? This notifies the vendor and buyer by SMS and cannot be undone.`)) {
+      return;
+    }
     setUpdatingId(order.id);
     try {
       const updated = await updateAdminOrderStatus(order.id, nextStatus);
