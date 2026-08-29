@@ -111,7 +111,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
 
   const handleVendorUpgrade = async () => {
     if (!vendorName.trim() || !vendorWhatsapp.trim() || !vendorLocation.trim()) {
-      alert('Please provide your business name, WhatsApp number, and pickup location.');
+      alert('Please provide your business name, phone number, and pickup location.');
       return;
     }
     setLoading(true);
@@ -258,7 +258,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp <span className="text-red-500">*</span></label>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor Phone Number <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       value={vendorWhatsapp}
@@ -405,7 +405,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor WhatsApp <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vendor Phone Number <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={vendorWhatsapp}

@@ -32,7 +32,7 @@ const VendorOrders = () => {
   }, []);
 
   const handleWithdraw = async () => {
-    if (!window.confirm(`Withdraw ${formatUGX(wallet.balance)}? An admin will review and send it to your WhatsApp number.`)) return;
+    if (!window.confirm(`Withdraw ${formatUGX(wallet.balance)}? An admin will review and send it to your phone number.`)) return;
     setWithdrawing(true);
     try {
       const updated = await requestVendorWithdrawal();

@@ -1175,7 +1175,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
                   <tr>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Vendor</th>
-                    <th className="text-left px-6 py-3 font-medium text-gray-500">WhatsApp</th>
+                    <th className="text-left px-6 py-3 font-medium text-gray-500">Phone</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Items</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Status</th>
                     <th className="text-left px-6 py-3 font-medium text-gray-500">Email</th>

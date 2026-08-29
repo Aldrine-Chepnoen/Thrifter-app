@@ -495,7 +495,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">WhatsApp Number <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Phone Number <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={editWhatsapp}
@@ -515,7 +515,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 </p>
               ) : verifySmsSent ? (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                  Verification link sent — check your WhatsApp/SMS.
+                  Verification link sent — check your SMS.
                 </p>
               ) : (
                 <button

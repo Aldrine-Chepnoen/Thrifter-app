@@ -131,7 +131,7 @@ const Auth = ({ onAuthed }) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Vendor WhatsApp</label>
+                  <label className="block text-sm font-medium mb-1">Vendor Phone Number</label>
                   <input
                     type="text"
                     value={vendorWhatsapp}
