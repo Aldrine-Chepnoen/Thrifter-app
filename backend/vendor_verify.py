@@ -7,6 +7,11 @@ carries a "purpose" claim so it can never be replayed as an auth token (or vice
 versa), and decoding never raises — callers get a status string back so the
 public confirm endpoint can return 200 with a body instead of a 401 that would
 trigger the frontend's auto-logout interceptor.
+
+Signed with VENDOR_VERIFY_SECRET, NOT JWT_SECRET. These tokens live for up to
+7 days out in the wild (SMS/email, sometimes printed on a bulk-send CSV) —
+rotating JWT_SECRET to force-logout sessions must never silently invalidate
+every verification link a vendor hasn't clicked yet.
 """
 import jwt
 from datetime import datetime, timedelta
@@ -32,19 +37,19 @@ def make_vendor_verify_token(vendor_id: int, channel: str = "email") -> str:
         "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(seconds=TTL_SECONDS),
     }
-    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+    return jwt.encode(payload, settings.VENDOR_VERIFY_SECRET, algorithm="HS256")
 
 
 def decode_vendor_verify_token(token: str) -> VerifyResult:
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, settings.VENDOR_VERIFY_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         # Still signature-verified, just past its exp — safe to peek at the
         # channel claim so an expired SMS link doesn't tell the vendor to
         # check their email (or vice versa).
         try:
             expired_payload = jwt.decode(
-                token, settings.JWT_SECRET, algorithms=["HS256"], options={"verify_exp": False}
+                token, settings.VENDOR_VERIFY_SECRET, algorithms=["HS256"], options={"verify_exp": False}
             )
             channel = expired_payload.get("channel", "email")
         except jwt.InvalidTokenError:

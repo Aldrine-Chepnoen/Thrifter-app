@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production")
     JWT_EXP_SECONDS: int = int(os.getenv("JWT_EXP_SECONDS", "3600"))
+    # Deliberately separate from JWT_SECRET: vendor_verify.py's one-off SMS/email
+    # verification links (7-day TTL) must not break every time JWT_SECRET is
+    # rotated to force-logout sessions — that used to invalidate every
+    # outstanding verification link the moment the login secret changed.
+    VENDOR_VERIFY_SECRET: str = os.getenv("VENDOR_VERIFY_SECRET", "dev-verify-secret-change-me-in-production")
 
     # Google Sign-In (web OAuth client ID, used to verify ID token audience)
     GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
