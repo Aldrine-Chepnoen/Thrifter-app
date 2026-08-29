@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     DELIVERY_FEE_SINGLE_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_SINGLE_VENDOR_UGX", "5000"))
     DELIVERY_FEE_MULTI_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_MULTI_VENDOR_UGX", "10000"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
+    # Reduced rate for vendors with an active premium subscription. Placeholder —
+    # confirm the real rate before launch.
+    VENDOR_PREMIUM_COMMISSION_RATE: float = float(os.getenv("VENDOR_PREMIUM_COMMISSION_RATE", "0.03"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
     # How often the background reconciliation loop sweeps for stale/pending checkouts.
     RECONCILIATION_INTERVAL_SECONDS: int = int(os.getenv("RECONCILIATION_INTERVAL_SECONDS", "120"))

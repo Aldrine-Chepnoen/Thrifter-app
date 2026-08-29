@@ -1421,7 +1421,11 @@ def create_checkout(
 
         for vendor_id, vendor_items in by_vendor.items():
             vendor_subtotal = sum(i.price * qty_by_item_id[i.id] for i in vendor_items)
-            commission = round(vendor_subtotal * settings.VENDOR_COMMISSION_RATE, 2)
+            commission_rate = (
+                settings.VENDOR_PREMIUM_COMMISSION_RATE if vendor_premium.is_vendor_premium(db, vendor_id)
+                else settings.VENDOR_COMMISSION_RATE
+            )
+            commission = round(vendor_subtotal * commission_rate, 2)
             order = models.Order(
                 checkout_id=checkout.id,
                 vendor_id=vendor_id,

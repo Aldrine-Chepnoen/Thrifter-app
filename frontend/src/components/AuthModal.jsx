@@ -467,6 +467,14 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                 className="underline hover:text-gray-700 dark:hover:text-gray-300"
               >
                 Terms & Conditions
+              </a>{' '}and{' '}
+              <a
+                href="/thrifter-privacy-policy.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Privacy Policy
               </a>.
             </p>
           </div>
