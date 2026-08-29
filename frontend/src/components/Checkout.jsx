@@ -240,7 +240,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Phone number <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium mb-1">Phone number(to receive PIN prompt) <span className="text-red-500">*</span></label>
           <input
             type="tel"
             value={form.delivery_phone}

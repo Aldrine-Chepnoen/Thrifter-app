@@ -129,7 +129,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFeeS
               <span>{formatUGX(tax)}</span>
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
-              <span className="font-semibold">Total</span>
+              <span className="font-semibold">Total(to be paid with mobile money)</span>
               <span className="text-lg font-bold">{formatUGX(total)}</span>
             </div>
           </div>
