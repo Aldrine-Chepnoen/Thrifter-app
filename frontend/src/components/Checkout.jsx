@@ -224,7 +224,6 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
             <span className="text-lg font-bold">{formatUGX(total)}</span>
           </div>
         </div>
-        <p className="text-xs text-gray-400">Delivery happens the next day (orders placed after 9pm are delivered in two days).</p>
       </div>
 
       <form onSubmit={handleCreateCheckout} className="space-y-4">
