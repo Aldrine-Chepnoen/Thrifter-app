@@ -160,7 +160,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
               <span>{formatUGX(checkout.subtotal)}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
-              <span>Shipping Cost</span>
+              <span>Delivery fee</span>
               <span>{formatUGX(checkout.delivery_fee)}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">

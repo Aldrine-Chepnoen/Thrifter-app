@@ -121,7 +121,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFeeS
               <span>{formatUGX(subtotal)}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
-              <span>Shipping Cost</span>
+              <span>Delivery fee</span>
               <span>{hasDeliveryFee ? formatUGX(deliveryFee) : '—'}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
