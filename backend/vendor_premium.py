@@ -73,7 +73,7 @@ def sync_vendor_item_visibility(db: Session, vendor: models.Vendor) -> List[int]
     return changed_ids
 
 
-def finalize_subscription_payment(db: Session, subscription: models.VendorSubscription, status: str) -> List[int]:
+def finalize_subscription_payment(db: Session, subscription: models.VendorSubscription, status: str, failure_reason: Optional[str] = None) -> List[int]:
     """Activates (or fails) a pending subscription payment. Idempotent — a
     replayed webhook after the subscription already reached a terminal state
     is a no-op, mirroring main.py's _finalize_payment(). Returns item ids
@@ -85,6 +85,8 @@ def finalize_subscription_payment(db: Session, subscription: models.VendorSubscr
         now = datetime.utcnow()
         subscription.starts_at = now
         subscription.expires_at = now + timedelta(days=subscription.period_days)
+    elif status == "failed":
+        subscription.failure_reason = failure_reason
     db.commit()
 
     if status != "successful":

@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination
 
 from config import settings
-from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult
+from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult
 
 
 class NylonPayProvider(PaymentProvider):
@@ -54,18 +54,21 @@ class NylonPayProvider(PaymentProvider):
         # already polls GET /checkout/{id} until the webhook (or verify()) resolves it.
         return InitiateResult(redirect_url=redirect_url, tx_ref=tx_ref, provider_ref=reference)
 
-    def verify(self, tx_ref: str, provider_ref: Optional[str] = None) -> str:
+    def verify(self, tx_ref: str, provider_ref: Optional[str] = None) -> VerifyResult:
         if not provider_ref:
-            return "pending"
+            return VerifyResult(status="pending")
         result = self._get_client().get_status(reference=provider_ref)
         if not result.is_ok:
-            return "pending"
+            return VerifyResult(status="pending")
         status = result.value.status
         if status == "successful":
-            return "successful"
+            return VerifyResult(status="successful")
         if status in ("failed", "cancelled"):
-            return "failed"
-        return "pending"  # pending, processing, on_hold
+            # `status_text` is Nylon Pay's human-readable reason (e.g. "Insufficient
+            # balance") for the StatusResponse returned by get_status — surfaced so
+            # callers can show the vendor/buyer why their payment didn't go through.
+            return VerifyResult(status="failed", failure_reason=result.value.status_text)
+        return VerifyResult(status="pending")  # pending, processing, on_hold
 
     def parse_webhook(self, headers: Dict[str, str], data: Dict[str, Any]) -> WebhookResult:
         # `data` must include the raw request body under "_raw_body" — verification
@@ -77,9 +80,11 @@ class NylonPayProvider(PaymentProvider):
             signature=signature,
             secret=settings.NYLONPAY_WEBHOOK_SECRET or "",
         ))
-        # `data` itself is the webhook JSON body (per the PaymentProvider.parse_webhook
-        # contract) — Nylon Pay does not nest the fields under a "payload" key.
-        payload = data if valid else {}
+        # Nylon Pay's webhook body matches the SDK's WebhookPayload shape
+        # (delivery_id/event/payload/timestamp) — the transaction fields we care
+        # about are nested under "payload" (confirmed against the installed SDK's
+        # WebhookTransactionSnapshot dataclass, not just assumed).
+        payload = data.get("payload", {}) if valid else {}
         status_map = {"successful": "successful", "failed": "failed", "cancelled": "failed"}
         # Nylon Pay's webhook never echoes back our internal tx_ref — only the UUID
         # `reference` we minted in initiate() (stored as Payment.provider_tx_id).
@@ -90,6 +95,7 @@ class NylonPayProvider(PaymentProvider):
             tx_ref=payload.get("reference"),
             provider_tx_id=payload.get("transactionId"),
             status=status_map.get(payload.get("status"), "pending"),
+            failure_reason=payload.get("failureReason"),
             raw=data,
         )
 

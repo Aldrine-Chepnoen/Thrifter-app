@@ -137,6 +137,12 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                 Free accounts can list up to {status?.free_item_limit ?? 10} active items. Go Premium for unlimited listings.
               </p>
 
+              {status?.last_failure_reason && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-5 text-sm text-red-700 dark:text-red-300">
+                  Your last payment attempt didn't go through: {status.last_failure_reason}
+                </div>
+              )}
+
               {status && (
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5 space-y-1">
                   <div className="flex justify-between text-sm">

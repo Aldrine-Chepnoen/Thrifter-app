@@ -233,6 +233,7 @@ class Payment(Base):
     status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed
     amount = Column(Float, nullable=False)
     currency = Column(String, default="UGX", nullable=False)
+    failure_reason = Column(Text, nullable=True)
     raw_response = Column(Text, nullable=True)  # JSON-encoded
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -304,6 +305,7 @@ class VendorSubscription(Base):
     period_days = Column(Integer, nullable=False, default=30)
     starts_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True, index=True)
+    failure_reason = Column(Text, nullable=True)
     raw_response = Column(Text, nullable=True)  # JSON-encoded
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

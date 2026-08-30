@@ -387,6 +387,7 @@ class VendorSubscriptionStatus(BaseModel):
     price_ugx: float
     currency: str = "UGX"
     pending_payment: bool = False
+    last_failure_reason: Optional[str] = None
 
 class VendorOrderOut(BaseModel):
     id: int

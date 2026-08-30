@@ -18,7 +18,14 @@ class WebhookResult:
     tx_ref: Optional[str]
     provider_tx_id: Optional[str]
     status: str  # "successful" | "failed" | "pending"
+    failure_reason: Optional[str] = None
     raw: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class VerifyResult:
+    status: str  # "successful" | "failed" | "pending"
+    failure_reason: Optional[str] = None
 
 
 @dataclass
@@ -48,8 +55,8 @@ class PaymentProvider(ABC):
         ...
 
     @abstractmethod
-    def verify(self, tx_ref: str, provider_ref: Optional[str] = None) -> str:
-        """Re-query the provider directly. Returns 'successful' | 'failed' | 'pending'."""
+    def verify(self, tx_ref: str, provider_ref: Optional[str] = None) -> VerifyResult:
+        """Re-query the provider directly."""
         ...
 
     @abstractmethod

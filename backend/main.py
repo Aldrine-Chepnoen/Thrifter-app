@@ -1473,8 +1473,8 @@ def get_checkout(checkout_id: int, db: Session = Depends(get_db), current_user: 
     if checkout.status == "pending" and payment and payment.provider_tx_id:
         try:
             provider = payments.get_provider(payment.provider)
-            status = provider.verify(payment.tx_ref, payment.provider_tx_id)
-            _finalize_payment(db, payment, status)
+            verify_result = provider.verify(payment.tx_ref, payment.provider_tx_id)
+            _finalize_payment(db, payment, verify_result.status, verify_result.failure_reason)
             db.commit()
             db.refresh(checkout)
         except Exception as e:
@@ -1629,7 +1629,7 @@ def initiate_payment(
 
     return schemas.PaymentInitiateResponse(redirect_url=result.redirect_url, tx_ref=tx_ref)
 
-def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None:
+def _finalize_payment(db: Session, payment: models.Payment, status: str, failure_reason: Optional[str] = None) -> None:
     """Idempotent: a payment already in a terminal state is left untouched, so
     replayed/duplicate webhook deliveries are safe no-ops."""
     if payment.status in ("successful", "failed"):
@@ -1666,6 +1666,7 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str) -> None
             sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_confirmed_vendor_message(order))
     elif status == "failed":
         payment.status = "failed"
+        payment.failure_reason = failure_reason
         checkout.status = "failed"
         for order in checkout.orders:
             order.status = "cancelled"
@@ -1735,8 +1736,8 @@ def _run_reconciliation_sweep() -> None:
         for payment in pending_payments:
             try:
                 provider = payments.get_provider(payment.provider)
-                result_status = provider.verify(payment.tx_ref, payment.provider_tx_id)
-                _finalize_payment(db, payment, result_status)
+                verify_result = provider.verify(payment.tx_ref, payment.provider_tx_id)
+                _finalize_payment(db, payment, verify_result.status, verify_result.failure_reason)
                 db.commit()
             except Exception as e:
                 db.rollback()
@@ -1760,8 +1761,8 @@ def _run_reconciliation_sweep() -> None:
         for subscription in pending_subscriptions:
             try:
                 provider = payments.get_provider(subscription.provider)
-                result_status = provider.verify(subscription.tx_ref, subscription.provider_tx_id)
-                changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, result_status)
+                verify_result = provider.verify(subscription.tx_ref, subscription.provider_tx_id)
+                changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, verify_result.status, verify_result.failure_reason)
                 for item_id in changed_ids:
                     cache.item_invalidate(item_id)
                 if changed_ids:
@@ -1787,7 +1788,7 @@ def _run_reconciliation_sweep() -> None:
                 .first()
             )
             if locked and locked.status == "pending":
-                vendor_premium.finalize_subscription_payment(db, locked, "failed")
+                vendor_premium.finalize_subscription_payment(db, locked, "failed", "Payment timed out waiting for confirmation")
     except Exception as e:
         logger.error(f"Reconciliation sweep failed: {str(e)}", exc_info=True)
     finally:
@@ -1842,7 +1843,7 @@ async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
         try:
             if not payment.provider_tx_id and result.provider_tx_id:
                 payment.provider_tx_id = result.provider_tx_id
-            _finalize_payment(db, payment, result.status)
+            _finalize_payment(db, payment, result.status, result.failure_reason)
             event.processed = True
             db.commit()
         except Exception as e:
@@ -1856,7 +1857,7 @@ async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
         try:
             if not subscription.provider_tx_id and result.provider_tx_id:
                 subscription.provider_tx_id = result.provider_tx_id
-            changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, result.status)
+            changed_ids = vendor_premium.finalize_subscription_payment(db, subscription, result.status, result.failure_reason)
             for item_id in changed_ids:
                 cache.item_invalidate(item_id)
             if changed_ids:
@@ -1902,8 +1903,8 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
     if latest_pending and latest_pending.provider_tx_id and latest_pending.created_at >= pending_cutoff:
         try:
             provider = payments.get_provider(latest_pending.provider)
-            status = provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
-            changed_ids = vendor_premium.finalize_subscription_payment(db, latest_pending, status)
+            verify_result = provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
+            changed_ids = vendor_premium.finalize_subscription_payment(db, latest_pending, verify_result.status, verify_result.failure_reason)
             for item_id in changed_ids:
                 cache.item_invalidate(item_id)
             if changed_ids:
@@ -1929,6 +1930,22 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
     # an older still-active successful subscription.
     active_subscription = vendor_premium.get_active_subscription(db, vendor.id)
 
+    # Separate from latest_pending (which only ever holds a "pending" row) —
+    # this is the most recent attempt of any status, so a vendor reloading the
+    # page after a failed charge (not just one resolved by the re-verify
+    # above) still sees why it failed instead of a bare "try again".
+    latest_attempt = (
+        db.query(models.VendorSubscription)
+        .filter(models.VendorSubscription.vendor_id == vendor.id)
+        .order_by(models.VendorSubscription.id.desc())
+        .first()
+    )
+    last_failure_reason = (
+        latest_attempt.failure_reason
+        if latest_attempt and latest_attempt.status == "failed" and not active_subscription
+        else None
+    )
+
     return schemas.VendorSubscriptionStatus(
         is_premium=active_subscription is not None,
         expires_at=active_subscription.expires_at if active_subscription else None,
@@ -1939,6 +1956,7 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         currency="UGX",
         # Re-read after the reverify above, which may have just resolved it.
         pending_payment=(latest_pending.status == "pending") if latest_pending else False,
+        last_failure_reason=last_failure_reason,
     )
 
 @app.post("/vendor/subscription/checkout", response_model=schemas.PaymentInitiateResponse)
@@ -1976,8 +1994,8 @@ def initiate_vendor_subscription(
         if latest_pending.provider_tx_id:
             try:
                 verify_provider = payments.get_provider(latest_pending.provider)
-                verify_status = verify_provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
-                vendor_premium.finalize_subscription_payment(db, latest_pending, verify_status)
+                verify_result = verify_provider.verify(latest_pending.tx_ref, latest_pending.provider_tx_id)
+                vendor_premium.finalize_subscription_payment(db, latest_pending, verify_result.status, verify_result.failure_reason)
             except Exception as e:
                 logger.warning(f"Active re-verify failed while re-initiating vendor subscription {latest_pending.id}: {str(e)}")
         if latest_pending.status == "successful":
