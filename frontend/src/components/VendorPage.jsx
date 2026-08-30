@@ -37,6 +37,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [viewStats, setViewStats] = useState({});
+  const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
   const bannerInputRef = useRef(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
@@ -73,14 +74,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setItems(itemsRes.data || []);
       setVendorInfo(vendorRes.data || null);
       if (isOwnProfile) {
-        // View stats are Premium-only — skip the call entirely for a free
-        // vendor rather than firing a request we know the backend will 403.
+        // View/save stats are Premium-only — skip the calls entirely for a
+        // free vendor rather than firing requests we know the backend will 403.
         if (vendorRes.data?.is_premium) {
           api.get(`/vendors/${encodeURIComponent(name)}/views`)
             .then(res => setViewStats(res.data || {}))
             .catch(() => {});
+          api.get(`/vendors/${encodeURIComponent(name)}/wardrobe-saves`)
+            .then(res => setWardrobeSaveStats(res.data || {}))
+            .catch(() => {});
         } else {
           setViewStats({});
+          setWardrobeSaveStats({});
         }
         fetchVendorSlotStatus()
           .then(setSubscriptionStatus)
@@ -676,6 +681,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
             items={items}
             onItemClick={setSelectedItem}
             viewStats={isOwnProfile ? viewStats : null}
+            wardrobeSaveStats={isOwnProfile ? wardrobeSaveStats : null}
             hiddenBannerText={isOwnProfile ? 'Unavailable — upgrade to unlock' : undefined}
           />
         ) : (

@@ -138,7 +138,8 @@ class Wardrobe(Base):
     __tablename__ = "wardrobe"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 class DemandEntry(Base):
     __tablename__ = "demand_entries"

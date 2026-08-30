@@ -3009,6 +3009,67 @@ def get_item_view_stats(item_id: int, current_user: models.User = Depends(get_cu
     return schemas.ItemViewStats(total=total, last_7_days=last_7, last_30_days=last_30, daily=daily)
 
 
+# ── Wardrobe save tracking ──────────────────────────────────────────────────────
+# Wardrobe rows are a toggle (add/remove), not an append-only log like item_views —
+# a removed save leaves no history — so the only meaningful stat is how many users
+# currently have the item saved, not a time-windowed event count.
+
+@app.get("/vendors/{name}/wardrobe-saves")
+def get_vendor_wardrobe_save_summary(name: str, current_user: Optional[models.User] = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    vendor = db.query(models.Vendor).filter(func.lower(models.Vendor.name) == name.lower()).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    if not current_user.is_admin and current_user.vendor_id != vendor.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not current_user.is_admin and not vendor_premium.is_vendor_premium(db, vendor.id):
+        raise HTTPException(status_code=403, detail={
+            "message": "Wardrobe save stats are a Premium feature.",
+            "code": "premium_required",
+        })
+
+    item_ids = [row.id for row in db.query(models.Item.id).filter(models.Item.vendor_id == vendor.id).all()]
+    if not item_ids:
+        return {}
+
+    rows = (
+        db.query(models.Wardrobe.item_id, func.count(models.Wardrobe.id).label('cnt'))
+        .filter(models.Wardrobe.item_id.in_(item_ids))
+        .group_by(models.Wardrobe.item_id).all()
+    )
+    counts = {row.item_id: row.cnt for row in rows}
+
+    return {str(iid): counts.get(iid, 0) for iid in item_ids}
+
+
+@app.get("/items/{item_id}/wardrobe-saves", response_model=schemas.WardrobeSaveStats)
+def get_item_wardrobe_save_stats(item_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Only the item's vendor or an admin can read save stats
+    if not current_user.is_admin:
+        if not current_user.vendor_id or current_user.vendor_id != item.vendor_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if not vendor_premium.is_vendor_premium(db, item.vendor_id):
+            raise HTTPException(status_code=403, detail={
+                "message": "Wardrobe save stats are a Premium feature.",
+                "code": "premium_required",
+            })
+
+    total = db.query(models.Wardrobe).filter(models.Wardrobe.item_id == item_id).count()
+
+    return schemas.WardrobeSaveStats(total=total)
+
+
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)

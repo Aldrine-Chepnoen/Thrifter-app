@@ -453,3 +453,6 @@ class ItemViewStats(BaseModel):
     last_7_days: int
     last_30_days: int
     daily: List[DailyViewCount]
+
+class WardrobeSaveStats(BaseModel):
+    total: int

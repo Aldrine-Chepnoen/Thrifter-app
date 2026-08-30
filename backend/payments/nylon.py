@@ -77,7 +77,9 @@ class NylonPayProvider(PaymentProvider):
             signature=signature,
             secret=settings.NYLONPAY_WEBHOOK_SECRET or "",
         ))
-        payload = data.get("payload", {}) if valid else {}
+        # `data` itself is the webhook JSON body (per the PaymentProvider.parse_webhook
+        # contract) — Nylon Pay does not nest the fields under a "payload" key.
+        payload = data if valid else {}
         status_map = {"successful": "successful", "failed": "failed", "cancelled": "failed"}
         # Nylon Pay's webhook never echoes back our internal tx_ref — only the UUID
         # `reference` we minted in initiate() (stored as Payment.provider_tx_id).

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShoppingBag, Heart, Edit, Check, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 import { getImageSrc } from '../utils';
@@ -20,9 +20,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   const [updating, setUpdating] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
-  const location = useLocation();
+  const [saveStats, setSaveStats] = useState(null);
   const navigate = useNavigate();
-  const isOnOwnVendorPage = location.pathname.toLowerCase() === `/vendor/${user?.vendor_name?.toLowerCase()}`;
 
   useEffect(() => {
     if (item) {
@@ -41,7 +40,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   }, [item, isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !item) { setViewStats(null); return; }
+    if (!isOpen || !item) { setViewStats(null); setSaveStats(null); return; }
     const isOwnerNow = !!(user?.is_vendor && user?.vendor_name && item?.vendor_name && user.vendor_name === item.vendor_name);
     if (!isOwnerNow) {
       const sessionKey = `viewed_${item.id}`;
@@ -50,12 +49,16 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         sessionStorage.setItem(sessionKey, '1');
       }
     }
-    if (isOwnerNow && isOnOwnVendorPage && user?.is_premium) {
-      // View stats are Premium-only — skip the call for a free vendor rather
-      // than firing a request we know the backend will 403.
+    if (isOwnerNow && user?.is_premium) {
+      // View/save stats are Premium-only — skip the calls for a free vendor
+      // rather than firing requests we know the backend will 403. Not
+      // restricted to the vendor's own page — an owner viewing their item
+      // from the feed, search, etc. should still see stats.
       api.get(`/items/${item.id}/views`).then(res => setViewStats(res.data)).catch(() => {});
+      api.get(`/items/${item.id}/wardrobe-saves`).then(res => setSaveStats(res.data)).catch(() => {});
     } else {
       setViewStats(null);
+      setSaveStats(null);
     }
   }, [item?.id, isOpen, user?.id]);
 
@@ -236,6 +239,16 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                       <p className="text-xs text-gray-500 dark:text-gray-400">Past month</p>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {saveStats && !editMode && (
+                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1.5">
+                    <Heart className="w-3.5 h-3.5" /> Saved
+                  </p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{saveStats.total}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">In buyers' wardrobes right now</p>
                 </div>
               )}
 

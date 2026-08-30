@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { X, Heart, Eye, Lock } from 'lucide-react';
 import { getImageSrc } from '../utils';
 
-const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData, hiddenBannerText }) => {
+const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewData, saveData, hiddenBannerText }) => {
   const [saved, setSaved] = useState(() => wardrobeIds?.has(item.id) ?? false);
   // ~190 CSS px tile x 2-3x phone pixel density -> ask for 400
   const imgSrc = getImageSrc(item, 400);
@@ -37,11 +37,21 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
               </div>
             </div>
           )}
-          {viewData && !item.is_hidden && (
+          {(viewData || saveData != null) && !item.is_hidden && (
             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent pt-8 pb-2 px-2.5 pointer-events-none">
-              <div className="flex items-center gap-1 text-white">
-                <Eye className="w-3 h-3 flex-shrink-0" />
-                <span className="text-xs font-semibold">{viewData.last_7_days} this week</span>
+              <div className="flex items-center gap-3 text-white">
+                {viewData && (
+                  <div className="flex items-center gap-1">
+                    <Eye className="w-3 h-3 flex-shrink-0" />
+                    <span className="text-xs font-semibold">{viewData.last_7_days} this week</span>
+                  </div>
+                )}
+                {saveData != null && (
+                  <div className="flex items-center gap-1">
+                    <Heart className="w-3 h-3 flex-shrink-0" />
+                    <span className="text-xs font-semibold">{saveData} saved</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
