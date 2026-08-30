@@ -7,6 +7,34 @@ from config import settings
 from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult
 
 
+# Nylon Pay's status_text/failureReason mixes plain-language phrases (e.g. "You
+# probably have insufficient balance") with raw enum-like codes (e.g.
+# "COULD_NOT_PERFORM_TRANSACTION") depending on which failure path produced
+# them. Known codes are translated for the vendor/buyer-facing UI; an
+# already-human phrase is passed through unchanged; anything else that looks
+# like a raw code falls back to one generic, still-actionable message instead
+# of showing a bare SCREAMING_SNAKE_CASE string.
+_FAILURE_REASON_MESSAGES = {
+    "COULD_NOT_PERFORM_TRANSACTION": "The payment couldn't be completed on your phone — usually an incorrect PIN, insufficient balance, or the request being declined. Please check and try again.",
+    "INSUFFICIENT_BALANCE": "Not enough balance on your mobile money account. Please top up and try again.",
+    "CANCELLED_BY_USER": "The payment was cancelled before it completed. Please try again.",
+    "TRANSACTION_TIMEOUT": "The payment request timed out before it was approved. Please try again.",
+    "INVALID_PIN": "The mobile money PIN entered was incorrect. Please try again.",
+}
+
+
+def _humanize_failure_reason(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return raw
+    key = raw.strip()
+    mapped = _FAILURE_REASON_MESSAGES.get(key.upper())
+    if mapped:
+        return mapped
+    if key != key.upper() or " " in key:
+        return key
+    return "The payment couldn't be completed. Please check your mobile money balance and PIN, then try again."
+
+
 class NylonPayProvider(PaymentProvider):
     name = "nylon"
 
@@ -67,7 +95,7 @@ class NylonPayProvider(PaymentProvider):
             # `status_text` is Nylon Pay's human-readable reason (e.g. "Insufficient
             # balance") for the StatusResponse returned by get_status — surfaced so
             # callers can show the vendor/buyer why their payment didn't go through.
-            return VerifyResult(status="failed", failure_reason=result.value.status_text)
+            return VerifyResult(status="failed", failure_reason=_humanize_failure_reason(result.value.status_text))
         return VerifyResult(status="pending")  # pending, processing, on_hold
 
     def parse_webhook(self, headers: Dict[str, str], data: Dict[str, Any]) -> WebhookResult:
@@ -95,7 +123,7 @@ class NylonPayProvider(PaymentProvider):
             tx_ref=payload.get("reference"),
             provider_tx_id=payload.get("transactionId"),
             status=status_map.get(payload.get("status"), "pending"),
-            failure_reason=payload.get("failureReason"),
+            failure_reason=_humanize_failure_reason(payload.get("failureReason")),
             raw=data,
         )
 

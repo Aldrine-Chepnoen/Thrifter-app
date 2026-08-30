@@ -12,6 +12,12 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
+// Mirrors UpgradeToPremiumModal's polling constants/rationale — kept in sync
+// with the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES).
+const SUBSCRIPTION_POLL_INTERVAL_MS = 5000;
+const SUBSCRIPTION_POLL_MAX_MINUTES = 20;
+const SUBSCRIPTION_POLL_MAX_ATTEMPTS = Math.ceil((SUBSCRIPTION_POLL_MAX_MINUTES * 60 * 1000) / SUBSCRIPTION_POLL_INTERVAL_MS);
+
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
   const { name } = useParams();
   const navigate = useNavigate();
@@ -43,6 +49,11 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [refreshingSubscription, setRefreshingSubscription] = useState(false);
+  // Dismissing a resolved failure shouldn't be undone by the next status
+  // refetch — the backend keeps reporting last_failure_reason until a new
+  // attempt supersedes it, same reasoning as UpgradeToPremiumModal.
+  const [subscriptionFailureDismissed, setSubscriptionFailureDismissed] = useState(false);
+  const subscriptionPollAttemptsRef = useRef(0);
   const [verifySmsSending, setVerifySmsSending] = useState(false);
   const [verifySmsSent, setVerifySmsSent] = useState(false);
 
@@ -63,6 +74,22 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setRefreshingSubscription(false);
     }
   };
+
+  // Auto-poll the Subscription tab while a payment is genuinely still pending,
+  // instead of making the vendor keep tapping "Check payment status" — see
+  // UpgradeToPremiumModal for the same pattern and its rationale.
+  useEffect(() => {
+    if (!isOwnProfile || activeTab !== 'subscription' || !subscriptionStatus?.pending_payment) {
+      subscriptionPollAttemptsRef.current = 0;
+      return;
+    }
+    if (subscriptionPollAttemptsRef.current >= SUBSCRIPTION_POLL_MAX_ATTEMPTS) return;
+    const timer = setTimeout(() => {
+      subscriptionPollAttemptsRef.current += 1;
+      refreshSubscriptionStatus();
+    }, SUBSCRIPTION_POLL_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [isOwnProfile, activeTab, subscriptionStatus]);
 
   const fetchVendorItems = async () => {
     setLoading(true);
@@ -302,6 +329,12 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         : "This confirmation link isn't valid. Please request a new one and try again.",
     },
   }[verifyState];
+
+  const showSubscriptionFailure = !!subscriptionStatus
+    && !subscriptionStatus.is_premium
+    && !subscriptionStatus.pending_payment
+    && subscriptionStatus.last_failure_reason
+    && !subscriptionFailureDismissed;
 
   return (
     <main className="max-w-7xl mx-auto">
@@ -638,8 +671,13 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                   )}
                   {subscriptionStatus.pending_payment && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                      We're waiting on confirmation from your payment provider. This can take a minute — no need to pay again.
+                      We're waiting on confirmation from your payment provider. This can take a few minutes — we'll update this automatically, no need to keep checking.
                     </p>
+                  )}
+                  {showSubscriptionFailure && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-1 mb-3 text-xs text-red-700 dark:text-red-300">
+                      Your last Premium upgrade attempt failed: {subscriptionStatus.last_failure_reason}
+                    </div>
                   )}
                   <div className="flex justify-between text-sm mt-2">
                     <span className="text-gray-500 dark:text-gray-400">Active listings</span>
@@ -656,11 +694,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 </div>
                 {subscriptionStatus.pending_payment ? (
                   <button
-                    onClick={refreshSubscriptionStatus}
-                    disabled={refreshingSubscription}
-                    className="w-full bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 py-3.5 rounded-xl font-bold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                    disabled
+                    className="w-full bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 py-3.5 rounded-xl font-bold cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    {refreshingSubscription ? 'Checking…' : 'Check payment status'}
+                    <div className="w-4 h-4 border-2 border-gray-300 dark:border-gray-600 border-b-gray-500 dark:border-b-gray-400 rounded-full animate-spin" />
+                    <span>Checking status…</span>
+                  </button>
+                ) : showSubscriptionFailure ? (
+                  <button
+                    onClick={() => setSubscriptionFailureDismissed(true)}
+                    className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all"
+                  >
+                    Dismiss
                   </button>
                 ) : !subscriptionStatus.is_premium && (
                   <button

@@ -1,8 +1,8 @@
 // Prompts a free-tier vendor to upgrade to Premium once they've hit their free
 // item slot limit (or from the vendor's own Subscription tab). Modeled on
 // AuthModal's shell/spinner conventions; stacks above it at z-[110].
-import React, { useEffect, useState } from 'react';
-import { X, Crown, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Crown, Check, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchVendorSlotStatus, initiateVendorSubscriptionPayment } from '../api';
 
@@ -10,10 +10,22 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
+// Matches the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES) —
+// past this the reconciliation sweep has already marked the attempt failed server-side,
+// so there's nothing left to poll for.
+const POLL_INTERVAL_MS = 5000;
+const POLL_MAX_MINUTES = 20;
+const POLL_MAX_ATTEMPTS = Math.ceil((POLL_MAX_MINUTES * 60 * 1000) / POLL_INTERVAL_MS);
+
 const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Lets a resolved failure be dismissed back to the plain upgrade view without
+  // that dismissal being undone by the next status refetch (the backend keeps
+  // reporting last_failure_reason until a new attempt supersedes it).
+  const [failureDismissed, setFailureDismissed] = useState(false);
+  const pollAttemptsRef = useRef(0);
 
   const loadStatus = () => {
     setLoading(true);
@@ -25,8 +37,23 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (!isOpen) return;
+    setFailureDismissed(false);
+    pollAttemptsRef.current = 0;
     loadStatus();
   }, [isOpen]);
+
+  // Auto-poll while a payment is genuinely still pending, instead of making the
+  // vendor keep tapping "Check again" — re-fetches ~5s after each response comes
+  // back (not a fixed-rate interval), so slow responses never overlap or pile up.
+  useEffect(() => {
+    if (!isOpen || !status?.pending_payment) return;
+    if (pollAttemptsRef.current >= POLL_MAX_ATTEMPTS) return;
+    const timer = setTimeout(() => {
+      pollAttemptsRef.current += 1;
+      loadStatus();
+    }, POLL_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [isOpen, status]);
 
   if (!isOpen) return null;
 
@@ -49,6 +76,8 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
       setSubmitting(false);
     }
   };
+
+  const showFailure = !loading && !status?.is_premium && !status?.pending_payment && status?.last_failure_reason && !failureDismissed;
 
   return (
     <AnimatePresence>
@@ -110,21 +139,34 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Payment pending</h3>
               </div>
               <p className="text-sm text-gray-500 mb-5">
-                We're waiting on confirmation from your payment provider for a Premium upgrade you already started.
-                This can take a minute — no need to pay again.
+                We're waiting on confirmation from your payment provider for the Premium upgrade you started.
+                This can take a few minutes — we'll update this automatically, no need to keep checking.
               </p>
               <button
-                disabled={loading}
-                onClick={loadStatus}
-                className="w-full bg-[#EAAD11] text-black py-4 rounded-xl font-bold hover:opacity-90 transition-all disabled:opacity-50"
+                disabled
+                className="w-full bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 py-4 rounded-xl font-bold cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Check again
+                <div className="w-4 h-4 border-2 border-gray-300 dark:border-gray-600 border-b-gray-500 dark:border-b-gray-400 rounded-full animate-spin" />
+                <span>Checking status…</span>
               </button>
+            </>
+          ) : showFailure ? (
+            <>
+              <div className="flex items-center gap-2 mb-1">
+                <XCircle className="w-5 h-5 text-red-500" />
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Payment didn't go through</h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-3">
+                Your last Premium upgrade attempt failed:
+              </p>
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-5 text-sm text-red-700 dark:text-red-300">
+                {status.last_failure_reason}
+              </div>
               <button
-                onClick={onClose}
-                className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-3"
+                onClick={() => setFailureDismissed(true)}
+                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all"
               >
-                Close
+                Dismiss
               </button>
             </>
           ) : (
@@ -136,12 +178,6 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
               <p className="text-sm text-gray-500 mb-5">
                 Free accounts can list up to {status?.free_item_limit ?? 10} active items. Go Premium for unlimited listings.
               </p>
-
-              {status?.last_failure_reason && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-5 text-sm text-red-700 dark:text-red-300">
-                  Your last payment attempt didn't go through: {status.last_failure_reason}
-                </div>
-              )}
 
               {status && (
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5 space-y-1">
