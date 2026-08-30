@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
+import { useToast } from '../context/ToastContext';
 
 const DemandSubmitModal = ({ isOpen, onClose }) => {
+  const { showToast } = useToast();
   const [itemName, setItemName] = useState('');
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
@@ -33,7 +35,7 @@ const DemandSubmitModal = ({ isOpen, onClose }) => {
       });
       setSubmitted(true);
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to submit. Please try again.');
+      showToast(e?.response?.data?.detail || 'Failed to submit. Please try again.');
     } finally {
       setSubmitting(false);
     }

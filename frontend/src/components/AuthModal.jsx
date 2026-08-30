@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, X, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GoogleLogin } from '@react-oauth/google';
+import { useToast } from '../context/ToastContext';
 
 const AuthModal = ({ isOpen, onClose, onAuthed }) => {
+  const { showToast } = useToast();
   const [mode, setMode] = useState('login');
   const [step, setStep] = useState('form'); // 'form' | 'google-confirm-signup' | 'google-vendor'
   const [email, setEmail] = useState('');
@@ -46,7 +48,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       resetAndClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Login failed';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -72,7 +74,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       }
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Google sign-in failed';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -80,7 +82,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
       return;
     }
     if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
@@ -96,14 +98,14 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
           });
           setVendorLocation(res.data.address);
         } catch (e) {
-          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
         } finally {
           setLocating(false);
         }
       },
       () => {
         setLocating(false);
-        alert('Could not get your location. Please type your pickup location instead.');
+        showToast('Could not get your location. Please type your pickup location instead.');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -111,7 +113,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
 
   const handleVendorUpgrade = async () => {
     if (!vendorName.trim() || !vendorWhatsapp.trim() || !vendorLocation.trim()) {
-      alert('Please provide your business name, phone number, and pickup location.');
+      showToast('Please provide your business name, phone number, and pickup location.');
       return;
     }
     setLoading(true);
@@ -125,7 +127,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       resetAndClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Could not save vendor details';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -133,11 +135,11 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
 
   const handleRegister = async () => {
     if (password.length < 8) {
-      alert('Password must be at least 8 characters long.');
+      showToast('Password must be at least 8 characters long.');
       return;
     }
     if (isVendor && !vendorLocation.trim()) {
-      alert('Please provide a pickup location for your business.');
+      showToast('Please provide a pickup location for your business.');
       return;
     }
 
@@ -160,7 +162,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
       } else {
         msg = e?.response?.data?.detail || e?.message || msg;
       }
-      alert(msg);
+      showToast(msg);
       setLoading(false);
     }
   };
@@ -329,7 +331,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             <div className="flex justify-center">
               <GoogleLogin
                 onSuccess={(cred) => handleGoogleAuth(cred.credential)}
-                onError={() => alert('Google sign-in failed')}
+                onError={() => showToast('Google sign-in failed')}
                 useOneTap={false}
               />
             </div>

@@ -8,9 +8,11 @@ import StyleModal from './StyleModal';
 import AdminOrders from './AdminOrders';
 import AdminWithdrawals from './AdminWithdrawals';
 import { getImageSrc } from '../utils';
+import { useToast } from '../context/ToastContext';
 
 const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
   const [stylesSubTab, setStylesSubTab] = useState('curated'); // 'curated' or 'library'
   const [stats, setStats] = useState(null);
@@ -132,7 +134,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       ));
       closeDemandAdminPanel();
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to save changes.');
+      showToast(e?.response?.data?.detail || 'Failed to save changes.');
     } finally {
       setDemandSaving(false);
     }
@@ -145,7 +147,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setDemandEntries(prev => prev.filter(e => e.id !== demandAdminEntry.id));
       closeDemandAdminPanel();
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to delete entry.');
+      showToast(e?.response?.data?.detail || 'Failed to delete entry.');
     } finally {
       setDemandSaving(false);
     }
@@ -286,10 +288,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     setDiscoveryLoading(true);
     try {
       await api.post('/admin/outfit-styles/discover');
-      alert('AI Style Discovery started! Refresh in a few seconds to see new pending clusters.');
+      showToast('AI Style Discovery started! Refresh in a few seconds to see new pending clusters.', 'success');
       loadClusters();
     } catch (e) {
-      alert('Failed to start discovery: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to start discovery: ' + (e.response?.data?.detail || e.message));
     } finally {
       setDiscoveryLoading(false);
     }
@@ -318,7 +320,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       }
       setEditingStyle(null);
     } catch (e) {
-      alert('Failed to save style: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to save style: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -326,7 +328,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     if (!newClusterName.trim()) return;
     const ids = [...selectedPickerIds];
     if (ids.length === 0) {
-      alert('Select at least one item to seed the pool');
+      showToast('Select at least one item to seed the pool');
       return;
     }
     setCreatingCluster(true);
@@ -337,7 +339,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setNewClusterName('');
       setSelectedPickerIds(new Set());
     } catch (e) {
-      alert('Failed to create cluster: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to create cluster: ' + (e.response?.data?.detail || e.message));
     } finally {
       setCreatingCluster(false);
     }
@@ -358,7 +360,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setClusters(prev => prev.map(c => c.id === id ? res.data : c));
       setPreviewCluster(prev => prev?.id === id ? res.data : prev);
     } catch (e) {
-      alert('Failed to update cluster: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to update cluster: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -382,7 +384,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setStyles(prev => prev.filter(s => s.id !== id));
       setEditingStyle(null);
     } catch (e) {
-      alert('Failed to delete style: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to delete style: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -393,7 +395,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       loadStats();
       loadUnverifiedVendors();
     } catch (e) {
-      alert('Failed to update vendor: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to update vendor: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -405,7 +407,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
         return [...updated].sort((a, b) => (b.is_pinned ? 1 : 0) - (a.is_pinned ? 1 : 0));
       });
     } catch (e) {
-      alert(e.response?.data?.detail || 'Failed to update pin');
+      showToast(e.response?.data?.detail || 'Failed to update pin');
     }
   };
 
@@ -420,7 +422,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Failed to export vendor list: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to export vendor list: ' + (e.response?.data?.detail || e.message));
     } finally {
       setExportingVendorCsv(false);
     }
@@ -437,7 +439,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Failed to export SMS vendor list: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to export SMS vendor list: ' + (e.response?.data?.detail || e.message));
     } finally {
       setExportingSmsCsv(false);
     }
@@ -465,7 +467,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setSelectedForDeactivation(new Set());
       loadStats();
     } catch (e) {
-      alert('Failed to deactivate vendors: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to deactivate vendors: ' + (e.response?.data?.detail || e.message));
     } finally {
       setDeactivating(false);
     }
@@ -477,7 +479,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       const res = await api.patch('/admin/features/promo_10k');
       setPromoEnabled(res.data.promo_10k_enabled);
     } catch (e) {
-      alert('Failed to toggle promotion: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to toggle promotion: ' + (e.response?.data?.detail || e.message));
     } finally {
       setPromoToggling(false);
     }
@@ -490,7 +492,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setItems(prev => prev.filter(i => i.id !== itemId));
       loadStats();
     } catch (e) {
-      alert('Failed to delete item: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to delete item: ' + (e.response?.data?.detail || e.message));
     }
   };
 
@@ -1062,7 +1064,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                                 cover_cloudinary_id: res.data.cloudinary_public_id
                               });
                             } catch (err) {
-                              alert('Upload failed: ' + err.message);
+                              showToast('Upload failed: ' + err.message);
                             }
                           }}
                         />

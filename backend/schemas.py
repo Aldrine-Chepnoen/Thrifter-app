@@ -343,7 +343,9 @@ class CheckoutCreate(BaseModel):
 
 class OrderItemOut(BaseModel):
     id: int
-    item_id: int
+    # None once the item's been deleted from the catalog (cancel reason
+    # "item_unavailable") — item_name_snapshot/price_at_purchase still hold.
+    item_id: Optional[int] = None
     item_name_snapshot: str
     price_at_purchase: float
     quantity: int = 1
@@ -385,6 +387,8 @@ class VendorSubscriptionStatus(BaseModel):
     hidden_item_count: int
     free_item_limit: int
     price_ugx: float
+    commission_rate: float
+    premium_commission_rate: float
     currency: str = "UGX"
     pending_payment: bool = False
     last_failure_reason: Optional[str] = None
@@ -401,7 +405,17 @@ class VendorOrderOut(BaseModel):
     items: List[OrderItemOut] = []
 
 class AdminOrderStatusUpdate(BaseModel):
-    status: str = Field(..., pattern="^(picked_up|delivered)$")
+    status: str = Field(..., pattern="^(picked_up|delivered|cancelled)$")
+    # Required (and validated against CANCEL_REASONS) only when status == "cancelled".
+    reason: Optional[str] = None
+    note: Optional[str] = None
+
+class RefundOut(BaseModel):
+    amount: float
+    subtotal_refunded: float
+    delivery_fee_refunded: float
+    status: str
+    failure_reason: Optional[str] = None
 
 class AdminOrderOut(BaseModel):
     id: int
@@ -420,6 +434,10 @@ class AdminOrderOut(BaseModel):
     created_at: datetime
     delivery_day: datetime
     items: List[OrderItemOut] = []
+    cancel_reason: Optional[str] = None
+    cancel_note: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+    refund: Optional[RefundOut] = None
 
 class VendorWithdrawalOut(BaseModel):
     id: int

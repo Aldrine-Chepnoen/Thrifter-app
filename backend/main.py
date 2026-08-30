@@ -1953,6 +1953,8 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         hidden_item_count=hidden_count,
         free_item_limit=settings.VENDOR_FREE_ITEM_LIMIT,
         price_ugx=settings.VENDOR_PREMIUM_PRICE_UGX,
+        commission_rate=settings.VENDOR_COMMISSION_RATE,
+        premium_commission_rate=settings.VENDOR_PREMIUM_COMMISSION_RATE,
         currency="UGX",
         # Re-read after the reverify above, which may have just resolved it.
         pending_payment=(latest_pending.status == "pending") if latest_pending else False,
@@ -2084,11 +2086,15 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
 # Record of the full transition chain: paid ("Order placed") -> picked_up
 # ("On delivery") -> delivered ("Delivered"). One-way — an admin correcting a
 # mistake goes through the DB directly, same as the vendor-side version this
-# replaces. Cancelled/failed orders never enter this flow.
+# replaces. "cancelled" is the one exit, reachable from paid or picked_up but
+# never from delivered (see _cancel_order) — once it's out the door, that's a
+# return/dispute, not a cancellation.
 _ADMIN_ORDER_STATUS_TRANSITIONS = {
-    "paid": {"picked_up"},
-    "picked_up": {"delivered"},
+    "paid": {"picked_up", "cancelled"},
+    "picked_up": {"delivered", "cancelled"},
 }
+
+CANCEL_REASONS = {"item_unavailable", "buyer_requested", "delivery_issue", "vendor_unable_to_fulfill", "other"}
 
 def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
     items = []
@@ -2103,6 +2109,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             fallback_url=fallback_url,
         ))
     checkout = order.checkout
+    refund = order.refund
     return schemas.AdminOrderOut(
         id=order.id,
         checkout_id=order.checkout_id,
@@ -2120,7 +2127,161 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         created_at=order.created_at,
         delivery_day=checkout.delivery_day,
         items=items,
+        cancel_reason=order.cancel_reason,
+        cancel_note=order.cancel_note,
+        cancelled_at=order.cancelled_at,
+        refund=schemas.RefundOut(
+            amount=refund.amount,
+            subtotal_refunded=refund.subtotal_refunded,
+            delivery_fee_refunded=refund.delivery_fee_refunded,
+            status=refund.status,
+            failure_reason=refund.failure_reason,
+        ) if refund else None,
     )
+
+def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
+    """Destroys an item's Cloudinary/R2 assets and its row. Caller is
+    responsible for ensuring no order_items row still references it with a
+    NOT NULL constraint (item_id is nullable + ON DELETE SET NULL, so any
+    live references are cleared automatically)."""
+    for img in (item.images or []):
+        try:
+            # Dual-written images have an asset in both stores — clean up each
+            if img.cloudinary_public_id:
+                cloudinary.uploader.destroy(img.cloudinary_public_id)
+            if storage.is_r2_url(img.image_path):
+                storage.delete_image(img.image_path)
+        except Exception:
+            pass
+    try:
+        if item.cloudinary_public_id:
+            cloudinary.uploader.destroy(item.cloudinary_public_id)
+        if storage.is_r2_url(item.image_path):
+            storage.delete_image(item.image_path)
+    except Exception:
+        pass
+    db.delete(item)
+
+def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
+    """Admin-only order cancellation. Restocks (or, for reason="item_unavailable",
+    deletes) the order's items, refunds the buyer via provider payout (Nylon Pay
+    has no native refund call), and recomputes the checkout's delivery-fee tier
+    if cancelling this order drops it from multi- to single-vendor."""
+    if body.reason not in CANCEL_REASONS:
+        raise HTTPException(status_code=422, detail=f"reason must be one of: {', '.join(sorted(CANCEL_REASONS))}")
+    if body.reason == "other" and not (body.note or "").strip():
+        raise HTTPException(status_code=422, detail="A note is required when reason is 'other'")
+
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == order.checkout_id).with_for_update().first()
+    now = datetime.utcnow()
+
+    deleted_item_ids = []
+    restocked = False
+    if body.reason == "item_unavailable":
+        for oi in order.items:
+            if not oi.item_id:
+                continue
+            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+            if not item:
+                continue
+            oi.item_id = None
+            db.flush()
+            deleted_item_ids.append(item.id)
+            _delete_item_assets_and_row(db, item)
+    else:
+        # Same restock pattern as _release_checkout — sorted by item id to
+        # match its deadlock-avoidance lock ordering.
+        for oi in sorted(order.items, key=lambda oi: oi.item_id or 0):
+            if not oi.item_id:
+                continue
+            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+            if not item:
+                continue
+            was_sold_out = item.quantity == 0
+            _adjust_item_stock(db, item, +oi.quantity, now)
+            if was_sold_out and item.quantity > 0:
+                restocked = True
+
+    order.status = "cancelled"
+    order.cancel_reason = body.reason
+    order.cancel_note = (body.note or "").strip() or None
+    order.cancelled_at = now
+    order.cancelled_by_user_id = current_user.id
+
+    # Recompute the checkout's delivery-fee tier against its still-active orders.
+    remaining_vendor_count = len({
+        o.vendor_id for o in checkout.orders
+        if o.id != order.id and o.status not in ("cancelled", "failed")
+    })
+    delivery_fee_refund = 0.0
+    if remaining_vendor_count == 0:
+        delivery_fee_refund = checkout.delivery_fee
+        checkout.delivery_fee = 0.0
+        checkout.status = "cancelled"
+    elif remaining_vendor_count == 1 and checkout.delivery_fee == settings.DELIVERY_FEE_MULTI_VENDOR_UGX:
+        delivery_fee_refund = checkout.delivery_fee - settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
+        checkout.delivery_fee = settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
+    checkout.total_amount = max(checkout.total_amount - order.subtotal - delivery_fee_refund, 0)
+
+    refund_amount = order.subtotal + delivery_fee_refund
+    refund = models.Refund(
+        order_id=order.id,
+        checkout_id=checkout.id,
+        subtotal_refunded=order.subtotal,
+        delivery_fee_refunded=delivery_fee_refund,
+        amount=refund_amount,
+        currency=checkout.currency,
+        destination_phone=checkout.delivery_phone,
+        destination_name=checkout.delivery_name,
+        status="pending",
+    )
+    db.add(refund)
+    db.flush()
+
+    # The order cancellation itself (status, restock/delete, delivery-fee
+    # recompute) is already final at this point regardless of what happens
+    # below — a payout failure (network, provider, bad credentials) must
+    # never look like the cancellation itself failed. So every outcome here
+    # folds into refund.status="failed" + a normal 200 response, not an
+    # HTTPException; the admin sees a cancelled order with a refund that
+    # needs manual follow-up, not a confusing "retry" state that then 409s
+    # on a re-attempt against an order that's already cancelled.
+    tx_ref = f"REFUND-{order.id}-{uuid.uuid4().hex[:10]}"
+    provider_name = settings.DEFAULT_PAYMENT_PROVIDER
+    refund.provider = provider_name
+    try:
+        provider = payments.get_provider(provider_name)
+        result = provider.payout(
+            tx_ref=tx_ref,
+            amount=refund_amount,
+            currency=checkout.currency,
+            destination_phone=checkout.delivery_phone,
+            destination_name=checkout.delivery_name,
+            description=f"Thrifter refund - order #{order.id}",
+        )
+        if result.success:
+            refund.status = "successful"
+            refund.provider_ref = result.provider_ref
+        else:
+            refund.status = "failed"
+            refund.failure_reason = result.failure_reason
+            refund.provider_ref = result.provider_ref
+    except Exception as e:
+        logger.error(f"Refund payout failed for order {order.id}: {str(e)}", exc_info=True)
+        refund.status = "failed"
+        refund.failure_reason = str(e)
+
+    db.commit()
+    db.refresh(order)
+
+    if restocked or deleted_item_ids:
+        cache.feed_invalidate_all()
+        cache.search_invalidate_all()
+    for iid in deleted_item_ids:
+        cache.item_invalidate(iid)
+    cache.admin_stats_invalidate()
+
+    return _serialize_admin_order(order)
 
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
 def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2159,6 +2320,9 @@ def update_admin_order_status(
     allowed_next = _ADMIN_ORDER_STATUS_TRANSITIONS.get(order.status, set())
     if body.status not in allowed_next:
         raise HTTPException(status_code=409, detail=f"Cannot move order from '{order.status}' to '{body.status}'")
+
+    if body.status == "cancelled":
+        return _cancel_order(db, order, body, current_user)
 
     order.status = body.status
     if body.status == "delivered":
@@ -3423,23 +3587,7 @@ def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.Use
             status_code=409,
             detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
         )
-    for img in (item.images or []):
-        try:
-            # Dual-written images have an asset in both stores — clean up each
-            if img.cloudinary_public_id:
-                cloudinary.uploader.destroy(img.cloudinary_public_id)
-            if storage.is_r2_url(img.image_path):
-                storage.delete_image(img.image_path)
-        except Exception:
-            pass
-    try:
-        if item.cloudinary_public_id:
-            cloudinary.uploader.destroy(item.cloudinary_public_id)
-        if storage.is_r2_url(item.image_path):
-            storage.delete_image(item.image_path)
-    except Exception:
-        pass
-    db.delete(item)
+    _delete_item_assets_and_row(db, item)
     db.commit()
     cache.feed_invalidate_all()
     cache.search_invalidate_all()

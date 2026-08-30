@@ -8,6 +8,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google'
 import posthog from 'posthog-js'
 import { PostHogProvider } from 'posthog-js/react'
 import { initImageHost } from './imageHost'
+import { ToastProvider } from './context/ToastContext'
 
 // Initialize PostHog
 // Replace 'YOUR_PROJECT_API_KEY' with your actual key from PostHog settings
@@ -24,7 +25,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ''}>
       <PostHogProvider client={posthog}>
         <BrowserRouter>
-          <App />
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </BrowserRouter>
       </PostHogProvider>
     </GoogleOAuthProvider>

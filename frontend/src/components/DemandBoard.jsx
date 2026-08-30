@@ -4,8 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
 import DemandSubmitModal from './DemandSubmitModal';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
 
 const DemandBoard = ({ user, onAuthRequired }) => {
+  const { showToast } = useToast();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,7 +109,7 @@ const DemandBoard = ({ user, onAuthRequired }) => {
       ));
       closeAdminPanel();
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to save changes.');
+      showToast(e?.response?.data?.detail || 'Failed to save changes.');
     } finally {
       setSaving(false);
     }
@@ -120,7 +122,7 @@ const DemandBoard = ({ user, onAuthRequired }) => {
       setEntries(prev => prev.filter(e => e.id !== adminEntry.id));
       closeAdminPanel();
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to delete entry.');
+      showToast(e?.response?.data?.detail || 'Failed to delete entry.');
     } finally {
       setSaving(false);
     }

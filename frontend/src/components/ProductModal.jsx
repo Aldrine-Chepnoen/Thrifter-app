@@ -6,8 +6,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 import { getImageSrc } from '../utils';
+import { useToast } from '../context/ToastContext';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated, onAddToCart, isInCart }) => {
+  const { showToast } = useToast();
   const [editMode, setEditMode] = useState(false);
   const [editedData, setEditedData] = useState({
     name: '',
@@ -104,14 +106,14 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       onClose();
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Failed to delete listing';
-      alert(msg);
+      showToast(msg);
     }
   };
 
   const handleConfirmEdit = async () => {
     const qty = parseInt(editedData.quantity, 10);
     if (isNaN(qty) || qty < 0 || String(qty) !== String(editedData.quantity).trim()) {
-      alert('Quantity must be a whole number, 0 or greater.');
+      showToast('Quantity must be a whole number, 0 or greater.');
       return;
     }
     setUpdating(true);
@@ -130,7 +132,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
       onUpdated && onUpdated(res.data);
       setEditMode(false);
     } catch (e) {
-      alert('Failed to update item: ' + (e.response?.data?.detail || e.message));
+      showToast('Failed to update item: ' + (e.response?.data?.detail || e.message));
     } finally {
       setUpdating(false);
     }
@@ -148,7 +150,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
         onClose();
       } catch (e) {
         const msg = e?.response?.data?.detail || e?.message || 'Failed to add to wardrobe';
-        alert(msg);
+        showToast(msg);
       }
     });
   };
@@ -245,7 +247,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
               {saveStats && !editMode && (
                 <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
                   <p className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1.5">
-                    <Heart className="w-3.5 h-3.5" /> Saved
+                    <Heart className="w-3.5 h-3.5" /> Saves
                   </p>
                   <p className="text-xl font-bold text-gray-900 dark:text-white">{saveStats.total}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">In buyers' wardrobes right now</p>

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { fetchAdminOrders, updateAdminOrderStatus } from '../api';
+import { RefreshCw, X } from 'lucide-react';
+import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder } from '../api';
 import { getImageSrc } from '../utils';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -21,6 +22,95 @@ const STATUS_LABELS = { paid: 'Order placed', picked_up: 'On delivery', delivere
 const NEXT_STATUS = { paid: 'picked_up', picked_up: 'delivered' };
 const NEXT_LABEL = { paid: 'Mark Picked Up', picked_up: 'Mark Delivered' };
 
+const CANCEL_REASONS = [
+  { value: 'item_unavailable', label: 'Item unavailable (will be removed from the catalog)' },
+  { value: 'buyer_requested', label: 'Buyer requested cancellation' },
+  { value: 'delivery_issue', label: 'Delivery issue (bad/unreachable address)' },
+  { value: 'vendor_unable_to_fulfill', label: 'Vendor unable to fulfill' },
+  { value: 'other', label: 'Other' },
+];
+
+const CancelOrderModal = ({ order, onClose, onCancelled }) => {
+  const [reason, setReason] = useState('buyer_requested');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const noteRequired = reason === 'other';
+
+  const handleConfirm = async () => {
+    if (noteRequired && !note.trim()) {
+      setError('A note is required for "Other".');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const updated = await cancelAdminOrder(order.id, reason, note.trim() || undefined);
+      onCancelled(updated);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not cancel this order.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <X className="w-5 h-5" />
+        </button>
+        <h3 className="text-lg font-serif font-bold mb-1">Cancel Order #{order.id}</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          The buyer will be refunded via Nylon Pay. This cannot be undone.
+        </p>
+
+        <label className="block text-sm font-medium mb-1">Reason</label>
+        <select
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+        >
+          {CANCEL_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+
+        <label className="block text-sm font-medium mb-1">
+          Note {noteRequired ? <span className="text-red-500">*</span> : <span className="text-gray-400 font-normal">(optional)</span>}
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+          placeholder={noteRequired ? 'Required for "Other" — what happened?' : 'Any extra context for the record…'}
+        />
+
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="flex-1 py-2.5 rounded-xl font-semibold border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="flex-1 py-2.5 rounded-xl font-bold bg-red-600 text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? 'Cancelling…' : 'Confirm Cancellation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Groups pickups/deliveries by area so a run can be planned without manually
 // re-sorting — orders with no location on file sort last, not first.
 const byLocation = (key) => (a, b) => {
@@ -33,11 +123,13 @@ const byLocation = (key) => (a, b) => {
 };
 
 const AdminOrders = () => {
+  const { showToast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [section, setSection] = useState('pending'); // 'pending' | 'complete'
   const [updatingId, setUpdatingId] = useState(null);
+  const [cancelOrder, setCancelOrder] = useState(null); // order currently in the cancel-reason modal
 
   const loadOrders = ({ silent } = {}) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -60,7 +152,7 @@ const AdminOrders = () => {
       const updated = await updateAdminOrderStatus(order.id, nextStatus);
       setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
     } catch (err) {
-      alert(err?.response?.data?.detail || 'Could not update order status.');
+      showToast(err?.response?.data?.detail || 'Could not update order status.');
     } finally {
       setUpdatingId(null);
     }
@@ -148,6 +240,15 @@ const AdminOrders = () => {
                       {updatingId === order.id ? 'Saving…' : NEXT_LABEL[order.status]}
                     </button>
                   )}
+                  {order.status !== 'delivered' && (
+                    <button
+                      onClick={() => setCancelOrder(order)}
+                      disabled={updatingId === order.id}
+                      className="text-xs text-red-600 font-semibold px-2 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -202,6 +303,26 @@ const AdminOrders = () => {
         </div>
       ) : (
         <OrderTable list={complete} emptyText="No completed orders yet." />
+      )}
+
+      {cancelOrder && (
+        <CancelOrderModal
+          order={cancelOrder}
+          onClose={() => setCancelOrder(null)}
+          onCancelled={(updated) => {
+            setOrders((prev) => prev.filter((o) => o.id !== updated.id));
+            setCancelOrder(null);
+            if (updated.refund?.status === 'failed') {
+              showToast(
+                `Order #${updated.id} was cancelled, but the buyer's refund payout failed` +
+                (updated.refund.failure_reason ? ` (${updated.refund.failure_reason})` : '') +
+                `. Refund UGX ${updated.refund.amount?.toLocaleString('en-UG')} manually via the Nylon Pay dashboard.`
+              );
+            } else {
+              showToast(`Order #${updated.id} cancelled and refunded.`, 'success');
+            }
+          }}
+        />
       )}
     </div>
   );

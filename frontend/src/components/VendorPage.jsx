@@ -7,6 +7,7 @@ import UpgradeToPremiumModal from './UpgradeToPremiumModal';
 import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -19,6 +20,7 @@ const SUBSCRIPTION_POLL_MAX_MINUTES = 20;
 const SUBSCRIPTION_POLL_MAX_ATTEMPTS = Math.ceil((SUBSCRIPTION_POLL_MAX_MINUTES * 60 * 1000) / SUBSCRIPTION_POLL_INTERVAL_MS);
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
+  const { showToast } = useToast();
   const { name } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -152,7 +154,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
 
   const handleUseMyLocationForVerify = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
       return;
     }
     if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
@@ -168,14 +170,14 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           });
           setVerifyLocationInput(res.data.address);
         } catch (e) {
-          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
         } finally {
           setVerifyLocating(false);
         }
       },
       () => {
         setVerifyLocating(false);
-        alert('Could not get your location. Please type your pickup location instead.');
+        showToast('Could not get your location. Please type your pickup location instead.');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -189,7 +191,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setVerifyLocationSaved(true);
       setVendorInfo(prev => prev ? { ...prev, location: verifyLocationInput.trim() } : prev);
     } catch (e) {
-      alert('Failed to save your location. Please try again.');
+      showToast('Failed to save your location. Please try again.');
     } finally {
       setVerifyLocationSaving(false);
     }
@@ -221,7 +223,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         setVerifySmsSent(true);
       }
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Could not send verification SMS. Please try again.');
+      showToast(e?.response?.data?.detail || 'Could not send verification SMS. Please try again.');
     } finally {
       setVerifySmsSending(false);
     }
@@ -241,7 +243,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         banner_fallback_url: res.data.banner_fallback_url,
       }));
     } catch {
-      alert('Failed to upload banner image');
+      showToast('Failed to upload banner image');
     } finally {
       setBannerUploading(false);
       e.target.value = null;
@@ -250,7 +252,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
       return;
     }
     if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
@@ -266,14 +268,14 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           });
           setEditLocation(res.data.address);
         } catch (e) {
-          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
         } finally {
           setLocating(false);
         }
       },
       () => {
         setLocating(false);
-        alert('Could not get your location. Please type your pickup location instead.');
+        showToast('Could not get your location. Please type your pickup location instead.');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );

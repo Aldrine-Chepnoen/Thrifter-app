@@ -24,8 +24,10 @@ import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
+import { useToast } from './context/ToastContext';
 
 function App() {
+  const { showToast } = useToast();
   const [items, setItems] = useState([]);
   const [outfitResults, setOutfitResults] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -319,7 +321,7 @@ function App() {
       navigate('/');
     } catch (error) {
       console.error('Image search failed:', error);
-      alert('Image search failed');
+      showToast('Image search failed');
     } finally {
       setLoading(false);
       e.target.value = null;
@@ -343,7 +345,7 @@ function App() {
       setWardrobeItems(res.data);
     } catch (e) {
       const msg = e?.response?.data?.detail || 'Failed to load wardrobe';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -374,7 +376,7 @@ function App() {
     } catch (e) {
       fetchWardrobe();
       const msg = e?.response?.data?.detail || 'Failed to remove from wardrobe';
-      alert(msg);
+      showToast(msg);
     }
   };
   

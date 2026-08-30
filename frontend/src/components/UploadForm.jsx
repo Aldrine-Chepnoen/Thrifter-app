@@ -4,6 +4,7 @@ import { Upload, X } from 'lucide-react';
 import api, { fetchVendorSlotStatus } from '../api';
 import { useNavigate } from 'react-router-dom';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
+import { useToast } from '../context/ToastContext';
 
 const MAX_DIMENSION = 1200;
 const JPEG_QUALITY = 0.85;
@@ -32,6 +33,7 @@ function resizeImage(file) {
 
 const UploadForm = () => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [uploadStatus, setUploadStatus] = useState(null); // null | 'resizing' | 'uploading'
   const [formData, setFormData] = useState({
     name: '',
@@ -118,7 +120,7 @@ const UploadForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!canUpload) {
-      alert('Login with a business account to list items');
+      showToast('Login with a business account to list items');
       navigate('/');
       return;
     }
@@ -127,11 +129,11 @@ const UploadForm = () => {
       return;
     }
     if (slotCheckFailed) {
-      alert("We couldn't confirm your account status. Please retry the check above before listing an item.");
+      showToast("We couldn't confirm your account status. Please retry the check above before listing an item.");
       return;
     }
     if (files.length === 0) {
-      alert('Please upload at least one image');
+      showToast('Please upload at least one image');
       return;
     }
     setUploadStatus('uploading');
@@ -152,7 +154,7 @@ const UploadForm = () => {
         setShowUpgradeModal(true);
       } else {
         const errorMsg = (typeof detail === 'string' && detail) || 'Failed to upload item';
-        alert(`Upload failed: ${errorMsg}`);
+        showToast(`Upload failed: ${errorMsg}`);
       }
     } finally {
       setUploadStatus(null);

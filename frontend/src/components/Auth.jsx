@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const Auth = ({ onAuthed }) => {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,7 +30,7 @@ const Auth = ({ onAuthed }) => {
       navigate('/');
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Login failed';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -36,7 +38,7 @@ const Auth = ({ onAuthed }) => {
 
   const handleRegister = async () => {
     if (password.length < 8) {
-      alert('Password must be at least 8 characters long.');
+      showToast('Password must be at least 8 characters long.');
       return;
     }
     
@@ -58,7 +60,7 @@ const Auth = ({ onAuthed }) => {
       } else {
         msg = e?.response?.data?.detail || e?.message || msg;
       }
-      alert(msg);
+      showToast(msg);
       setLoading(false);
     }
   };

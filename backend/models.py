@@ -206,16 +206,25 @@ class Order(Base):
     vendor_payout_amount = Column(Float, nullable=False)
     status = Column(String, default="pending", nullable=False, index=True)  # pending, paid, picked_up, delivered, cancelled
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Set only when status == "cancelled" — admin-only action, see _cancel_order.
+    cancel_reason = Column(String, nullable=True)  # item_unavailable, buyer_requested, delivery_issue, vendor_unable_to_fulfill, other
+    cancel_note = Column(Text, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    cancelled_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     checkout = relationship("Checkout", back_populates="orders")
     vendor = relationship("Vendor")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    refund = relationship("Refund", back_populates="order", uselist=False)
 
 class OrderItem(Base):
     __tablename__ = "order_items"
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    # Nullable so a cancelled order's item can be deleted from the catalog
+    # (reason="item_unavailable") without losing the order's own history —
+    # item_name_snapshot/price_at_purchase below carry the durable record.
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
     quantity = Column(Integer, nullable=False, server_default="1")
     price_at_purchase = Column(Float, nullable=False)
     item_name_snapshot = Column(String, nullable=False)
@@ -239,6 +248,31 @@ class Payment(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     checkout = relationship("Checkout", back_populates="payment")
+
+class Refund(Base):
+    """Buyer-side money-back record for an admin-cancelled order. Distinct from
+    VendorWithdrawal (vendor payout) — this pays the buyer back via the same
+    provider.payout() mechanism, since Nylon Pay has no native refund call."""
+    __tablename__ = "refunds"
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False, unique=True)
+    checkout_id = Column(Integer, ForeignKey("checkouts.id"), nullable=False, index=True)
+    subtotal_refunded = Column(Float, nullable=False)
+    # Non-zero only when cancelling this order also drops the checkout's
+    # delivery-fee tier (e.g. multi-vendor -> single-vendor) — see _cancel_order.
+    delivery_fee_refunded = Column(Float, nullable=False, default=0)
+    amount = Column(Float, nullable=False)  # subtotal_refunded + delivery_fee_refunded
+    currency = Column(String, default="UGX", nullable=False)
+    destination_phone = Column(String, nullable=False)
+    destination_name = Column(String, nullable=False)
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, successful, failed
+    provider = Column(String, nullable=True)
+    provider_ref = Column(String, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    order = relationship("Order", back_populates="refund")
 
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"

@@ -46,6 +46,7 @@ export const searchVendors = (q) => api.get('/vendors/search', { params: { q } }
 
 export const fetchAdminOrders = () => api.get('/admin/orders').then(r => r.data);
 export const updateAdminOrderStatus = (id, status) => api.patch(`/admin/orders/${id}/status`, { status }).then(r => r.data);
+export const cancelAdminOrder = (id, reason, note) => api.patch(`/admin/orders/${id}/status`, { status: 'cancelled', reason, note }).then(r => r.data);
 
 export const fetchVendorWallet = () => api.get('/vendor/me/wallet').then(r => r.data);
 export const requestVendorWithdrawal = () => api.post('/vendor/me/wallet/withdraw').then(r => r.data);

@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal } from '../api';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -20,6 +21,7 @@ const STATUS_STYLES = {
 const STATUS_LABELS = { pending_approval: 'Pending approval', paid: 'Paid', rejected: 'Rejected', failed: 'Failed' };
 
 const AdminWithdrawals = () => {
+  const { showToast } = useToast();
   const [withdrawals, setWithdrawals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -42,7 +44,7 @@ const AdminWithdrawals = () => {
       const updated = await approveWithdrawal(w.id);
       setWithdrawals((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     } catch (err) {
-      alert(err?.response?.data?.detail || 'Could not approve withdrawal.');
+      showToast(err?.response?.data?.detail || 'Could not approve withdrawal.');
     } finally {
       setActingId(null);
     }
@@ -55,7 +57,7 @@ const AdminWithdrawals = () => {
       const updated = await rejectWithdrawal(w.id);
       setWithdrawals((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     } catch (err) {
-      alert(err?.response?.data?.detail || 'Could not reject withdrawal.');
+      showToast(err?.response?.data?.detail || 'Could not reject withdrawal.');
     } finally {
       setActingId(null);
     }

@@ -49,7 +49,7 @@ const ItemCard = ({ item, onClick, onRemove, onAddToWardrobe, wardrobeIds, viewD
                 {saveData != null && (
                   <div className="flex items-center gap-1">
                     <Heart className="w-3 h-3 flex-shrink-0" />
-                    <span className="text-xs font-semibold">{saveData} saved</span>
+                    <span className="text-xs font-semibold">{saveData} saves</span>
                   </div>
                 )}
               </div>

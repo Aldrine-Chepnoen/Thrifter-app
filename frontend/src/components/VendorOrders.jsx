@@ -3,6 +3,7 @@ import { Wallet } from 'lucide-react';
 import { fetchVendorOrders, fetchVendorWallet, requestVendorWithdrawal } from '../api';
 import { getImageSrc, ORDER_STATUS_LABELS } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
@@ -21,6 +22,7 @@ const STATUS_STYLES = {
 // themselves (an admin-side flow will own that; see PATCH /vendor/orders
 // removal). This tab just reflects whatever status the order is currently in.
 const VendorOrders = () => {
+  const { showToast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState(null);
@@ -38,7 +40,7 @@ const VendorOrders = () => {
       const updated = await requestVendorWithdrawal();
       setWallet(updated);
     } catch (err) {
-      alert(err?.response?.data?.detail || 'Could not request withdrawal.');
+      showToast(err?.response?.data?.detail || 'Could not request withdrawal.');
     } finally {
       setWithdrawing(false);
     }

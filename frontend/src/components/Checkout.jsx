@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapPin } from 'lucide-react';
 import api, { createCheckout, payCheckout, API_BASE_URL } from '../api';
 import { getImageSrc } from '../utils';
+import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
 const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryFeeMultiVendor, reservationMinutes }) => {
+  const { showToast } = useToast();
   const [step, setStep] = useState('form'); // 'form' | 'confirm'
   const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
@@ -18,7 +20,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser. Please type your delivery address instead.');
+      showToast('Geolocation is not supported by your browser. Please type your delivery address instead.');
       return;
     }
     if (!window.confirm('Are you sure you want to use your current location as your delivery address?')) {
@@ -34,14 +36,14 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
           });
           setForm((f) => ({ ...f, delivery_address: res.data.address }));
         } catch (e) {
-          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your delivery address instead.');
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your delivery address instead.');
         } finally {
           setLocating(false);
         }
       },
       () => {
         setLocating(false);
-        alert('Could not get your location. Please type your delivery address instead.');
+        showToast('Could not get your location. Please type your delivery address instead.');
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
