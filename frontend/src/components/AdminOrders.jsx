@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, X, MessageSquare } from 'lucide-react';
 import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder } from '../api';
 import { getImageSrc } from '../utils';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
+import ImageLightbox from './ImageLightbox';
 import { useToast } from '../context/ToastContext';
 
 const formatUGX = (n) => {
@@ -130,6 +131,7 @@ const AdminOrders = () => {
   const [section, setSection] = useState('pending'); // 'pending' | 'complete'
   const [updatingId, setUpdatingId] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null); // order currently in the cancel-reason modal
+  const [lightbox, setLightbox] = useState(null); // { src, alt } of the enlarged item image, or null
 
   const loadOrders = ({ silent } = {}) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -196,11 +198,21 @@ const AdminOrders = () => {
                   <img
                     src={getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 100) || undefined}
                     alt={item.item_name_snapshot}
-                    className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0"
+                    onClick={() => setLightbox({
+                      src: getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 1000),
+                      alt: item.item_name_snapshot,
+                    })}
+                    className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                   />
                   <div className="min-w-0">
                     <p className="font-medium line-clamp-1">{item.item_name_snapshot}</p>
                     <p className="text-xs text-gray-400">Order #{order.id}</p>
+                    {item.note && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1 mt-0.5 max-w-[220px]">
+                        <MessageSquare className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        <span className="whitespace-normal break-words">{item.note}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               </td>
@@ -323,6 +335,10 @@ const AdminOrders = () => {
             }
           }}
         />
+      )}
+
+      {lightbox && (
+        <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />
       )}
     </div>
   );

@@ -228,6 +228,10 @@ class OrderItem(Base):
     quantity = Column(Integer, nullable=False, server_default="1")
     price_at_purchase = Column(Float, nullable=False)
     item_name_snapshot = Column(String, nullable=False)
+    # Optional buyer-written note for this line item (e.g. "no perfume packaging"),
+    # set at checkout and shown to the vendor/admin fulfilling the order. Length
+    # capped at the schema layer (CheckoutItemRequest.note), not here.
+    note = Column(Text, nullable=True)
 
     order = relationship("Order", back_populates="items")
     item = relationship("Item")

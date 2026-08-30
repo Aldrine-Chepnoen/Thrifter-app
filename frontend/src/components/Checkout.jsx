@@ -96,7 +96,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
     setSubmitting(true);
     try {
       const created = await createCheckout({
-        items: cartItems.map((i) => ({ item_id: i.id, quantity: i.cartQuantity || 1 })),
+        items: cartItems.map((i) => ({ item_id: i.id, quantity: i.cartQuantity || 1, note: i.cartNote?.trim() || undefined })),
         delivery_name: form.delivery_name.trim(),
         delivery_phone: form.delivery_phone.trim(),
         delivery_address: form.delivery_address.trim(),
@@ -178,7 +178,6 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
 
         <p className="text-xs text-gray-400 mb-6">
           {reservationMinutes != null && `Complete payment within ${reservationMinutes} minutes — after that these items go back into stock. `}
-          Delivery happens the next day (orders placed after 9pm are delivered in two days).
         </p>
 
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}

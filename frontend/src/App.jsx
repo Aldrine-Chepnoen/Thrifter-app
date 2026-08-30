@@ -70,6 +70,9 @@ function App() {
   const updateCartQuantity = (itemId, qty) => {
     setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartQuantity: qty } : i)));
   };
+  const updateCartNote = (itemId, note) => {
+    setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartNote: note } : i)));
+  };
   const clearCart = () => setCartItems([]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
@@ -530,6 +533,7 @@ function App() {
             cartItems={cartItems}
             onRemove={removeFromCart}
             onUpdateQuantity={updateCartQuantity}
+            onUpdateNote={updateCartNote}
             onClearCart={clearCart}
             deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
             deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}

@@ -334,6 +334,14 @@ class DemandEntryUpdate(BaseModel):
 class CheckoutItemRequest(BaseModel):
     item_id: int
     quantity: int = Field(1, ge=1)
+    note: Optional[str] = Field(None, max_length=200)
+
+    @validator('note')
+    def validate_note(cls, v):
+        if v is None:
+            return v
+        cleaned = v.strip()
+        return cleaned or None
 
 class CheckoutCreate(BaseModel):
     items: List[CheckoutItemRequest] = Field(..., min_length=1, max_length=20)
@@ -351,6 +359,7 @@ class OrderItemOut(BaseModel):
     quantity: int = 1
     image_path: Optional[str] = None
     fallback_url: Optional[str] = None
+    note: Optional[str] = None
 
 class OrderOut(BaseModel):
     id: int

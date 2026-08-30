@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { X, ShoppingBag } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, ShoppingBag, MessageSquarePlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getImageSrc } from '../utils';
 import api from '../api';
@@ -8,8 +8,20 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFeeSingleVendor, deliveryFeeMultiVendor, user, openAuthModal }) => {
+const NOTE_MAX_LENGTH = 200;
+
+const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart, deliveryFeeSingleVendor, deliveryFeeMultiVendor, user, openAuthModal }) => {
   const navigate = useNavigate();
+  // Notes that already have text start expanded; everything else starts
+  // collapsed behind the "Leave a note?" toggle.
+  const [openNoteIds, setOpenNoteIds] = useState(() => new Set(cartItems.filter((i) => i.cartNote).map((i) => i.id)));
+  const toggleNote = (itemId) => {
+    setOpenNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+      return next;
+    });
+  };
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
   const vendorCount = new Set(cartItems.map((i) => i.vendor_id)).size;
   const hasDeliveryFee = deliveryFeeSingleVendor != null && deliveryFeeMultiVendor != null;
@@ -102,6 +114,30 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onClearCart, deliveryFeeS
                         +
                       </button>
                     </div>
+                  )}
+                  {openNoteIds.has(item.id) ? (
+                    <div className="mt-2">
+                      <textarea
+                        value={item.cartNote || ''}
+                        onChange={(e) => onUpdateNote(item.id, e.target.value.slice(0, NOTE_MAX_LENGTH))}
+                        onBlur={() => { if (!item.cartNote?.trim()) toggleNote(item.id); }}
+                        placeholder="e.g. no perfume packaging, call before delivery…"
+                        maxLength={NOTE_MAX_LENGTH}
+                        rows={2}
+                        autoFocus={!item.cartNote}
+                        className="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 resize-none"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-0.5 text-right">{(item.cartNote || '').length}/{NOTE_MAX_LENGTH}</p>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => toggleNote(item.id)}
+                      className="flex items-center gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EAAD11] mt-2"
+                    >
+                      <MessageSquarePlus className="w-3.5 h-3.5" />
+                      Leave a note?
+                    </button>
                   )}
                 </div>
                 <button

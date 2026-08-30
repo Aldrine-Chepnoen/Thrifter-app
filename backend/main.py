@@ -1255,6 +1255,7 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
                 item_name_snapshot=oi.item_name_snapshot,
                 price_at_purchase=oi.price_at_purchase,
                 quantity=oi.quantity,
+                note=oi.note,
             )
             for oi in order.items
         ],
@@ -1342,6 +1343,7 @@ def create_checkout(
         raise HTTPException(status_code=400, detail="Duplicate items in cart")
 
     qty_by_item_id = {i.item_id: i.quantity for i in body.items}
+    note_by_item_id = {i.item_id: i.note for i in body.items}
 
     try:
         now = datetime.utcnow()
@@ -1443,6 +1445,7 @@ def create_checkout(
                     quantity=qty_by_item_id[item.id],
                     price_at_purchase=item.price,
                     item_name_snapshot=item.name,
+                    note=note_by_item_id.get(item.id),
                 ))
 
         db.commit()
@@ -2057,6 +2060,7 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            note=oi.note,
         ))
     return schemas.VendorOrderOut(
         id=order.id,
@@ -2107,6 +2111,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            note=oi.note,
         ))
     checkout = order.checkout
     refund = order.refund
