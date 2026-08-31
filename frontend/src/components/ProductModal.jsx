@@ -20,6 +20,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   });
   const [originalQuantity, setOriginalQuantity] = useState(1);
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
   const [saveStats, setSaveStats] = useState(null);
@@ -98,8 +99,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   const isOwner = !!(user?.is_vendor && user?.vendor_name && item?.vendor_name && user.vendor_name === item.vendor_name);
 
   const handleDelete = async () => {
+    if (deleting) return;
     const ok = window.confirm('Delete this listing? This cannot be undone.');
     if (!ok) return;
+    setDeleting(true);
     try {
       await api.delete(`/items/${item.id}`);
       onDeleted && onDeleted(item.id);
@@ -107,6 +110,8 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
     } catch (e) {
       const msg = e?.response?.data?.detail || e?.message || 'Failed to delete listing';
       showToast(msg);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -378,9 +383,10 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     </button>
                     <button
                       onClick={handleDelete}
-                      className="w-full bg-red-600 text-white py-3 px-6 rounded-xl font-bold hover:bg-red-700 transition-colors opacity-80 hover:opacity-100"
+                      disabled={deleting}
+                      className="w-full bg-red-600 text-white py-3 px-6 rounded-xl font-bold hover:bg-red-700 transition-colors opacity-80 hover:opacity-100 disabled:opacity-50"
                     >
-                      Delete Listing
+                      {deleting ? 'Deleting…' : 'Delete Listing'}
                     </button>
                   </>
                 )}

@@ -133,7 +133,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
                     <button
                       type="button"
                       onClick={() => toggleNote(item.id)}
-                      className="flex items-center gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-[#EAAD11] mt-2"
+                      className="flex items-center gap-1 text-xs font-semibold text-[#EAAD11] hover:opacity-80 mt-2"
                     >
                       <MessageSquarePlus className="w-3.5 h-3.5" />
                       Leave a note?
