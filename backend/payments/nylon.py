@@ -7,13 +7,15 @@ from config import settings
 from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult
 
 
-# Nylon Pay's status_text/failureReason mixes plain-language phrases (e.g. "You
+# Nylon Pay's status_text/failureReason mixes plain-language phrases (e.g. "you
 # probably have insufficient balance") with raw enum-like codes (e.g.
 # "COULD_NOT_PERFORM_TRANSACTION") depending on which failure path produced
-# them. Known codes are translated for the vendor/buyer-facing UI; an
-# already-human phrase is passed through unchanged; anything else that looks
-# like a raw code falls back to one generic, still-actionable message instead
-# of showing a bare SCREAMING_SNAKE_CASE string.
+# them. Known codes are translated for the vendor/buyer-facing UI; a
+# human phrase is matched by keyword against the same known cases (Nylon Pay's
+# own phrasing is inconsistently cased/punctuated, so it's shown as raw text
+# only as a last resort); anything else that looks like a raw code falls back
+# to one generic, still-actionable message instead of showing a bare
+# SCREAMING_SNAKE_CASE string.
 _FAILURE_REASON_MESSAGES = {
     "COULD_NOT_PERFORM_TRANSACTION": "The payment couldn't be completed on your phone — usually an incorrect PIN, insufficient balance, or the request being declined. Please check and try again.",
     "INSUFFICIENT_BALANCE": "Not enough balance on your mobile money account. Please top up and try again.",
@@ -21,6 +23,35 @@ _FAILURE_REASON_MESSAGES = {
     "TRANSACTION_TIMEOUT": "The payment request timed out before it was approved. Please try again.",
     "INVALID_PIN": "The mobile money PIN entered was incorrect. Please try again.",
 }
+
+# Keyword fallback for when Nylon Pay sends a free-form human phrase (e.g. "you
+# probably have insufficient balance") instead of one of the enum codes above —
+# matched against the lowercased raw text so it still resolves to the same
+# pre-written message rather than being shown to the vendor/buyer verbatim.
+_FAILURE_REASON_KEYWORDS = [
+    ("insufficient balance", "INSUFFICIENT_BALANCE"),
+    ("insufficient funds", "INSUFFICIENT_BALANCE"),
+    ("cancel", "CANCELLED_BY_USER"),
+    ("timed out", "TRANSACTION_TIMEOUT"),
+    ("timeout", "TRANSACTION_TIMEOUT"),
+    ("pin", "INVALID_PIN"),
+]
+
+
+def _sentence_case(text: str) -> str:
+    # `failureReason`/`status_text` has no fixed vocabulary — it's free text
+    # relayed from the underlying mobile money network, so phrasings we don't
+    # recognize will keep showing up. This is the last-resort safety net for
+    # those: it can't fix wording, but it stops a lowercase, unpunctuated
+    # provider string (e.g. "you probably have insufficient balance") from
+    # reaching the vendor/buyer looking like a raw log line.
+    text = text.strip()
+    if not text:
+        return text
+    capitalized = text[0].upper() + text[1:]
+    if capitalized[-1] not in ".!?":
+        capitalized += "."
+    return capitalized
 
 
 def _humanize_failure_reason(raw: Optional[str]) -> Optional[str]:
@@ -30,8 +61,12 @@ def _humanize_failure_reason(raw: Optional[str]) -> Optional[str]:
     mapped = _FAILURE_REASON_MESSAGES.get(key.upper())
     if mapped:
         return mapped
+    lowered = key.lower()
+    for keyword, code in _FAILURE_REASON_KEYWORDS:
+        if keyword in lowered:
+            return _FAILURE_REASON_MESSAGES[code]
     if key != key.upper() or " " in key:
-        return key
+        return _sentence_case(key)
     return "The payment couldn't be completed. Please check your mobile money balance and PIN, then try again."
 
 
