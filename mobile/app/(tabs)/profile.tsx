@@ -144,6 +144,12 @@ export default function ProfileScreen() {
         />
         <Divider />
         <MenuRow
+          icon="receipt-outline"
+          label="My Orders"
+          onPress={() => router.push('/orders')}
+        />
+        <Divider />
+        <MenuRow
           icon="stats-chart-outline"
           label="Demand Board"
           onPress={() => router.push('/(tabs)/polls')}

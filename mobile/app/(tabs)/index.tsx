@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ItemCard, { type Item } from '@/components/ItemCard';
 import api from '@/lib/api';
+import { useCart } from '@/context/CartContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const H_PAD = 12;
@@ -17,6 +18,7 @@ const LIMIT = 20;
 
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
+  const { cartItems } = useCart();
   const feedSeed = useRef((Math.random() * 2) - 1);
   const skipRef = useRef(0);
   const loadingMore = useRef(false);
@@ -104,7 +106,17 @@ export default function FeedScreen() {
     <View className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
       {/* Header */}
       <View className="bg-white border-b border-gray-100 px-4 pt-3 pb-3">
-        <Text className="text-2xl font-bold text-gray-900 mb-3">Thrifter</Text>
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className="text-2xl font-bold text-gray-900">Thrifter</Text>
+          <TouchableOpacity onPress={() => router.push('/cart')} className="relative p-1">
+            <Ionicons name="bag-outline" size={24} color="#111827" />
+            {cartItems.length > 0 && (
+              <View className="absolute -top-1 -right-1 bg-[#EAAD11] rounded-full min-w-[16px] h-4 items-center justify-center px-1">
+                <Text className="text-[10px] font-bold text-black">{cartItems.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
         <View className="flex-row items-center bg-gray-100 rounded-xl px-3 gap-2">
           <Ionicons name="search" size={18} color="#9CA3AF" />
           <TextInput

@@ -9,6 +9,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 import { getImageSrc } from '@/lib/imageHost';
 import api from '@/lib/api';
 import { type Item } from '@/components/ItemCard';
@@ -22,6 +23,7 @@ const formatUGX = (n: number) => {
 export default function ItemDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
+  const { addToCart, isInCart } = useCart();
   const insets = useSafeAreaInsets();
 
   const [item, setItem] = useState<Item | null>(null);
@@ -65,6 +67,14 @@ export default function ItemDetailScreen() {
     } finally {
       setSavingWard(false);
     }
+  };
+
+  const handleAddToCart = () => {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+    if (item) addToCart(item, 1);
   };
 
   const openWhatsApp = (number: string) => {
@@ -190,6 +200,20 @@ export default function ItemDetailScreen() {
             <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
           </TouchableOpacity>
         ) : null}
+
+        {/* Add to Cart */}
+        {(item.quantity ?? 1) > 0 && (
+          <TouchableOpacity
+            onPress={handleAddToCart}
+            disabled={isInCart(item.id)}
+            className={`rounded-2xl py-4 items-center flex-row justify-center gap-2 mt-5 ${isInCart(item.id) ? 'bg-gray-100' : 'bg-[#EAAD11]'}`}
+          >
+            <Ionicons name={isInCart(item.id) ? 'checkmark' : 'bag-add-outline'} size={20} color={isInCart(item.id) ? '#6B7280' : '#000'} />
+            <Text className={`font-bold text-base ${isInCart(item.id) ? 'text-gray-500' : 'text-black'}`}>
+              {isInCart(item.id) ? 'In Cart' : 'Add to Cart'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* WhatsApp CTA */}
         {whatsapp ? (
