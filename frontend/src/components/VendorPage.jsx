@@ -58,6 +58,12 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const subscriptionPollAttemptsRef = useRef(0);
   const [verifySmsSending, setVerifySmsSending] = useState(false);
   const [verifySmsSent, setVerifySmsSent] = useState(false);
+  // Tracks whether we've already auto-opened the plan comparison modal for
+  // this particular visit to the tab, so it doesn't reopen itself the moment
+  // the vendor closes it (state updates — e.g. subscriptionStatus polling —
+  // would otherwise re-trigger the effect below). Resets on leaving the tab
+  // so the comparison is shown again fresh next time they come back.
+  const autoOpenedSubscriptionRef = useRef(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
@@ -92,6 +98,22 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }, SUBSCRIPTION_POLL_INTERVAL_MS);
     return () => clearTimeout(timer);
   }, [isOwnProfile, activeTab, subscriptionStatus]);
+
+  // Lead with the plan comparison, not a click-through: the first time a
+  // free-tier vendor (with no pending payment or failure already on screen)
+  // lands on the Subscription tab, open the Free-vs-Premium modal
+  // immediately instead of waiting for them to press "Upgrade to Premium".
+  useEffect(() => {
+    if (!isOwnProfile || activeTab !== 'subscription') {
+      autoOpenedSubscriptionRef.current = false;
+      return;
+    }
+    if (autoOpenedSubscriptionRef.current || !subscriptionStatus) return;
+    const failureShowing = subscriptionStatus.last_failure_reason && !subscriptionFailureDismissed;
+    if (subscriptionStatus.is_premium || subscriptionStatus.pending_payment || failureShowing) return;
+    autoOpenedSubscriptionRef.current = true;
+    setShowUpgradeModal(true);
+  }, [isOwnProfile, activeTab, subscriptionStatus, subscriptionFailureDismissed]);
 
   const fetchVendorItems = async () => {
     setLoading(true);
