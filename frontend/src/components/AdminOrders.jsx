@@ -64,7 +64,9 @@ const CancelOrderModal = ({ order, onClose, onCancelled }) => {
         </button>
         <h3 className="text-lg font-serif font-bold mb-1">Cancel Order #{order.id}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          The buyer will be refunded via Nylon Pay. This cannot be undone.
+          {order.payment_method === 'cash_on_delivery'
+            ? 'This was a cash-on-delivery order — nothing was charged, so there is nothing to refund. This cannot be undone.'
+            : 'The buyer will be refunded via Nylon Pay. This cannot be undone.'}
         </p>
 
         <label className="block text-sm font-medium mb-1">Reason</label>
@@ -124,7 +126,7 @@ const byLocation = (key) => (a, b) => {
 };
 
 const AdminOrders = () => {
-  const { showToast } = useToast();
+  const { showToast, confirmToast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -146,9 +148,11 @@ const AdminOrders = () => {
   const handleAdvance = async (order) => {
     const nextStatus = NEXT_STATUS[order.status];
     if (!nextStatus) return;
-    if (!window.confirm(`Mark Order #${order.id} as "${STATUS_LABELS[nextStatus]}"? This notifies the vendor and buyer by SMS and cannot be undone.`)) {
-      return;
-    }
+    const confirmed = await confirmToast(
+      `Mark Order #${order.id} as "${STATUS_LABELS[nextStatus]}"? This notifies the vendor and buyer by SMS and cannot be undone.`,
+      STATUS_LABELS[nextStatus]
+    );
+    if (!confirmed) return;
     setUpdatingId(order.id);
     try {
       const updated = await updateAdminOrderStatus(order.id, nextStatus);
@@ -235,6 +239,9 @@ const AdminOrders = () => {
               <td className="px-4 py-3 text-gray-500">{item.quantity}</td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                 {formatUGX(item.price_at_purchase)}{item.quantity > 1 ? ' each' : ''}
+                {order.payment_method === 'cash_on_delivery' && (
+                  <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">(COD)</span>
+                )}
               </td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(order.delivery_day)}</td>
               <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDate(order.delivery_day)}</td>
@@ -324,7 +331,9 @@ const AdminOrders = () => {
           onCancelled={(updated) => {
             setOrders((prev) => prev.filter((o) => o.id !== updated.id));
             setCancelOrder(null);
-            if (updated.refund?.status === 'failed') {
+            if (updated.payment_method === 'cash_on_delivery') {
+              showToast(`Order #${updated.id} cancelled. No refund needed — it was cash on delivery.`, 'success');
+            } else if (updated.refund?.status === 'failed') {
               showToast(
                 `Order #${updated.id} was cancelled, but the buyer's refund payout failed` +
                 (updated.refund.failure_reason ? ` (${updated.refund.failure_reason})` : '') +

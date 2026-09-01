@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin } from 'lucide-react';
-import api, { createCheckout, payCheckout, API_BASE_URL } from '../api';
+import api, { createCheckout, payCheckout, confirmCashOnDelivery, API_BASE_URL } from '../api';
 import { getImageSrc } from '../utils';
 import { useToast } from '../context/ToastContext';
 
@@ -12,7 +12,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
   const { showToast } = useToast();
   const [step, setStep] = useState('form'); // 'form' | 'confirm'
   const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
-  const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
+  const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '', payment_method: 'mobile_money' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [locating, setLocating] = useState(false);
@@ -100,6 +100,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
         delivery_name: form.delivery_name.trim(),
         delivery_phone: form.delivery_phone.trim(),
         delivery_address: form.delivery_address.trim(),
+        payment_method: form.payment_method,
       });
       setCheckout(created);
       setStep('confirm');
@@ -142,6 +143,25 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
     }
   };
 
+  const handleConfirmCod = async () => {
+    didConfirmRef.current = true;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await confirmCashOnDelivery(checkout.id);
+      onOrderPlaced?.();
+      window.location.href = `/checkout/complete?checkout_id=${checkout.id}`;
+    } catch (err) {
+      didConfirmRef.current = false;
+      const detail = err?.response?.data?.detail;
+      const msg = typeof detail === 'object' ? detail.message : detail;
+      setError(msg || err?.message || 'Could not place your order, please try again.');
+      setSubmitting(false);
+    }
+  };
+
+  const isCod = checkout?.payment_method === 'cash_on_delivery';
+
   if (step === 'confirm' && checkout) {
     return (
       <main className="max-w-2xl mx-auto px-4 md:px-6 py-8">
@@ -177,17 +197,23 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
         </div>
 
         <p className="text-xs text-gray-400 mb-6">
-          {reservationMinutes != null && `Complete payment within ${reservationMinutes} minutes — after that these items go back into stock. `}
+          {reservationMinutes != null && (
+            isCod
+              ? `Confirm within ${reservationMinutes} minutes — after that these items go back into stock. `
+              : `Complete payment within ${reservationMinutes} minutes — after that these items go back into stock. `
+          )}
         </p>
 
         {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
         <button
-          onClick={handleConfirmPay}
+          onClick={isCod ? handleConfirmCod : handleConfirmPay}
           disabled={submitting}
           className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors disabled:opacity-50"
         >
-          {submitting ? 'Redirecting to payment...' : 'Confirm & Pay'}
+          {isCod
+            ? (submitting ? 'Placing order...' : 'Place order — pay on delivery')
+            : (submitting ? 'Redirecting to payment...' : 'Confirm & Pay')}
         </button>
       </main>
     );
@@ -240,7 +266,9 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Phone number(to receive PIN prompt) <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium mb-1">
+            Phone number{form.payment_method === 'mobile_money' ? '(to receive PIN prompt)' : ''} <span className="text-red-500">*</span>
+          </label>
           <input
             type="tel"
             value={form.delivery_phone}
@@ -249,6 +277,29 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFeeSingleVendor, deliveryF
             required
             minLength={7}
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-2">Payment method <span className="text-red-500">*</span></label>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { value: 'mobile_money', label: 'Mobile Money', hint: 'Pay now via PIN prompt' },
+              { value: 'cash_on_delivery', label: 'Cash on Delivery', hint: 'Pay when it arrives' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, payment_method: opt.value }))}
+                className={`text-left px-4 py-2.5 rounded-xl border transition-colors ${
+                  form.payment_method === opt.value
+                    ? 'border-[#EAAD11] ring-2 ring-[#EAAD11] bg-[#EAAD11]/5'
+                    : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900'
+                }`}
+              >
+                <div className="font-semibold text-sm">{opt.label}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{opt.hint}</div>
+              </button>
+            ))}
+          </div>
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">

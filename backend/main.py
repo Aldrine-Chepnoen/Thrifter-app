@@ -1273,6 +1273,7 @@ def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
         total_amount=checkout.total_amount,
         currency=checkout.currency,
         status=checkout.status,
+        payment_method=checkout.payment_method,
         orders=[serialize_order(o) for o in checkout.orders],
     )
 
@@ -1417,6 +1418,7 @@ def create_checkout(
             total_amount=total_amount,
             currency="UGX",
             status="pending",
+            payment_method=body.payment_method,
         )
         db.add(checkout)
         db.flush()
@@ -1448,6 +1450,13 @@ def create_checkout(
                     note=note_by_item_id.get(item.id),
                 ))
 
+        # Stays "pending" regardless of payment_method here, mirroring mobile
+        # money: the buyer still gets the review screen and an explicit final
+        # action before the order is committed (POST .../confirm-cod for cash
+        # on delivery, vs .../pay for mobile money) — see create_checkout's
+        # sibling endpoints below. Reservation-expiry sweeps already handle a
+        # cash-on-delivery checkout abandoned at the review screen the same
+        # way they handle an abandoned mobile money one.
         db.commit()
         db.refresh(checkout)
         logger.info(f"Checkout {checkout.id} created for user {current_user.id}, total {total_amount}")
@@ -1573,6 +1582,8 @@ def initiate_payment(
         raise HTTPException(status_code=404, detail="Checkout not found")
     if checkout.buyer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your checkout")
+    if checkout.payment_method != "mobile_money":
+        raise HTTPException(status_code=409, detail="This order is cash on delivery — confirm it instead of paying online.")
     if checkout.status != "pending":
         raise HTTPException(status_code=409, detail=f"Checkout is already {checkout.status}")
 
@@ -1632,6 +1643,64 @@ def initiate_payment(
 
     return schemas.PaymentInitiateResponse(redirect_url=result.redirect_url, tx_ref=tx_ref)
 
+@app.post("/checkout/{checkout_id}/confirm-cod", response_model=schemas.CheckoutOut)
+@limiter.limit("10/minute")
+def confirm_cash_on_delivery(
+    request: Request,
+    checkout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Cash-on-delivery's equivalent of POST .../pay: no payment provider is
+    involved, so this just commits the reserved checkout straight to "paid" —
+    same terminal bookkeeping as a successful mobile money payment."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == checkout_id).with_for_update().first()
+    if not checkout:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+    if checkout.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your checkout")
+    if checkout.payment_method != "cash_on_delivery":
+        raise HTTPException(status_code=409, detail="This order requires online payment — use the pay endpoint instead.")
+    if checkout.status != "pending":
+        raise HTTPException(status_code=409, detail=f"Checkout is already {checkout.status}")
+
+    now = datetime.utcnow()
+    if checkout.created_at + timedelta(minutes=settings.CHECKOUT_RESERVATION_MINUTES) < now:
+        _reclaim_expired_checkout(db, checkout, now)
+        db.commit()
+        raise HTTPException(status_code=409, detail="Your reservation window expired — please try again")
+
+    _mark_checkout_paid(db, checkout, now)
+    db.commit()
+    db.refresh(checkout)
+    return serialize_checkout(checkout)
+
+def _mark_checkout_paid(db: Session, checkout: models.Checkout, now: datetime) -> None:
+    """Terminal-success bookkeeping shared by both payment methods: a mobile
+    money checkout reaching here via _finalize_payment, or a cash-on-delivery
+    checkout that's "paid" (in the sense of confirmed, not collected) the
+    moment it's created in create_checkout — either way the same stock/order
+    status recompute and confirmation SMS apply."""
+    checkout.status = "paid"
+    for order in checkout.orders:
+        order.status = "paid"
+    # Vendor wallet crediting happens on delivery confirmation, not here
+    # — see update_admin_order_status(). Stock was already decremented at
+    # checkout-creation; the sale is now final, so just recompute status
+    # (may still be "reserved" if another concurrent checkout holds the
+    # rest of this item's stock).
+    for order in checkout.orders:
+        for oi in order.items:
+            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+            if item:
+                _recompute_item_status(db, item, now)
+    sms.send_sms(checkout.delivery_phone, sms.order_confirmed_buyer_message(checkout))
+    for order in checkout.orders:
+        sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_confirmed_vendor_message(order))
+
 def _finalize_payment(db: Session, payment: models.Payment, status: str, failure_reason: Optional[str] = None) -> None:
     """Idempotent: a payment already in a terminal state is left untouched, so
     replayed/duplicate webhook deliveries are safe no-ops."""
@@ -1651,22 +1720,7 @@ def _finalize_payment(db: Session, payment: models.Payment, status: str, failure
         return
     if status == "successful":
         payment.status = "successful"
-        checkout.status = "paid"
-        for order in checkout.orders:
-            order.status = "paid"
-        # Vendor wallet crediting happens on delivery confirmation, not here
-        # — see update_admin_order_status(). Stock was already decremented at
-        # checkout-creation; the sale is now final, so just recompute status
-        # (may still be "reserved" if another concurrent checkout holds the
-        # rest of this item's stock).
-        for order in checkout.orders:
-            for oi in order.items:
-                item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
-                if item:
-                    _recompute_item_status(db, item, now)
-        sms.send_sms(checkout.delivery_phone, sms.order_confirmed_buyer_message(checkout))
-        for order in checkout.orders:
-            sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_confirmed_vendor_message(order))
+        _mark_checkout_paid(db, checkout, now)
     elif status == "failed":
         payment.status = "failed"
         payment.failure_reason = failure_reason
@@ -2129,6 +2183,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         commission_amount=order.commission_amount,
         vendor_payout_amount=order.vendor_payout_amount,
         status=order.status,
+        payment_method=checkout.payment_method,
         created_at=order.created_at,
         delivery_day=checkout.delivery_day,
         items=items,
@@ -2169,9 +2224,10 @@ def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
 
 def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
     """Admin-only order cancellation. Restocks (or, for reason="item_unavailable",
-    deletes) the order's items, refunds the buyer via provider payout (Nylon Pay
-    has no native refund call), and recomputes the checkout's delivery-fee tier
-    if cancelling this order drops it from multi- to single-vendor."""
+    deletes) the order's items, refunds the buyer via provider payout for a
+    mobile money order (Nylon Pay has no native refund call — a cash-on-delivery
+    order was never charged, so it skips this), and recomputes the checkout's
+    delivery-fee tier if cancelling this order drops it from multi- to single-vendor."""
     if body.reason not in CANCEL_REASONS:
         raise HTTPException(status_code=422, detail=f"reason must be one of: {', '.join(sorted(CANCEL_REASONS))}")
     if body.reason == "other" and not (body.note or "").strip():
@@ -2229,52 +2285,59 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
     checkout.total_amount = max(checkout.total_amount - order.subtotal - delivery_fee_refund, 0)
 
     refund_amount = order.subtotal + delivery_fee_refund
-    refund = models.Refund(
-        order_id=order.id,
-        checkout_id=checkout.id,
-        subtotal_refunded=order.subtotal,
-        delivery_fee_refunded=delivery_fee_refund,
-        amount=refund_amount,
-        currency=checkout.currency,
-        destination_phone=checkout.delivery_phone,
-        destination_name=checkout.delivery_name,
-        status="pending",
-    )
-    db.add(refund)
-    db.flush()
 
-    # The order cancellation itself (status, restock/delete, delivery-fee
-    # recompute) is already final at this point regardless of what happens
-    # below — a payout failure (network, provider, bad credentials) must
-    # never look like the cancellation itself failed. So every outcome here
-    # folds into refund.status="failed" + a normal 200 response, not an
-    # HTTPException; the admin sees a cancelled order with a refund that
-    # needs manual follow-up, not a confusing "retry" state that then 409s
-    # on a re-attempt against an order that's already cancelled.
-    tx_ref = f"REFUND-{order.id}-{uuid.uuid4().hex[:10]}"
-    provider_name = settings.DEFAULT_PAYMENT_PROVIDER
-    refund.provider = provider_name
-    try:
-        provider = payments.get_provider(provider_name)
-        result = provider.payout(
-            tx_ref=tx_ref,
+    # A cash-on-delivery order was never charged up front — there's no real
+    # money to refund via the payment provider, so skip the payout attempt
+    # (and the Refund row itself, which exists to track a monetary refund)
+    # entirely. The restock/delivery-fee recompute above already covers
+    # everything a COD cancellation needs.
+    if checkout.payment_method == "mobile_money":
+        refund = models.Refund(
+            order_id=order.id,
+            checkout_id=checkout.id,
+            subtotal_refunded=order.subtotal,
+            delivery_fee_refunded=delivery_fee_refund,
             amount=refund_amount,
             currency=checkout.currency,
             destination_phone=checkout.delivery_phone,
             destination_name=checkout.delivery_name,
-            description=f"Thrifter refund - order #{order.id}",
+            status="pending",
         )
-        if result.success:
-            refund.status = "successful"
-            refund.provider_ref = result.provider_ref
-        else:
+        db.add(refund)
+        db.flush()
+
+        # The order cancellation itself (status, restock/delete, delivery-fee
+        # recompute) is already final at this point regardless of what happens
+        # below — a payout failure (network, provider, bad credentials) must
+        # never look like the cancellation itself failed. So every outcome here
+        # folds into refund.status="failed" + a normal 200 response, not an
+        # HTTPException; the admin sees a cancelled order with a refund that
+        # needs manual follow-up, not a confusing "retry" state that then 409s
+        # on a re-attempt against an order that's already cancelled.
+        tx_ref = f"REFUND-{order.id}-{uuid.uuid4().hex[:10]}"
+        provider_name = settings.DEFAULT_PAYMENT_PROVIDER
+        refund.provider = provider_name
+        try:
+            provider = payments.get_provider(provider_name)
+            result = provider.payout(
+                tx_ref=tx_ref,
+                amount=refund_amount,
+                currency=checkout.currency,
+                destination_phone=checkout.delivery_phone,
+                destination_name=checkout.delivery_name,
+                description=f"Thrifter refund - order #{order.id}",
+            )
+            if result.success:
+                refund.status = "successful"
+                refund.provider_ref = result.provider_ref
+            else:
+                refund.status = "failed"
+                refund.failure_reason = result.failure_reason
+                refund.provider_ref = result.provider_ref
+        except Exception as e:
+            logger.error(f"Refund payout failed for order {order.id}: {str(e)}", exc_info=True)
             refund.status = "failed"
-            refund.failure_reason = result.failure_reason
-            refund.provider_ref = result.provider_ref
-    except Exception as e:
-        logger.error(f"Refund payout failed for order {order.id}: {str(e)}", exc_info=True)
-        refund.status = "failed"
-        refund.failure_reason = str(e)
+            refund.failure_reason = str(e)
 
     db.commit()
     db.refresh(order)

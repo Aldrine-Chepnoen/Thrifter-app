@@ -15,6 +15,7 @@ const STYLES = {
   error: 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300',
   success: 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-900/50 text-green-700 dark:text-green-300',
   info: 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-900/50 text-blue-700 dark:text-blue-300',
+  confirm: 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100',
 };
 
 export const ToastProvider = ({ children }) => {
@@ -33,11 +34,53 @@ export const ToastProvider = ({ children }) => {
     return id;
   }, [dismissToast]);
 
+  // Non-blocking replacement for window.confirm(): shows a toast with
+  // Confirm/Cancel buttons instead of a native dialog (which freezes browser
+  // automation/extensions and looks jarring), while still requiring an
+  // explicit choice — it does not auto-dismiss. Resolves true/false.
+  const confirmToast = useCallback((message, confirmLabel = 'Confirm') => {
+    return new Promise((resolve) => {
+      const id = nextId.current++;
+      const resolveOnce = (result) => {
+        dismissToast(id);
+        resolve(result);
+      };
+      setToasts((prev) => [
+        ...prev,
+        { id, message, type: 'confirm', confirmLabel, onConfirm: () => resolveOnce(true), onCancel: () => resolveOnce(false) },
+      ]);
+    });
+  }, [dismissToast]);
+
   return (
-    <ToastContext.Provider value={{ showToast, dismissToast }}>
+    <ToastContext.Provider value={{ showToast, confirmToast, dismissToast }}>
       {children}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-md px-4 space-y-2 pointer-events-none">
         {toasts.map((t) => {
+          if (t.type === 'confirm') {
+            return (
+              <div
+                key={t.id}
+                className={`pointer-events-auto flex flex-col gap-3 border rounded-xl px-4 py-3 shadow-lg animate-[toast-in_0.2s_ease-out] ${STYLES.confirm}`}
+              >
+                <p className="text-sm break-words">{t.message}</p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={t.onCancel}
+                    className="px-3 py-1.5 rounded-lg text-sm font-semibold border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={t.onConfirm}
+                    className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#EAAD11] text-black hover:opacity-90"
+                  >
+                    {t.confirmLabel}
+                  </button>
+                </div>
+              </div>
+            );
+          }
           const Icon = ICONS[t.type] || ICONS.error;
           return (
             <div

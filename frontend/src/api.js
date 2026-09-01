@@ -35,6 +35,7 @@ export const deleteDemandEntry = (id) => api.delete(`/admin/demand/${id}`).then(
 export const createCheckout = (data) => api.post('/checkout', data).then(r => r.data);
 export const getCheckout = (id) => api.get(`/checkout/${id}`).then(r => r.data);
 export const payCheckout = (id, provider) => api.post(`/checkout/${id}/pay`, { provider }).then(r => r.data);
+export const confirmCashOnDelivery = (id) => api.post(`/checkout/${id}/confirm-cod`).then(r => r.data);
 export const fetchMyOrders = () => api.get('/orders').then(r => r.data);
 export const fetchVendorOrders = () => api.get('/vendor/orders').then(r => r.data);
 

@@ -348,6 +348,7 @@ class CheckoutCreate(BaseModel):
     delivery_name: str = Field(..., min_length=2, max_length=100)
     delivery_phone: str = Field(..., min_length=7, max_length=20)
     delivery_address: str = Field(..., min_length=5, max_length=500)
+    payment_method: str = Field("mobile_money", pattern="^(mobile_money|cash_on_delivery)$")
 
 class OrderItemOut(BaseModel):
     id: int
@@ -380,6 +381,7 @@ class CheckoutOut(BaseModel):
     total_amount: float
     currency: str
     status: str
+    payment_method: str
     orders: List[OrderOut] = []
 
 class PaymentInitiateRequest(BaseModel):
@@ -440,6 +442,7 @@ class AdminOrderOut(BaseModel):
     commission_amount: float
     vendor_payout_amount: float
     status: str
+    payment_method: str
     created_at: datetime
     delivery_day: datetime
     items: List[OrderItemOut] = []

@@ -189,6 +189,9 @@ class Checkout(Base):
     total_amount = Column(Float, nullable=False)
     currency = Column(String, default="UGX", nullable=False)
     status = Column(String, default="pending", nullable=False, index=True)  # pending, paid, failed, cancelled, expired
+    # Chosen once per checkout (not per order) since a single Nylon Pay charge
+    # — or its absence — covers every vendor's slice of the same cart.
+    payment_method = Column(String, default="mobile_money", nullable=False)  # mobile_money, cash_on_delivery
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
