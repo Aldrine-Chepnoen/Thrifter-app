@@ -18,6 +18,9 @@ boto3
 python-dotenv
 slowapi
 pyjwt
+google-auth
+requests
+nylonpay-py==0.5.0
 pydantic-settings
 email-validator
 cachetools

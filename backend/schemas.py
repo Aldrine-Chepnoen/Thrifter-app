@@ -10,6 +10,7 @@ class UserCreate(BaseModel):
     is_vendor: bool = False
     vendor_name: Optional[str] = Field(None, min_length=2)
     vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = Field(None, max_length=200)
 
     @validator('vendor_whatsapp')
     def validate_whatsapp(cls, v):
@@ -22,15 +23,75 @@ class UserCreate(BaseModel):
              raise ValueError('Invalid WhatsApp number: must contain digits')
         return cleaned
 
+    @validator('vendor_location', always=True)
+    def validate_vendor_location(cls, v, values):
+        if not values.get('is_vendor'):
+            return v
+        cleaned = (v or '').strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required for business/vendor accounts')
+        return cleaned
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+    confirm_signup: bool = False
+
+class GoogleAuthResponse(Token):
+    is_new_user: bool
+
+class GoogleAuthNeedsConfirmation(BaseModel):
+    needs_confirmation: bool = True
+    email: EmailStr
+
+class VendorUpgrade(BaseModel):
+    vendor_name: str = Field(..., min_length=2)
+    vendor_whatsapp: str
+    vendor_location: str = Field(..., min_length=2, max_length=200)
+
+    @validator('vendor_whatsapp')
+    def validate_whatsapp(cls, v):
+        cleaned = v.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        if not any(char.isdigit() for char in cleaned):
+            raise ValueError('Invalid WhatsApp number: must contain digits')
+        return cleaned
+
+    @validator('vendor_location')
+    def validate_vendor_location(cls, v):
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location is required')
+        return cleaned
 
 class VendorUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     whatsapp: str
     description: Optional[str] = None
-    location: Optional[str] = None
+    # Not required here: editing unrelated profile fields (name, whatsapp, bio)
+    # must not be blocked by a missing location. The plan is to enforce it via
+    # feed visibility instead (hide items from vendors with no location set),
+    # but that filtering isn't implemented yet — today, vendors without a
+    # location still show up normally.
+    location: Optional[str] = Field(None, max_length=200)
+
+    @validator('location')
+    def validate_location(cls, v):
+        if not v:
+            return None
+        cleaned = v.strip()
+        if len(cleaned) < 2:
+            raise ValueError('Pickup location must be at least 2 characters')
+        return cleaned
+
+class ReverseGeocodeRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+class ReverseGeocodeResponse(BaseModel):
+    address: str
 
 class UserInfo(BaseModel):
     id: int
@@ -39,6 +100,7 @@ class UserInfo(BaseModel):
     is_admin: bool = False
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
+    is_premium: bool = False
 
     class Config:
         from_attributes = True
@@ -47,12 +109,13 @@ class ItemBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     price: float = Field(..., gt=0)
     size: str = Field(..., min_length=1)
-    market: str = Field(..., min_length=2)
+    market: Optional[str] = Field(None, min_length=2)
     item_type: Optional[str] = Field("top", description="top, bottom, dress, accessory")
     description: Optional[str] = Field(None, max_length=1000)
     vendor_name: Optional[str] = None
     vendor_whatsapp: Optional[str] = None
     whatsapp: Optional[str] = None
+    quantity: int = Field(1, ge=0)
 
 class ItemCreate(ItemBase):
     pass
@@ -70,10 +133,13 @@ class ItemImage(BaseModel):
 
 class Item(ItemBase):
     id: int
+    vendor_id: Optional[int] = None
     image_path: str
     cloudinary_public_id: Optional[str] = None
     fallback_url: Optional[str] = None
     images: List[ItemImage] = []
+    status: str = "available"
+    is_hidden: bool = False
 
     class Config:
         from_attributes = True
@@ -102,17 +168,34 @@ class AdminVendor(BaseModel):
     whatsapp: Optional[str] = None
     is_active: bool
     is_pinned: bool = False
+    email_verified_at: Optional[datetime] = None
+    phone_verified_at: Optional[datetime] = None
     item_count: int
 
     class Config:
         from_attributes = True
+
+class VendorVerifyRequest(BaseModel):
+    token: str
+
+class VendorVerifyResponse(BaseModel):
+    status: str  # "confirmed" | "expired" | "invalid"
+    vendor_name: Optional[str] = None
+    channel: Optional[str] = None  # "sms" | "email" | None — lets the frontend avoid assuming email on failure
+
+class VendorVerifyLocationRequest(BaseModel):
+    token: str
+    location: str = Field(..., min_length=1, max_length=200)
+
+class BulkVendorIds(BaseModel):
+    vendor_ids: List[int] = Field(..., min_length=1)
 
 class AdminItem(BaseModel):
     id: int
     name: str
     price: float
     size: str
-    market: str
+    market: Optional[str] = None
     image_path: str
     item_type: Optional[str] = None
     vendor_name: Optional[str] = None
@@ -188,6 +271,14 @@ class VendorInfo(BaseModel):
     class Config:
         from_attributes = True
 
+class VendorSearchResult(BaseModel):
+    id: int
+    name: str
+    banner_image: Optional[str] = None
+    banner_fallback_url: Optional[str] = None
+    location: Optional[str] = None
+    item_count: int = 0
+
 class VendorProfile(BaseModel):
     id: int
     name: str
@@ -196,6 +287,10 @@ class VendorProfile(BaseModel):
     banner_fallback_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    is_premium: bool = False
+    hidden_item_count: Optional[int] = None  # owner-only; None for visitors
+    marketplace_visible: Optional[bool] = None  # owner-only; None for visitors
+    phone_verified: Optional[bool] = None  # owner-only; None for visitors
 
     class Config:
         from_attributes = True
@@ -236,6 +331,150 @@ class DemandEntryUpdate(BaseModel):
     price: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=300)
 
+class CheckoutItemRequest(BaseModel):
+    item_id: int
+    quantity: int = Field(1, ge=1)
+    note: Optional[str] = Field(None, max_length=200)
+
+    @validator('note')
+    def validate_note(cls, v):
+        if v is None:
+            return v
+        cleaned = v.strip()
+        return cleaned or None
+
+class CheckoutCreate(BaseModel):
+    items: List[CheckoutItemRequest] = Field(..., min_length=1, max_length=20)
+    delivery_name: str = Field(..., min_length=2, max_length=100)
+    delivery_phone: str = Field(..., min_length=7, max_length=20)
+    delivery_address: str = Field(..., min_length=5, max_length=500)
+    payment_method: str = Field("mobile_money", pattern="^(mobile_money|cash_on_delivery)$")
+
+class OrderItemOut(BaseModel):
+    id: int
+    # None once the item's been deleted from the catalog (cancel reason
+    # "item_unavailable") — item_name_snapshot/price_at_purchase still hold.
+    item_id: Optional[int] = None
+    item_name_snapshot: str
+    price_at_purchase: float
+    quantity: int = 1
+    image_path: Optional[str] = None
+    fallback_url: Optional[str] = None
+    note: Optional[str] = None
+
+class OrderOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    subtotal: float
+    status: str
+    items: List[OrderItemOut] = []
+
+class CheckoutOut(BaseModel):
+    id: int
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    delivery_day: datetime
+    subtotal: float
+    delivery_fee: float
+    total_amount: float
+    currency: str
+    status: str
+    payment_method: str
+    orders: List[OrderOut] = []
+
+class PaymentInitiateRequest(BaseModel):
+    provider: str = Field(..., pattern="^nylon$")
+
+class PaymentInitiateResponse(BaseModel):
+    redirect_url: str
+    tx_ref: str
+
+class VendorSubscriptionStatus(BaseModel):
+    is_premium: bool
+    expires_at: Optional[datetime] = None
+    active_item_count: int
+    hidden_item_count: int
+    free_item_limit: int
+    price_ugx: float
+    commission_rate: float
+    premium_commission_rate: float
+    currency: str = "UGX"
+    pending_payment: bool = False
+    last_failure_reason: Optional[str] = None
+
+class VendorOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    created_at: datetime
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+
+class AdminOrderStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(picked_up|delivered|cancelled)$")
+    # Required (and validated against CANCEL_REASONS) only when status == "cancelled".
+    reason: Optional[str] = None
+    note: Optional[str] = None
+
+class RefundOut(BaseModel):
+    amount: float
+    subtotal_refunded: float
+    delivery_fee_refunded: float
+    status: str
+    failure_reason: Optional[str] = None
+
+class AdminOrderOut(BaseModel):
+    id: int
+    checkout_id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    vendor_whatsapp: Optional[str] = None
+    vendor_location: Optional[str] = None
+    delivery_name: str
+    delivery_phone: str
+    delivery_address: str
+    subtotal: float
+    commission_amount: float
+    vendor_payout_amount: float
+    status: str
+    payment_method: str
+    created_at: datetime
+    delivery_day: datetime
+    items: List[OrderItemOut] = []
+    cancel_reason: Optional[str] = None
+    cancel_note: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+    refund: Optional[RefundOut] = None
+
+class VendorWithdrawalOut(BaseModel):
+    id: int
+    amount: float
+    status: str
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
+    failure_reason: Optional[str] = None
+
+class VendorWalletStatus(BaseModel):
+    balance: float
+    currency: str = "UGX"
+    pending_withdrawal: Optional[VendorWithdrawalOut] = None
+
+class AdminWithdrawalOut(BaseModel):
+    id: int
+    vendor_id: int
+    vendor_name: Optional[str] = None
+    destination_phone: str
+    amount: float
+    status: str
+    failure_reason: Optional[str] = None
+    requested_at: datetime
+    reviewed_at: Optional[datetime] = None
+
 class DailyViewCount(BaseModel):
     date: str
     count: int
@@ -245,3 +484,6 @@ class ItemViewStats(BaseModel):
     last_7_days: int
     last_30_days: int
     daily: List[DailyViewCount]
+
+class WardrobeSaveStats(BaseModel):
+    total: int

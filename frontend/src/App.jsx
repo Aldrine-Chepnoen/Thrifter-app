@@ -11,7 +11,6 @@ import VendorPage from './components/VendorPage';
 import AdminDashboard from './components/AdminDashboard';
 import FilterSheet from './components/FilterSheet';
 import ThrifterLoader from './components/ThrifterLoader';
-import SurveyPopup from './components/SurveyPopup';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { onImageHostChange } from './imageHost';
 import posthog from 'posthog-js';
@@ -21,8 +20,14 @@ import StyleDiscovery from './components/StyleDiscovery';
 import StyleModal from './components/StyleModal';
 import StyleBuilder from './components/StyleBuilder';
 import DemandBoard from './components/DemandBoard';
+import Cart from './components/Cart';
+import Checkout from './components/Checkout';
+import OrderConfirmation from './components/OrderConfirmation';
+import Orders from './components/Orders';
+import { useToast } from './context/ToastContext';
 
 function App() {
+  const { showToast } = useToast();
   const [items, setItems] = useState([]);
   const [outfitResults, setOutfitResults] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -39,13 +44,36 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({ minPrice: null, maxPrice: null });
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [vendorRefreshKey, setVendorRefreshKey] = useState(0);
-  const [showSurvey, setShowSurvey] = useState(false);
   const [activeStyle, setActiveStyle] = useState(null);
   const [isBuilderMode, setIsBuilderMode] = useState(false);
   const [styleModalOpen, setStyleModalOpen] = useState(false);
   const [activeStyleForModal, setActiveStyleForModal] = useState(null);
   const [showWelcomeToast, setShowWelcomeToast] = useState(false);
   const [wardrobeIds, setWardrobeIds] = useState(new Set());
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem('thrifter_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem('thrifter_cart', JSON.stringify(cartItems));
+  }, [cartItems]);
+  const addToCart = (item, qty = 1) => {
+    setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
+  };
+  const removeFromCart = (itemId) => {
+    setCartItems((prev) => prev.filter((i) => i.id !== itemId));
+  };
+  const updateCartQuantity = (itemId, qty) => {
+    setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartQuantity: qty } : i)));
+  };
+  const updateCartNote = (itemId, note) => {
+    setCartItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cartNote: note } : i)));
+  };
+  const clearCart = () => setCartItems([]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('thrifter_dark_mode');
     const isDark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -124,10 +152,24 @@ function App() {
 
       const newItems = response.data;
       if (isNew) {
-        setItems(newItems);
+        // Dedupe within the page itself too — cheap insurance against the
+        // same edge case that causes duplicates across pages (see the
+        // append branch below).
+        const seenInPage = new Set();
+        setItems(newItems.filter(i => (seenInPage.has(i.id) ? false : seenInPage.add(i.id))));
         setPage(1);
       } else {
-        setItems(prev => [...prev, ...newItems]);
+        // The personalised feed's similar+random split can occasionally
+        // resurface an item already shown on an earlier page (each page
+        // re-randomizes independently rather than excluding everything
+        // shown so far). Duplicate ids in `items` cause React to render two
+        // cards under the same key — one renders blank, the other renders
+        // fine elsewhere — so dedupe on append rather than fixing this
+        // server-side for now.
+        setItems(prev => {
+          const seen = new Set(prev.map(i => i.id));
+          return [...prev, ...newItems.filter(i => (seen.has(i.id) ? false : seen.add(i.id)))];
+        });
         setPage(currentPage + 1);
       }
       setHasMore(newItems.length === limit);
@@ -213,19 +255,6 @@ function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    if (localStorage.getItem(`survey_seen_${user.id}`)) return;
-    if (sessionStorage.getItem(`survey_dismissed_${user.id}`)) return;
-    const t = setTimeout(() => setShowSurvey(true), 1000);
-    return () => clearTimeout(t);
-  }, [user?.id]);
-
-  const handleSurveyDismiss = () => {
-    if (user?.id) sessionStorage.setItem(`survey_dismissed_${user.id}`, 'true');
-    setShowSurvey(false);
-  };
-
   const handleSearch = (query) => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
@@ -295,7 +324,7 @@ function App() {
       navigate('/');
     } catch (error) {
       console.error('Image search failed:', error);
-      alert('Image search failed');
+      showToast('Image search failed');
     } finally {
       setLoading(false);
       e.target.value = null;
@@ -319,7 +348,7 @@ function App() {
       setWardrobeItems(res.data);
     } catch (e) {
       const msg = e?.response?.data?.detail || 'Failed to load wardrobe';
-      alert(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -350,7 +379,7 @@ function App() {
     } catch (e) {
       fetchWardrobe();
       const msg = e?.response?.data?.detail || 'Failed to remove from wardrobe';
-      alert(msg);
+      showToast(msg);
     }
   };
   
@@ -394,7 +423,6 @@ function App() {
           onImageSearchClick={handleImageSearchClick}
           user={user}
           onLogout={() => {
-            if (user?.id) sessionStorage.removeItem(`survey_dismissed_${user.id}`);
             localStorage.removeItem('thrifter_token');
             setUser(null);
             setWardrobeIds(new Set());
@@ -408,6 +436,7 @@ function App() {
           hasActiveFilters={activeFilters.minPrice !== null || activeFilters.maxPrice !== null}
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
+          cartCount={cartItems.length}
         />
       )}
       
@@ -499,6 +528,37 @@ function App() {
         } />
         
         <Route path="/upload" element={user ? <UploadForm /> : <Navigate to="/" replace />} />
+        <Route path="/cart" element={
+          <Cart
+            cartItems={cartItems}
+            onRemove={removeFromCart}
+            onUpdateQuantity={updateCartQuantity}
+            onUpdateNote={updateCartNote}
+            onClearCart={clearCart}
+            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
+            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            user={user}
+            openAuthModal={openAuthModal}
+          />
+        } />
+        <Route path="/checkout" element={user ? (
+          <Checkout
+            cartItems={cartItems}
+            onOrderPlaced={clearCart}
+            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
+            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            reservationMinutes={features?.reservation_minutes}
+          />
+        ) : <Navigate to="/cart" replace />} />
+        <Route path="/checkout/complete" element={user ? (
+          <OrderConfirmation />
+        ) : <Navigate to="/" replace />} />
+        <Route path="/orders" element={user ? <Orders /> : <Navigate to="/" replace />} />
+        <Route path="/vendor/orders" element={
+          user?.is_vendor
+            ? <Navigate to={`/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders`} replace />
+            : <Navigate to="/" replace />
+        } />
         <Route path="/demand-board" element={
           <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
         } />
@@ -604,10 +664,6 @@ function App() {
         onApply={handleFiltersApply}
       />
 
-      {showSurvey && (
-        <SurveyPopup user={user} onDismiss={handleSurveyDismiss} />
-      )}
-
       <AnimatePresence>
         {styleModalOpen && activeStyleForModal && (
           <StyleModal
@@ -636,6 +692,8 @@ function App() {
         }}
         isWardrobe={location.pathname === '/wardrobe'}
         openAuthModal={openAuthModal}
+        onAddToCart={(item, qty) => { addToCart(item, qty); setSelectedItem(null); }}
+        isInCart={selectedItem ? cartItems.some((i) => i.id === selectedItem.id) : false}
       />
     </div>
   );

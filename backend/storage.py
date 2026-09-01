@@ -14,6 +14,7 @@ import logging
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List
 
 import boto3
@@ -72,9 +73,9 @@ def variant_url(url: str, width: int) -> str:
 
 
 def upload_image(image_bytes: bytes, folder: str) -> str:
-    """Uploads an original plus WebP variants to R2. Returns the public URL of
-    the largest variant. Raises on any failure — caller is responsible for
-    rollback via delete_image()."""
+    """Uploads an original plus WebP variants to R2, all in parallel. Returns
+    the public URL of the largest variant. Raises on any failure — caller is
+    responsible for rollback via delete_image()."""
     if not is_configured():
         raise RuntimeError("R2 storage is not configured (missing R2_* env vars)")
 
@@ -90,14 +91,11 @@ def upload_image(image_bytes: bytes, folder: str) -> str:
     bucket = settings.R2_BUCKET_NAME
     cache_headers = {"CacheControl": "public, max-age=31536000, immutable"}
 
-    client.put_object(
-        Bucket=bucket,
-        Key=f"{key_base}/orig",
-        Body=image_bytes,
-        ContentType=original_mime,
-        **cache_headers,
-    )
-
+    # Resize (cheap, CPU-bound) is done upfront so every put_object call below
+    # is independent of the others. They used to run one at a time — 5
+    # sequential network round-trips per image — which was the dominant cost
+    # of an upload; running them concurrently cuts that to ~1 round-trip.
+    puts = [(f"{key_base}/orig", image_bytes, original_mime)]
     for width in VARIANT_WIDTHS:
         variant = img.copy()
         if variant.width > width:
@@ -105,13 +103,22 @@ def upload_image(image_bytes: bytes, folder: str) -> str:
             variant = variant.resize((width, height), Image.LANCZOS)
         buf = io.BytesIO()
         variant.save(buf, format="WEBP", quality=WEBP_QUALITY)
+        puts.append((f"{key_base}/w{width}.webp", buf.getvalue(), "image/webp"))
+
+    def _put(args):
+        key, body, content_type = args
         client.put_object(
             Bucket=bucket,
-            Key=f"{key_base}/w{width}.webp",
-            Body=buf.getvalue(),
-            ContentType="image/webp",
+            Key=key,
+            Body=body,
+            ContentType=content_type,
             **cache_headers,
         )
+
+    with ThreadPoolExecutor(max_workers=len(puts)) as executor:
+        # list() forces iteration so the first exception (if any) propagates
+        # here, same as the old sequential loop would raise on first failure.
+        list(executor.map(_put, puts))
 
     return f"{_public_base()}/{key_base}/w{LARGEST_WIDTH}.webp"
 

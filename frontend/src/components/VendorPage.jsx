@@ -1,14 +1,37 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera } from 'lucide-react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
-import api from '../api';
+import VendorOrders from './VendorOrders';
+import UpgradeToPremiumModal from './UpgradeToPremiumModal';
+import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
+import { useToast } from '../context/ToastContext';
+
+const formatUGX = (n) => {
+  try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
+};
+
+// Mirrors UpgradeToPremiumModal's polling constants/rationale — kept in sync
+// with the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES).
+const SUBSCRIPTION_POLL_INTERVAL_MS = 5000;
+const SUBSCRIPTION_POLL_MAX_MINUTES = 20;
+const SUBSCRIPTION_POLL_MAX_ATTEMPTS = Math.ceil((SUBSCRIPTION_POLL_MAX_MINUTES * 60 * 1000) / SUBSCRIPTION_POLL_INTERVAL_MS);
 
 const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendorRenamed }) => {
+  const { showToast } = useToast();
   const { name } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const verifyToken = searchParams.get('verify');
+  const [confirmedToken] = useState(() => verifyToken);
+  const [verifyState, setVerifyState] = useState(verifyToken ? 'checking' : null);
+  const [verifyChannel, setVerifyChannel] = useState(null);
+  const [verifyLocationInput, setVerifyLocationInput] = useState('');
+  const [verifyLocationSaving, setVerifyLocationSaving] = useState(false);
+  const [verifyLocationSaved, setVerifyLocationSaved] = useState(false);
+  const [verifyLocating, setVerifyLocating] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [vendorInfo, setVendorInfo] = useState(null);
@@ -17,14 +40,80 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [editWhatsapp, setEditWhatsapp] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editLocation, setEditLocation] = useState('');
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [viewStats, setViewStats] = useState({});
+  const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
   const bannerInputRef = useRef(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [refreshingSubscription, setRefreshingSubscription] = useState(false);
+  // Dismissing a resolved failure shouldn't be undone by the next status
+  // refetch — the backend keeps reporting last_failure_reason until a new
+  // attempt supersedes it, same reasoning as UpgradeToPremiumModal.
+  const [subscriptionFailureDismissed, setSubscriptionFailureDismissed] = useState(false);
+  const subscriptionPollAttemptsRef = useRef(0);
+  const [verifySmsSending, setVerifySmsSending] = useState(false);
+  const [verifySmsSent, setVerifySmsSent] = useState(false);
+  // Tracks whether we've already auto-opened the plan comparison modal for
+  // this particular visit to the tab, so it doesn't reopen itself the moment
+  // the vendor closes it (state updates — e.g. subscriptionStatus polling —
+  // would otherwise re-trigger the effect below). Resets on leaving the tab
+  // so the comparison is shown again fresh next time they come back.
+  const autoOpenedSubscriptionRef = useRef(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
+
+  // GET /vendor/me/subscription actively re-verifies a still-pending payment
+  // against the provider, so re-calling this is how "Check payment status"
+  // resolves a pending payment without waiting for the webhook.
+  const refreshSubscriptionStatus = async () => {
+    setRefreshingSubscription(true);
+    try {
+      const res = await fetchVendorSlotStatus();
+      setSubscriptionStatus(res);
+    } catch {
+      // Leave the last-known status displayed rather than clearing it.
+    } finally {
+      setRefreshingSubscription(false);
+    }
+  };
+
+  // Auto-poll the Subscription tab while a payment is genuinely still pending,
+  // instead of making the vendor keep tapping "Check payment status" — see
+  // UpgradeToPremiumModal for the same pattern and its rationale.
+  useEffect(() => {
+    if (!isOwnProfile || activeTab !== 'subscription' || !subscriptionStatus?.pending_payment) {
+      subscriptionPollAttemptsRef.current = 0;
+      return;
+    }
+    if (subscriptionPollAttemptsRef.current >= SUBSCRIPTION_POLL_MAX_ATTEMPTS) return;
+    const timer = setTimeout(() => {
+      subscriptionPollAttemptsRef.current += 1;
+      refreshSubscriptionStatus();
+    }, SUBSCRIPTION_POLL_INTERVAL_MS);
+    return () => clearTimeout(timer);
+  }, [isOwnProfile, activeTab, subscriptionStatus]);
+
+  // Lead with the plan comparison, not a click-through: the first time a
+  // free-tier vendor (with no pending payment or failure already on screen)
+  // lands on the Subscription tab, open the Free-vs-Premium modal
+  // immediately instead of waiting for them to press "Upgrade to Premium".
+  useEffect(() => {
+    if (!isOwnProfile || activeTab !== 'subscription') {
+      autoOpenedSubscriptionRef.current = false;
+      return;
+    }
+    if (autoOpenedSubscriptionRef.current || !subscriptionStatus) return;
+    const failureShowing = subscriptionStatus.last_failure_reason && !subscriptionFailureDismissed;
+    if (subscriptionStatus.is_premium || subscriptionStatus.pending_payment || failureShowing) return;
+    autoOpenedSubscriptionRef.current = true;
+    setShowUpgradeModal(true);
+  }, [isOwnProfile, activeTab, subscriptionStatus, subscriptionFailureDismissed]);
 
   const fetchVendorItems = async () => {
     setLoading(true);
@@ -36,8 +125,21 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       setItems(itemsRes.data || []);
       setVendorInfo(vendorRes.data || null);
       if (isOwnProfile) {
-        api.get(`/vendors/${encodeURIComponent(name)}/views`)
-          .then(res => setViewStats(res.data || {}))
+        // View/save stats are Premium-only — skip the calls entirely for a
+        // free vendor rather than firing requests we know the backend will 403.
+        if (vendorRes.data?.is_premium) {
+          api.get(`/vendors/${encodeURIComponent(name)}/views`)
+            .then(res => setViewStats(res.data || {}))
+            .catch(() => {});
+          api.get(`/vendors/${encodeURIComponent(name)}/wardrobe-saves`)
+            .then(res => setWardrobeSaveStats(res.data || {}))
+            .catch(() => {});
+        } else {
+          setViewStats({});
+          setWardrobeSaveStats({});
+        }
+        fetchVendorSlotStatus()
+          .then(setSubscriptionStatus)
           .catch(() => {});
       }
     } catch (e) {
@@ -51,6 +153,72 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     fetchVendorItems();
   }, [name, refreshKey]);
 
+  useEffect(() => {
+    if (!verifyToken) return;
+    api.post('/vendors/verify', { token: verifyToken })
+      .then(res => {
+        setVerifyState(res.data.status);
+        setVerifyChannel(res.data.channel || null);
+      })
+      .catch(() => setVerifyState('invalid'))
+      .finally(() => {
+        searchParams.delete('verify');
+        setSearchParams(searchParams, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyToken]);
+
+  useEffect(() => {
+    if (verifyState === 'confirmed' && vendorInfo) {
+      setVerifyLocationInput(prev => prev || vendorInfo.location || '');
+    }
+  }, [verifyState, vendorInfo]);
+
+  const handleUseMyLocationForVerify = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
+    setVerifyLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setVerifyLocationInput(res.data.address);
+        } catch (e) {
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setVerifyLocating(false);
+        }
+      },
+      () => {
+        setVerifyLocating(false);
+        showToast('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  const handleSaveVerifyLocation = async () => {
+    if (!confirmedToken || !verifyLocationInput.trim()) return;
+    setVerifyLocationSaving(true);
+    try {
+      await api.post('/vendors/verify/location', { token: confirmedToken, location: verifyLocationInput.trim() });
+      setVerifyLocationSaved(true);
+      setVendorInfo(prev => prev ? { ...prev, location: verifyLocationInput.trim() } : prev);
+    } catch (e) {
+      showToast('Failed to save your location. Please try again.');
+    } finally {
+      setVerifyLocationSaving(false);
+    }
+  };
+
   const handleShare = async () => {
     await navigator.clipboard.writeText(window.location.href);
     setCopied(true);
@@ -63,7 +231,24 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     setEditDescription(vendorInfo?.description || '');
     setEditLocation(vendorInfo?.location || '');
     setError('');
+    setVerifySmsSent(false);
     setSettingsOpen(true);
+  };
+
+  const handleSendVerifySms = async () => {
+    setVerifySmsSending(true);
+    try {
+      const res = await sendVendorPhoneVerification();
+      if (res.status === 'already_verified') {
+        setVendorInfo(prev => prev ? { ...prev, phone_verified: true } : prev);
+      } else {
+        setVerifySmsSent(true);
+      }
+    } catch (e) {
+      showToast(e?.response?.data?.detail || 'Could not send verification SMS. Please try again.');
+    } finally {
+      setVerifySmsSending(false);
+    }
   };
 
   const handleBannerUpload = async (e) => {
@@ -80,11 +265,42 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         banner_fallback_url: res.data.banner_fallback_url,
       }));
     } catch {
-      alert('Failed to upload banner image');
+      showToast('Failed to upload banner image');
     } finally {
       setBannerUploading(false);
       e.target.value = null;
     }
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to use your current location as your pickup location?')) {
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await api.post('/geocode/reverse', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setEditLocation(res.data.address);
+        } catch (e) {
+          showToast(e?.response?.data?.detail || 'Could not determine your address. Please type your pickup location instead.');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        setLocating(false);
+        showToast('Could not get your location. Please type your pickup location instead.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleSave = async () => {
@@ -95,7 +311,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         name: editName,
         whatsapp: editWhatsapp,
         description: editDescription || null,
-        location: editLocation || null,
+        location: editLocation.trim() || null,
       });
       const newName = res.data.vendor_name;
       onVendorRenamed?.(newName);
@@ -108,7 +324,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           name: newName,
           whatsapp: res.data.vendor_whatsapp,
           description: editDescription || null,
-          location: editLocation || null,
+          location: editLocation.trim() || null,
         }));
       }
     } catch (e) {
@@ -118,8 +334,111 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  // Never assume email — a SMS-origin link that fails to verify must not
+  // tell the vendor to go check their inbox. verifyChannel is only known
+  // when the backend could actually recover it (see decode_vendor_verify_token);
+  // otherwise the copy stays medium-neutral rather than guessing.
+  const verifyModalContent = {
+    checking: { title: 'Confirming…', body: null },
+    expired: {
+      title: 'This link has expired',
+      body: verifyChannel === 'sms'
+        ? 'This verification link has expired. Go to Store Settings and tap "Send verification SMS" to get a new one.'
+        : "This verification window has closed. Contact us if you're still an active seller.",
+    },
+    invalid: {
+      title: "This link isn't valid",
+      body: verifyChannel === 'sms'
+        ? 'This verification link isn\'t valid. Go to Store Settings and tap "Send verification SMS" to request a new one.'
+        : "This confirmation link isn't valid. Please request a new one and try again.",
+    },
+  }[verifyState];
+
+  const showSubscriptionFailure = !!subscriptionStatus
+    && !subscriptionStatus.is_premium
+    && !subscriptionStatus.pending_payment
+    && subscriptionStatus.last_failure_reason
+    && !subscriptionFailureDismissed;
+
   return (
     <main className="max-w-7xl mx-auto">
+      {verifyState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl max-w-sm w-full p-6 text-center shadow-xl">
+            {verifyState === 'checking' && <ThrifterLoader />}
+
+            {verifyState === 'confirmed' && !verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">You're verified!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                  Please confirm your pickup location so we can arrange deliveries.
+                </p>
+                <div className="flex items-center justify-end mb-1.5">
+                  <button
+                    type="button"
+                    onClick={handleUseMyLocationForVerify}
+                    disabled={verifyLocating}
+                    className="flex items-center gap-1.5 text-sm font-bold text-[#EAAD11] hover:underline disabled:opacity-50"
+                  >
+                    <MapPin className="w-4 h-4" />
+                    {verifyLocating ? 'Locating…' : 'Use my location'}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={verifyLocationInput}
+                  onChange={e => setVerifyLocationInput(e.target.value)}
+                  placeholder="Pickup location"
+                  className="w-full p-3 mb-4 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none text-left"
+                />
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={handleSaveVerifyLocation}
+                    disabled={verifyLocationSaving || !verifyLocationInput.trim()}
+                    className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
+                  >
+                    {verifyLocationSaving ? 'Saving…' : 'Save location'}
+                  </button>
+                  <button
+                    onClick={() => setVerifyState(null)}
+                    className="px-5 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+              </>
+            )}
+
+            {verifyState === 'confirmed' && verifyLocationSaved && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">All set!</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">
+                  Thanks — you're confirmed and your pickup location is saved.
+                </p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+
+            {(verifyState === 'expired' || verifyState === 'invalid') && (
+              <>
+                <h3 className="font-serif font-bold text-lg dark:text-white mb-2">{verifyModalContent.title}</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-5">{verifyModalContent.body}</p>
+                <button
+                  onClick={() => setVerifyState(null)}
+                  className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all"
+                >
+                  Close
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Hero banner */}
       <div className="relative h-44 md:h-60 bg-gray-200 dark:bg-gray-800 overflow-hidden">
         {vendorInfo?.banner_image ? (
@@ -162,16 +481,19 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       {/* Vendor info block */}
       <div className="px-4 md:px-6 pt-5 pb-4 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight">
+          <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tight text-gray-900 dark:text-white leading-tight flex items-center gap-2">
             {vendorInfo?.name || name}
+            {vendorInfo?.is_premium && (
+              <span className="inline-flex items-center gap-1 bg-[#EAAD11] text-black text-[11px] font-bold px-2 py-1 rounded-full normal-case tracking-normal">
+                <Crown className="w-3 h-3" />
+                Premium
+              </span>
+            )}
           </h1>
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
           )}
-          {vendorInfo?.location && (
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">{vendorInfo.location}</p>
-          )}
-          {!vendorInfo?.description && !vendorInfo?.location && (
+          {!vendorInfo?.description && (
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{items.length} items</p>
           )}
         </div>
@@ -206,6 +528,13 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         </button>
       </div>
 
+      {isOwnProfile && vendorInfo?.marketplace_visible === false && (
+        <div className="px-4 md:px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2.5 text-sm text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>your items aren't visible to buyers — verify your phone and set a valid pickup location</span>
+        </div>
+      )}
+
       {/* Settings panel */}
       {isOwnProfile && settingsOpen && (
         <div className="px-4 md:px-6 py-6 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
@@ -217,26 +546,55 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           </div>
           <div className="space-y-4 max-w-md">
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Store Name</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Store Name <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+                required
+                minLength={2}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">WhatsApp Number</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Phone Number <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={editWhatsapp}
                 onChange={e => setEditWhatsapp(e.target.value)}
                 placeholder="+256..."
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
+                required
               />
+              {vendorInfo?.phone_verified ? (
+                <p className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 mt-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Verified
+                </p>
+              ) : editWhatsapp.trim() !== (user?.vendor_whatsapp || '').trim() ? (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
+                  Save changes first, then send the verification link to this number.
+                </p>
+              ) : verifySmsSent ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                  Verification link sent — check your SMS.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSendVerifySms}
+                  disabled={verifySmsSending || !editWhatsapp.trim()}
+                  className="flex items-center gap-1.5 text-sm font-bold text-[#EAAD11] hover:underline disabled:opacity-50 mt-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  {verifySmsSending ? 'Sending…' : 'Send verification SMS'}
+                </button>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Bio</label>
+              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">
+                Bio <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
               <textarea
                 value={editDescription}
                 onChange={e => setEditDescription(e.target.value)}
@@ -246,20 +604,34 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5 dark:text-gray-300">Location</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium dark:text-gray-300">
+                  Pickup Location <span className="text-red-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  disabled={locating}
+                  className="flex items-center gap-1.5 text-sm font-bold text-[#EAAD11] hover:underline disabled:opacity-50"
+                >
+                  <MapPin className="w-4 h-4" />
+                  {locating ? 'Locating…' : 'Use my location'}
+                </button>
+              </div>
               <input
                 type="text"
                 value={editLocation}
                 onChange={e => setEditLocation(e.target.value)}
-                placeholder="e.g. Kampala, Uganda"
+                required
                 className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               />
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Needed so we can arrange item pickup for delivery.</p>
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}
             <div className="flex gap-3 pt-1">
               <button
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !editName.trim() || !editWhatsapp.trim()}
                 className="px-5 py-2.5 bg-[#EAAD11] text-black font-bold rounded-xl hover:opacity-90 transition-all input-shadow disabled:opacity-50"
               >
                 {saving ? 'Saving…' : 'Save Changes'}
@@ -275,18 +647,119 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         </div>
       )}
 
-      {/* Product grid */}
+      {/* Tabs (own profile only — orders are private) */}
+      {isOwnProfile && (
+        <div className="px-4 md:px-6 mt-6 flex gap-2 border-b border-gray-100 dark:border-gray-800">
+          {[{ key: 'items', label: 'My Items' }, { key: 'orders', label: 'Orders' }, { key: 'subscription', label: 'Subscription' }].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-[#EAAD11] text-gray-900 dark:text-white'
+                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Product grid / Orders / Subscription */}
       <div className="px-4 md:px-6 mt-6">
-        {loading ? (
+        {isOwnProfile && activeTab === 'orders' ? (
+          <VendorOrders />
+        ) : isOwnProfile && activeTab === 'subscription' ? (
+          <div className="max-w-md">
+            {!subscriptionStatus ? (
+              <ThrifterLoader />
+            ) : (
+              <>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    {subscriptionStatus.is_premium && <Crown className="w-4 h-4 text-[#EAAD11]" />}
+                    <span className="font-bold text-gray-900 dark:text-white">
+                      {subscriptionStatus.is_premium ? 'Premium plan' : 'Free plan'}
+                    </span>
+                    {subscriptionStatus.pending_payment && (
+                      <span className="text-[11px] font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full">
+                        Payment pending
+                      </span>
+                    )}
+                  </div>
+                  {subscriptionStatus.is_premium && subscriptionStatus.expires_at && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      Renews / expires {new Date(subscriptionStatus.expires_at).toLocaleDateString()}
+                    </p>
+                  )}
+                  {subscriptionStatus.pending_payment && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      We're waiting on confirmation from your payment provider. This can take a few minutes — we'll update this automatically, no need to keep checking.
+                    </p>
+                  )}
+                  {showSubscriptionFailure && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-1 mb-3 text-xs text-red-700 dark:text-red-300">
+                      Your last Premium upgrade attempt failed: {subscriptionStatus.last_failure_reason}
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm mt-2">
+                    <span className="text-gray-500 dark:text-gray-400">Active listings</span>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {subscriptionStatus.active_item_count}{subscriptionStatus.is_premium ? '' : ` / ${subscriptionStatus.free_item_limit}`}
+                    </span>
+                  </div>
+                  {subscriptionStatus.hidden_item_count > 0 && (
+                    <div className="flex justify-between text-sm mt-1">
+                      <span className="text-gray-500 dark:text-gray-400">Hidden (over limit)</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">{subscriptionStatus.hidden_item_count}</span>
+                    </div>
+                  )}
+                </div>
+                {subscriptionStatus.pending_payment ? (
+                  <button
+                    disabled
+                    className="w-full bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 py-3.5 rounded-xl font-bold cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <div className="w-4 h-4 border-2 border-gray-300 dark:border-gray-600 border-b-gray-500 dark:border-b-gray-400 rounded-full animate-spin" />
+                    <span>Checking status…</span>
+                  </button>
+                ) : showSubscriptionFailure ? (
+                  <button
+                    onClick={() => setSubscriptionFailureDismissed(true)}
+                    className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all"
+                  >
+                    Dismiss
+                  </button>
+                ) : !subscriptionStatus.is_premium && (
+                  <button
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="w-full bg-[#EAAD11] text-black py-3.5 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Crown className="w-4 h-4" />
+                    Upgrade to Premium — {formatUGX(subscriptionStatus.price_ugx)}/30 days
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        ) : loading ? (
           <ThrifterLoader />
         ) : items.length > 0 ? (
-          <MasonryGrid items={items} onItemClick={setSelectedItem} viewStats={isOwnProfile ? viewStats : null} />
+          <MasonryGrid
+            items={items}
+            onItemClick={setSelectedItem}
+            viewStats={isOwnProfile ? viewStats : null}
+            wardrobeSaveStats={isOwnProfile ? wardrobeSaveStats : null}
+            hiddenBannerText={isOwnProfile ? 'Unavailable — upgrade to unlock' : undefined}
+          />
         ) : (
           <div className="text-center py-20 text-gray-500">
             <p>No items from this vendor yet.</p>
           </div>
         )}
       </div>
+      <UpgradeToPremiumModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
     </main>
   );
 };

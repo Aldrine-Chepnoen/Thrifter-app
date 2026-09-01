@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
+import { useToast } from '../context/ToastContext';
 
 const DemandSubmitModal = ({ isOpen, onClose }) => {
+  const { showToast } = useToast();
   const [itemName, setItemName] = useState('');
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
@@ -33,7 +35,7 @@ const DemandSubmitModal = ({ isOpen, onClose }) => {
       });
       setSubmitted(true);
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to submit. Please try again.');
+      showToast(e?.response?.data?.detail || 'Failed to submit. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -86,6 +88,8 @@ const DemandSubmitModal = ({ isOpen, onClose }) => {
                     onChange={e => setItemName(e.target.value)}
                     placeholder="e.g. Vintage denim jacket"
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+                    required
+                    minLength={2}
                   />
                 </div>
                 <div>
@@ -95,6 +99,7 @@ const DemandSubmitModal = ({ isOpen, onClose }) => {
                     onChange={e => setPrice(e.target.value)}
                     placeholder="e.g. Around 50k, under 30,000 UGX"
                     className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+                    required
                   />
                 </div>
                 <div>
