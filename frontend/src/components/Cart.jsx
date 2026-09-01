@@ -136,7 +136,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
                       className="flex items-center gap-1 text-xs font-semibold text-[#EAAD11] hover:opacity-80 mt-2"
                     >
                       <MessageSquarePlus className="w-3.5 h-3.5" />
-                      Leave a note?
+                      Add Order details (Size/Colors)?
                     </button>
                   )}
                 </div>
