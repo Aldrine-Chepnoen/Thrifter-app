@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus, Check, TrendingUp, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus, Check, TrendingUp, ThumbsUp, ThumbsDown, DollarSign, Wallet } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
@@ -528,14 +528,24 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       {activeTab === 'overview' && (
         <>
           {stats ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-              <StatCard icon={<Users />} label="Total Users" value={stats.total_users} />
-              <StatCard icon={<Store />} label="Total Vendors" value={stats.total_vendors} />
-              <StatCard icon={<Package />} label="Total Items" value={stats.total_items} />
-              <StatCard icon={<Heart />} label="Wardrobe Saves" value={stats.total_wardrobe_saves} />
-              <StatCard icon={<Store />} label="Active Vendors" value={stats.active_vendors} color="green" />
-              <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
-            </div>
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                <StatCard icon={<Users />} label="Total Users" value={stats.total_users} />
+                <StatCard icon={<Store />} label="Total Vendors" value={stats.total_vendors} />
+                <StatCard icon={<Package />} label="Total Items" value={stats.total_items} />
+                <StatCard icon={<Heart />} label="Wardrobe Saves" value={stats.total_wardrobe_saves} />
+                <StatCard icon={<Store />} label="Active Vendors" value={stats.active_vendors} color="green" />
+                <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
+              </div>
+
+              <h2 className="text-base font-bold mb-4">Money</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                <StatCard icon={<DollarSign />} label="Total Platform Earnings" value={stats.total_platform_earnings} prefix="UGX" color="green" />
+                <StatCard icon={<DollarSign />} label="Commission Earnings" value={stats.total_commission_earnings} prefix="UGX" />
+                <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" />
+                <StatCard icon={<Wallet />} label="Total Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" />
+              </div>
+            </>
           ) : <ThrifterLoader />}
 
           <div>
@@ -1640,7 +1650,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   );
 };
 
-const StatCard = ({ icon, label, value, color }) => (
+const StatCard = ({ icon, label, value, color, prefix }) => (
   <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
     <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${
       color === 'green' ? 'bg-green-50 text-green-600' :
@@ -1649,7 +1659,7 @@ const StatCard = ({ icon, label, value, color }) => (
     }`}>
       {React.cloneElement(icon, { className: 'w-5 h-5' })}
     </div>
-    <p className="text-2xl font-bold">{Number(value).toLocaleString()}</p>
+    <p className="text-2xl font-bold">{prefix ? `${prefix} ` : ''}{Number(value).toLocaleString()}</p>
     <p className="text-sm text-gray-500 mt-1">{label}</p>
   </div>
 );

@@ -3327,6 +3327,16 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
     cached = cache.admin_stats_get()
     if cached is not None:
         return cached
+    # Commission is only "earned" once a checkout actually paid — orders sitting
+    # in "pending" (payment not yet completed) or "cancelled" (failed/refunded)
+    # never converted into real revenue.
+    commission_earnings = db.query(func.coalesce(func.sum(models.Order.commission_amount), 0.0)).filter(
+        models.Order.status.notin_(["pending", "cancelled"])
+    ).scalar()
+    premium_earnings = db.query(func.coalesce(func.sum(models.VendorSubscription.amount), 0.0)).filter(
+        models.VendorSubscription.status == "successful"
+    ).scalar()
+    wallet_balance = db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).scalar()
     result = schemas.AdminStats(
         total_users=db.query(models.User).count(),
         total_vendors=db.query(models.Vendor).count(),
@@ -3334,6 +3344,10 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
         total_wardrobe_saves=db.query(models.Wardrobe).count(),
         active_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == True).count(),
         inactive_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == False).count(),
+        total_commission_earnings=commission_earnings,
+        total_premium_earnings=premium_earnings,
+        total_platform_earnings=commission_earnings + premium_earnings,
+        total_vendor_wallet_balance=wallet_balance,
     )
     cache.admin_stats_set(result)
     return result

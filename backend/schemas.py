@@ -151,6 +151,15 @@ class AdminStats(BaseModel):
     total_wardrobe_saves: int
     active_vendors: int
     inactive_vendors: int
+    # Platform revenue: commission on delivered/paid orders plus premium
+    # subscription payments. total_platform_earnings is just their sum.
+    total_commission_earnings: float
+    total_premium_earnings: float
+    total_platform_earnings: float
+    # SUM(VendorWalletTransaction.amount) across all vendors — the ledger is
+    # append-only, so this is exactly the money currently owed to vendors
+    # that hasn't been withdrawn yet, not a separately-tracked balance.
+    total_vendor_wallet_balance: float
 
 class AdminUser(BaseModel):
     id: int
