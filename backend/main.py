@@ -511,6 +511,12 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
         vendor_id = vendor.id
         vendor_name = vendor.name
         vendor_whatsapp = vendor.whatsapp
+        try:
+            _issue_vendor_verify_sms(db, vendor)
+        except Exception as e:
+            # Best-effort — a vendor with no working SMS route can still self-serve
+            # a resend later from their settings panel; must never block signup.
+            logger.error(f"Auto verification SMS failed for vendor {vendor.id}: {str(e)}", exc_info=True)
     u = models.User(email=user.email, hashed_password=hash_password(user.password), is_vendor=user.is_vendor, vendor_id=vendor_id)
     db.add(u)
     db.commit()
@@ -589,6 +595,10 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
     current.vendor_id = vendor.id
     db.commit()
     logger.info(f"User upgraded to vendor: {current.id}")
+    try:
+        _issue_vendor_verify_sms(db, vendor)
+    except Exception as e:
+        logger.error(f"Auto verification SMS failed for vendor {vendor.id}: {str(e)}", exc_info=True)
 
     return schemas.UserInfo(
         id=current.id, email=current.email, is_vendor=current.is_vendor,
@@ -2732,18 +2742,13 @@ def update_vendor_profile(
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
-@app.post("/vendor/me/verify-sms")
-@limiter.limit("3/minute")
-def send_vendor_phone_verification(request: Request, current_user: models.User = Depends(require_vendor), db: Session = Depends(get_db)):
-    """Self-serve alternative to the admin's bulk SMS campaign — a vendor can
-    request their own verification link on demand from their settings panel."""
-    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
+def _issue_vendor_verify_sms(db: Session, vendor: "models.Vendor") -> str:
+    """Shared by the self-serve settings-panel button and the automatic send
+    on signup/upgrade. Returns 'sent', 'already_verified', or 'no_phone'."""
     if not vendor.whatsapp:
-        raise HTTPException(status_code=400, detail="Add a WhatsApp number before requesting verification.")
+        return "no_phone"
     if vendor.phone_verified_at:
-        return {"status": "already_verified"}
+        return "already_verified"
 
     token = vendor_verify.make_vendor_verify_token(vendor.id, channel="sms")
     code = secrets.token_urlsafe(6)
@@ -2754,7 +2759,20 @@ def send_vendor_phone_verification(request: Request, current_user: models.User =
 
     short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
     sms.send_sms(vendor.whatsapp, sms.phone_verification_message(vendor.name, short_link))
-    return {"status": "sent"}
+    return "sent"
+
+@app.post("/vendor/me/verify-sms")
+@limiter.limit("3/minute")
+def send_vendor_phone_verification(request: Request, current_user: models.User = Depends(require_vendor), db: Session = Depends(get_db)):
+    """Self-serve alternative to the admin's bulk SMS campaign — a vendor can
+    request their own verification link on demand from their settings panel."""
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    status = _issue_vendor_verify_sms(db, vendor)
+    if status == "no_phone":
+        raise HTTPException(status_code=400, detail="Add a WhatsApp number before requesting verification.")
+    return {"status": status}
 
 @app.post("/vendor/me/banner")
 async def upload_vendor_banner(

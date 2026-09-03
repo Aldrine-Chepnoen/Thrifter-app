@@ -4,6 +4,7 @@ import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle, ShieldChe
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
+import VerifyPhoneNudgeModal from './VerifyPhoneNudgeModal';
 import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
@@ -58,6 +59,10 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const subscriptionPollAttemptsRef = useRef(0);
   const [verifySmsSending, setVerifySmsSending] = useState(false);
   const [verifySmsSent, setVerifySmsSent] = useState(false);
+  // Reset on every mount (i.e. every fresh visit to the page) so the nudge
+  // pops up again each time an unverified vendor lands here, not just once
+  // per session — dismissing only hides it for the current visit.
+  const [phoneNudgeDismissed, setPhoneNudgeDismissed] = useState(false);
   // Tracks whether we've already auto-opened the plan comparison modal for
   // this particular visit to the tab, so it doesn't reopen itself the moment
   // the vendor closes it (state updates — e.g. subscriptionStatus polling —
@@ -489,6 +494,17 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 Premium
               </span>
             )}
+            {isOwnProfile && vendorInfo?.marketplace_visible === false && (
+              <button
+                type="button"
+                onClick={openSettings}
+                title="Verify your phone and set a pickup location to appear to buyers"
+                className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-[11px] font-semibold px-2 py-1 rounded-full normal-case tracking-normal hover:bg-amber-100 dark:hover:bg-amber-900/30"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Not visible to buyers
+              </button>
+            )}
           </h1>
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
@@ -527,13 +543,6 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
           {copied ? 'Copied!' : 'share profile'}
         </button>
       </div>
-
-      {isOwnProfile && vendorInfo?.marketplace_visible === false && (
-        <div className="px-4 md:px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2.5 text-sm text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>your items aren't visible to buyers — verify your phone and set a valid pickup location</span>
-        </div>
-      )}
 
       {/* Settings panel */}
       {isOwnProfile && settingsOpen && (
@@ -760,6 +769,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         )}
       </div>
       <UpgradeToPremiumModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
+      <VerifyPhoneNudgeModal
+        isOpen={isOwnProfile && !loading && vendorInfo?.phone_verified === false && !phoneNudgeDismissed}
+        onClose={() => setPhoneNudgeDismissed(true)}
+        phone={user?.vendor_whatsapp || ''}
+        vendorName={vendorInfo?.name || name}
+        description={vendorInfo?.description}
+        location={vendorInfo?.location}
+        onAlreadyVerified={() => setVendorInfo(prev => prev ? { ...prev, phone_verified: true } : prev)}
+      />
     </main>
   );
 };

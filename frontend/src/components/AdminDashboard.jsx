@@ -543,7 +543,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 <StatCard icon={<DollarSign />} label="Total Platform Earnings" value={stats.total_platform_earnings} prefix="UGX" color="green" />
                 <StatCard icon={<DollarSign />} label="Commission Earnings" value={stats.total_commission_earnings} prefix="UGX" />
                 <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" />
-                <StatCard icon={<Wallet />} label="Total Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" />
+                <StatCard icon={<Wallet />} label="Total Current Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" />
               </div>
             </>
           ) : <ThrifterLoader />}
