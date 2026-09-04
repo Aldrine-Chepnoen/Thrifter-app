@@ -2514,6 +2514,19 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
         pending_withdrawal=_serialize_withdrawal(withdrawal),
     )
 
+@app.get("/admin/payment-provider-status", response_model=schemas.PaymentProviderHealth)
+@limiter.limit("10/minute")
+def check_payment_provider_status(request: Request, current_user: models.User = Depends(require_admin)):
+    """Lets an admin check whether Nylon Pay's API is reachable before
+    retrying a withdrawal, instead of probing it with a real payout attempt.
+    Only confirms the API itself is up — Nylon Pay can pause a specific
+    action (e.g. payouts) while the rest keeps working; see
+    NylonPayProvider.health_check()'s docstring for why that can't be
+    distinguished without sending a real payout."""
+    provider = payments.get_provider(settings.DEFAULT_PAYMENT_PROVIDER)
+    result = provider.health_check()
+    return schemas.PaymentProviderHealth(healthy=result.healthy, message=result.message)
+
 @app.get("/admin/withdrawals", response_model=List[schemas.AdminWithdrawalOut])
 def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
     withdrawals = (

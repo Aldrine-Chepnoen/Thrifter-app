@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal } from '../api';
+import { RefreshCw, Activity } from 'lucide-react';
+import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal, checkPaymentProviderStatus } from '../api';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
 import { useToast } from '../context/ToastContext';
@@ -26,6 +26,7 @@ const AdminWithdrawals = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   const load = ({ silent } = {}) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -63,6 +64,18 @@ const AdminWithdrawals = () => {
     }
   };
 
+  const handleCheckStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const res = await checkPaymentProviderStatus();
+      showToast(res.message, res.healthy ? 'success' : 'error');
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not check Nylon Pay status.');
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
   if (loading) return <ThrifterLoader />;
 
   const pending = withdrawals.filter((w) => w.status === 'pending_approval');
@@ -70,7 +83,16 @@ const AdminWithdrawals = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-end gap-2 mb-6">
+        <button
+          onClick={handleCheckStatus}
+          disabled={checkingStatus}
+          title="Checks whether Nylon Pay's API is reachable, without sending a real payout. Doesn't confirm payouts specifically are enabled — Nylon Pay can pause just that feature on its own."
+          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+        >
+          <Activity className={`w-3.5 h-3.5 ${checkingStatus ? 'animate-pulse' : ''}`} />
+          {checkingStatus ? 'Checking…' : 'Check Nylon Pay reachability'}
+        </button>
         <button
           onClick={() => load({ silent: true })}
           disabled={refreshing}

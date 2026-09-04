@@ -52,6 +52,7 @@ export const cancelAdminOrder = (id, reason, note) => api.patch(`/admin/orders/$
 export const fetchVendorWallet = () => api.get('/vendor/me/wallet').then(r => r.data);
 export const requestVendorWithdrawal = () => api.post('/vendor/me/wallet/withdraw').then(r => r.data);
 export const fetchAdminWithdrawals = () => api.get('/admin/withdrawals').then(r => r.data);
+export const checkPaymentProviderStatus = () => api.get('/admin/payment-provider-status').then(r => r.data);
 export const approveWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/approve`).then(r => r.data);
 export const rejectWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/reject`).then(r => r.data);
 export const initiateVendorSubscriptionPayment = (provider) => api.post('/vendor/subscription/checkout', { provider }).then(r => r.data);

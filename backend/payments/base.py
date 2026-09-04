@@ -36,6 +36,12 @@ class PayoutResult:
     failure_reason: Optional[str] = None
 
 
+@dataclass
+class HealthCheckResult:
+    healthy: bool
+    message: str
+
+
 class PaymentProvider(ABC):
     name: str
 
@@ -80,4 +86,10 @@ class PaymentProvider(ABC):
         status — payouts here are low-frequency, admin-triggered actions,
         so synchronous resolution is acceptable (unlike collect_payment,
         which stays async via webhook for buyer-facing collection)."""
+        ...
+
+    @abstractmethod
+    def health_check(self) -> HealthCheckResult:
+        """Cheap, side-effect-free probe of whether the provider's API is
+        currently reachable and responding normally."""
         ...

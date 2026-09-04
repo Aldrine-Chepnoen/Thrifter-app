@@ -1,10 +1,12 @@
+import json
+import re
 import uuid
 from typing import Optional, Dict, Any
 
 from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination
 
 from config import settings
-from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult
+from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult, HealthCheckResult
 
 
 # Nylon Pay's status_text/failureReason mixes plain-language phrases (e.g. "you
@@ -70,6 +72,48 @@ def _humanize_failure_reason(raw: Optional[str]) -> Optional[str]:
     return "The payment couldn't be completed. Please check your mobile money balance and PIN, then try again."
 
 
+_ERROR_CODE_PREFIX = re.compile(r"^\[[A-Za-z0-9_-]+\]\s*")
+
+
+def _try_parse_json(text: str) -> Optional[Any]:
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return None
+
+
+def _humanize_payout_failure(raw: Optional[str]) -> Optional[str]:
+    """Payout (vendor withdrawal) failures come from a different part of Nylon
+    Pay's API than the collection failures above, with different failure modes
+    (destination/account/provider-availability issues, not a buyer's PIN entry)
+    — so this gets its own message handling rather than reusing the buyer-facing
+    collection copy, whose keyword matches and generic fallback don't fit here.
+
+    `raw` may be a plain string from a caught `SdkException` (validation errors
+    caught before any network call), or a JSON-serialized SdkError
+    (category/message/retryable) from a rejected `Result` — both are handled.
+    """
+    if not raw:
+        return raw
+    text = raw.strip()
+    category: Optional[str] = None
+    parsed_json = _try_parse_json(text)
+    if isinstance(parsed_json, dict) and isinstance(parsed_json.get("message"), str):
+        if isinstance(parsed_json.get("category"), str):
+            category = parsed_json["category"]
+        text = parsed_json["message"]
+    # Nylon Pay tags some messages with a support-ticket-style prefix like
+    # "[LUlcio] ..." — meaningless to whoever reads this, so it's dropped.
+    text = _ERROR_CODE_PREFIX.sub("", text).strip()
+    message = _sentence_case(text) if text else "The payout couldn't be completed."
+    if category == "provider":
+        # This came from Nylon Pay's own systems/policy, not from anything we
+        # sent — say so plainly, so a provider-side pause/outage doesn't get
+        # mistaken for a Thrifter bug (that exact confusion is why this exists).
+        return f"Nylon Pay: {message}"
+    return message
+
+
 class NylonPayProvider(PaymentProvider):
     name = "nylon"
 
@@ -112,6 +156,15 @@ class NylonPayProvider(PaymentProvider):
             )
         except SdkException as e:
             raise RuntimeError(f"Nylon Pay collection failed [{e.category}]: {e}") from e
+        # collect_payment() is event-driven: it never raises on a transport-level
+        # failure (e.g. retries exhausted against a 502) — that gets swallowed into
+        # the returned PaymentInstance's internal event state instead, which we
+        # never read here. Confirm the reference actually registered with Nylon Pay
+        # before telling the buyer a PIN prompt is on its way; otherwise a collection
+        # request that never left our server gets reported back as a success.
+        status_check = client.get_status(reference=reference)
+        if not status_check.is_ok:
+            raise RuntimeError(f"Nylon Pay could not confirm collection {reference}: {status_check.error}")
         # Mobile money collections have no hosted checkout page — the customer approves
         # on their own phone. Send the buyer straight to our confirmation page, which
         # already polls GET /checkout/{id} until the webhook (or verify()) resolves it.
@@ -194,12 +247,49 @@ class NylonPayProvider(PaymentProvider):
                 reference=reference,
             )
         except SdkException as e:
-            return PayoutResult(success=False, status="failed", failure_reason=f"[{e.category}] {e}")
+            return PayoutResult(success=False, status="failed", failure_reason=_humanize_payout_failure(f"[{e.category}] {e}"))
 
         if result.is_err:
-            return PayoutResult(success=False, status="failed", failure_reason=str(result.error))
+            return PayoutResult(success=False, status="failed", failure_reason=_humanize_payout_failure(str(result.error)))
 
         txn = result.value
         if txn.status == "successful":
             return PayoutResult(success=True, status="successful", provider_ref=txn.id)
-        return PayoutResult(success=False, status=txn.status, provider_ref=txn.id, failure_reason=txn.failure_reason)
+        return PayoutResult(success=False, status=txn.status, provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
+
+    def health_check(self) -> HealthCheckResult:
+        """Cheap, side-effect-free probe of whether Nylon Pay's shared API
+        endpoint is reachable at all — lets an admin check before retrying a
+        withdrawal instead of probing with a real payout. Queries a reference
+        that can't possibly exist: getting back a clean "not_found" IS the
+        healthy signal (Nylon Pay understood and answered the request); any
+        other outcome (network failure, or Nylon Pay rejecting the request
+        outright) is not.
+
+        Scope limitation: every SDK operation (collect_payment, make_payout,
+        get_status, ...) shares one HTTP endpoint, distinguished only by an
+        `action` field in the request body — so this only confirms that
+        endpoint is up, via the get_status action specifically. Nylon Pay can
+        (and has) selectively paused just ONE action family — e.g. "Payouts
+        are temporarily paused for maintenance" — while collect_payment and
+        get_status kept working fine for other users at the very same time.
+        A "reachable" result here does NOT mean payouts specifically are
+        enabled; it only rules out a full outage like the one this check was
+        built to catch. There's no safe way to probe make_payout more
+        directly without sending a real payout, which this deliberately never does.
+        """
+        client = self._get_client()
+        probe_reference = str(uuid.uuid4())
+        try:
+            result = client.get_status(reference=probe_reference)
+        except SdkException as e:
+            return HealthCheckResult(healthy=False, message=_humanize_payout_failure(f"[{e.category}] {e}") or "Nylon Pay's API is not reachable.")
+
+        if result.is_ok:
+            return HealthCheckResult(healthy=True, message="Nylon Pay's API is reachable. This doesn't confirm payouts specifically are enabled — Nylon Pay can pause just that feature while the rest of the API keeps working.")
+
+        parsed = _try_parse_json(str(result.error))
+        category = parsed.get("category") if isinstance(parsed, dict) else None
+        if category == "not_found":
+            return HealthCheckResult(healthy=True, message="Nylon Pay's API is reachable. This doesn't confirm payouts specifically are enabled — Nylon Pay can pause just that feature while the rest of the API keeps working.")
+        return HealthCheckResult(healthy=False, message=_humanize_payout_failure(str(result.error)) or "Nylon Pay's API is not reachable.")

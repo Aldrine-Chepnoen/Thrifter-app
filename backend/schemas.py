@@ -484,6 +484,10 @@ class AdminWithdrawalOut(BaseModel):
     requested_at: datetime
     reviewed_at: Optional[datetime] = None
 
+class PaymentProviderHealth(BaseModel):
+    healthy: bool
+    message: str
+
 class DailyViewCount(BaseModel):
     date: str
     count: int
