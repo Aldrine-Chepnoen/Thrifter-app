@@ -1,21 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
+<<<<<<< Updated upstream
 import { MapPin } from 'lucide-react';
 import api, { createCheckout, payCheckout, API_BASE_URL } from '../api';
 import { getImageSrc } from '../utils';
+=======
+import { createCheckout, payCheckout, confirmCashOnDelivery, API_BASE_URL } from '../api';
+import { getImageSrc, haversineKm } from '../utils';
+import LocationPicker from './LocationPicker';
+>>>>>>> Stashed changes
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
+<<<<<<< Updated upstream
 const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes }) => {
   const [step, setStep] = useState('form'); // 'form' | 'confirm'
   const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
   const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
+=======
+const Checkout = ({
+  cartItems,
+  onOrderPlaced,
+  collectionPointLat,
+  collectionPointLng,
+  deliveryBaseFeeUgx,
+  deliveryRatePerKmUgx,
+  deliveryMaxRadiusKm,
+  reservationMinutes,
+}) => {
+  const [step, setStep] = useState('form'); // 'form' | 'confirm'
+  const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
+  const [form, setForm] = useState({
+    delivery_name: '', delivery_phone: '', delivery_address: '',
+    delivery_lat: null, delivery_lng: null, payment_method: 'mobile_money',
+  });
+>>>>>>> Stashed changes
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [locating, setLocating] = useState(false);
   const didConfirmRef = useRef(false);
 
+<<<<<<< Updated upstream
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser. Please type your delivery address instead.');
@@ -47,6 +72,8 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
     );
   };
 
+=======
+>>>>>>> Stashed changes
   // Release held stock as soon as the buyer leaves the confirm step without
   // paying, instead of making it wait out the full hold window — silent,
   // best-effort, no UI ever mentions this. `beforeunload` covers a hard tab
@@ -70,7 +97,21 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
   }, [step, checkout]);
 
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
+<<<<<<< Updated upstream
   const hasDeliveryFee = deliveryFee != null;
+=======
+  const hasFeeConfig = collectionPointLat != null && collectionPointLng != null
+    && deliveryBaseFeeUgx != null && deliveryRatePerKmUgx != null;
+  const locationResolved = form.delivery_lat != null && form.delivery_lng != null;
+  const distanceKm = (hasFeeConfig && locationResolved)
+    ? haversineKm(collectionPointLat, collectionPointLng, form.delivery_lat, form.delivery_lng)
+    : null;
+  const outOfRange = distanceKm != null && deliveryMaxRadiusKm != null && distanceKm > deliveryMaxRadiusKm;
+  const hasDeliveryFee = hasFeeConfig && locationResolved && !outOfRange;
+  // Mirrors the backend's _calculate_delivery_fee (backend/main.py) — kept in
+  // sync manually so the preview matches what /checkout actually charges.
+  const deliveryFee = hasDeliveryFee ? Math.round(deliveryBaseFeeUgx + deliveryRatePerKmUgx * distanceKm) : 0;
+>>>>>>> Stashed changes
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
   const total = subtotal + (deliveryFee || 0) + tax;
 
@@ -89,6 +130,14 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
       setError('Please fill in all delivery details.');
       return;
     }
+    if (!locationResolved) {
+      setError('Please confirm your delivery location — select a suggestion, use your location, or pick it on the map.');
+      return;
+    }
+    if (outOfRange) {
+      setError(`Sorry, we don't deliver that far yet (max ${deliveryMaxRadiusKm}km from our collection point).`);
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await createCheckout({
@@ -96,6 +145,12 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
         delivery_name: form.delivery_name.trim(),
         delivery_phone: form.delivery_phone.trim(),
         delivery_address: form.delivery_address.trim(),
+<<<<<<< Updated upstream
+=======
+        delivery_lat: form.delivery_lat,
+        delivery_lng: form.delivery_lng,
+        payment_method: form.payment_method,
+>>>>>>> Stashed changes
       });
       setCheckout(created);
       setStep('confirm');
@@ -211,7 +266,11 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
           </div>
           <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
             <span>Shipping Cost</span>
-            <span>{hasDeliveryFee ? formatUGX(deliveryFee) : '—'}</span>
+            <span>
+              {hasDeliveryFee
+                ? formatUGX(deliveryFee)
+                : (outOfRange ? 'Not available at this location' : 'Set delivery location to see cost')}
+            </span>
           </div>
           <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
             <span>Tax</span>
@@ -249,6 +308,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
           />
         </div>
         <div>
+<<<<<<< Updated upstream
           <div className="flex items-center justify-between mb-1">
             <label className="block text-sm font-medium">Delivery address <span className="text-red-500">*</span></label>
             <button
@@ -269,7 +329,47 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
             placeholder="Area, street, landmark..."
             required
             minLength={5}
+=======
+          <label className="block text-sm font-medium mb-2">Payment method <span className="text-red-500">*</span></label>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { value: 'mobile_money', label: 'Mobile Money', hint: 'Pay now via PIN prompt' },
+              { value: 'cash_on_delivery', label: 'Cash on Delivery', hint: 'Pay when it arrives' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, payment_method: opt.value }))}
+                className={`text-left px-4 py-2.5 rounded-xl border transition-colors ${
+                  form.payment_method === opt.value
+                    ? 'border-[#EAAD11] ring-2 ring-[#EAAD11] bg-[#EAAD11]/5'
+                    : 'border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900'
+                }`}
+              >
+                <div className="font-semibold text-sm">{opt.label}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{opt.hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Delivery address <span className="text-red-500">*</span></label>
+          <LocationPicker
+            address={form.delivery_address}
+            lat={form.delivery_lat}
+            lng={form.delivery_lng}
+            collectionPointLat={collectionPointLat}
+            collectionPointLng={collectionPointLng}
+            onChange={({ address, lat, lng }) => setForm((f) => ({
+              ...f, delivery_address: address, delivery_lat: lat, delivery_lng: lng,
+            }))}
+>>>>>>> Stashed changes
           />
+          {outOfRange && (
+            <p className="text-sm text-red-600 mt-1.5">
+              Sorry, we don't deliver that far yet (max {deliveryMaxRadiusKm}km from our collection point).
+            </p>
+          )}
         </div>
 
         <div>
@@ -283,7 +383,7 @@ const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes })
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || outOfRange}
           className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors disabled:opacity-50"
         >
           {submitting ? 'Please wait...' : 'Continue'}

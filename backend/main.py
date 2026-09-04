@@ -12,6 +12,7 @@ import shutil
 import os
 import uuid
 import io
+import math
 from typing import List, Optional, Union
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -127,7 +128,15 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
+<<<<<<< Updated upstream
         "delivery_fee_ugx": settings.DELIVERY_FEE_UGX,
+=======
+        "delivery_base_fee_ugx": settings.DELIVERY_BASE_FEE_UGX,
+        "delivery_rate_per_km_ugx": settings.DELIVERY_RATE_PER_KM_UGX,
+        "delivery_max_radius_km": settings.DELIVERY_MAX_RADIUS_KM,
+        "collection_point_lat": settings.COLLECTION_POINT_LAT,
+        "collection_point_lng": settings.COLLECTION_POINT_LNG,
+>>>>>>> Stashed changes
         "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
@@ -492,6 +501,102 @@ def reverse_geocode(request: Request, body: schemas.ReverseGeocodeRequest):
         raise HTTPException(status_code=404, detail="Could not determine address for this location")
 
     return schemas.ReverseGeocodeResponse(address=data["results"][0]["formatted_address"])
+
+def _places_new_request(method_path: str, body: dict, field_mask: str):
+    """Shared plumbing for the Places API (New) REST surface — distinct from
+    the legacy Geocoding API used by reverse_geocode above. Raises a 503 (not
+    a 502) whenever the call can't be fulfilled, including when the Places
+    API (New) product itself isn't yet enabled on the GCP project, so the
+    frontend can treat "not configured" and "temporarily unreachable" the
+    same way: hide the affected UI instead of showing a raw error."""
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.post(
+            f"https://places.googleapis.com/v1/{method_path}",
+            json=body,
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": field_mask,
+                "Content-Type": "application/json",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        # Covers both API_KEY_SERVICE_BLOCKED (Places API (New) not enabled
+        # yet on this project) and any other provider-side failure.
+        logger.warning("Places API (New) returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    return resp.json()
+
+@app.post("/geocode/autocomplete", response_model=schemas.PlaceAutocompleteResponse)
+@limiter.limit("30/minute")
+def geocode_autocomplete(request: Request, body: schemas.PlaceAutocompleteRequest):
+    # No auth required: buyers resolve a delivery location before/while filling
+    # out the checkout form.
+    data = _places_new_request(
+        "places:autocomplete",
+        {
+            "input": body.input,
+            "sessionToken": body.session_token,
+            "includedRegionCodes": ["ug"],
+            "locationBias": {
+                "circle": {
+                    "center": {"latitude": settings.COLLECTION_POINT_LAT, "longitude": settings.COLLECTION_POINT_LNG},
+                    "radius": 50000.0,
+                }
+            },
+        },
+        field_mask="suggestions.placePrediction.placeId,suggestions.placePrediction.text",
+    )
+    predictions = [
+        schemas.PlacePrediction(
+            description=s["placePrediction"]["text"]["text"],
+            place_id=s["placePrediction"]["placeId"],
+        )
+        for s in data.get("suggestions", [])
+        if "placePrediction" in s
+    ]
+    return schemas.PlaceAutocompleteResponse(predictions=predictions)
+
+@app.post("/geocode/place-details", response_model=schemas.PlaceDetailsResponse)
+@limiter.limit("30/minute")
+def geocode_place_details(request: Request, body: schemas.PlaceDetailsRequest):
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.get(
+            f"https://places.googleapis.com/v1/places/{body.place_id}",
+            params={"sessionToken": body.session_token},
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": "formattedAddress,location",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) place-details request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        logger.warning("Places API (New) place-details returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    data = resp.json()
+    location = data.get("location") or {}
+    if "latitude" not in location or "longitude" not in location:
+        raise HTTPException(status_code=404, detail="Could not determine coordinates for this place")
+
+    return schemas.PlaceDetailsResponse(
+        address=data.get("formattedAddress", ""),
+        lat=location["latitude"],
+        lng=location["longitude"],
+    )
 
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
@@ -1258,12 +1363,41 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
         ],
     )
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Straight-line distance between two lat/lng points, in km."""
+    r = 6371.0  # Earth's mean radius, km
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+def _calculate_delivery_fee(lat: float, lng: float) -> float:
+    """Every order is consolidated at settings.COLLECTION_POINT_LAT/LNG and
+    shipped to the buyer from there in one trip — so the fee is base + rate
+    per km of straight-line distance, regardless of how many vendors are in
+    the cart. Raises 422 past DELIVERY_MAX_RADIUS_KM rather than charging an
+    ever-larger fee."""
+    distance_km = _haversine_km(settings.COLLECTION_POINT_LAT, settings.COLLECTION_POINT_LNG, lat, lng)
+    if distance_km > settings.DELIVERY_MAX_RADIUS_KM:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Sorry, we don't deliver that far yet (max {settings.DELIVERY_MAX_RADIUS_KM:g}km from our collection point).",
+                "code": "delivery_out_of_range",
+                "max_km": settings.DELIVERY_MAX_RADIUS_KM,
+            },
+        )
+    return round(settings.DELIVERY_BASE_FEE_UGX + settings.DELIVERY_RATE_PER_KM_UGX * distance_km)
+
 def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
     return schemas.CheckoutOut(
         id=checkout.id,
         delivery_name=checkout.delivery_name,
         delivery_phone=checkout.delivery_phone,
         delivery_address=checkout.delivery_address,
+        delivery_lat=checkout.delivery_lat,
+        delivery_lng=checkout.delivery_lng,
         delivery_day=checkout.delivery_day,
         subtotal=checkout.subtotal,
         delivery_fee=checkout.delivery_fee,
@@ -1341,6 +1475,11 @@ def create_checkout(
 
     qty_by_item_id = {i.item_id: i.quantity for i in body.items}
 
+    # Computed before any row locks are taken — pure in-process math, and
+    # failing fast on an out-of-range location means we never hold item locks
+    # for a checkout that was always going to be rejected.
+    delivery_fee = _calculate_delivery_fee(body.delivery_lat, body.delivery_lng)
+
     try:
         now = datetime.utcnow()
 
@@ -1396,7 +1535,10 @@ def create_checkout(
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
         subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
+<<<<<<< Updated upstream
         delivery_fee = settings.DELIVERY_FEE_UGX
+=======
+>>>>>>> Stashed changes
         total_amount = subtotal + delivery_fee
 
         checkout = models.Checkout(
@@ -1404,6 +1546,8 @@ def create_checkout(
             delivery_name=body.delivery_name,
             delivery_phone=body.delivery_phone,
             delivery_address=body.delivery_address,
+            delivery_lat=body.delivery_lat,
+            delivery_lng=body.delivery_lng,
             delivery_day=next_delivery_day(now),
             subtotal=subtotal,
             delivery_fee=delivery_fee,
@@ -2095,6 +2239,162 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         items=items,
     )
 
+<<<<<<< Updated upstream
+=======
+def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
+    """Destroys an item's Cloudinary/R2 assets and its row. Caller is
+    responsible for ensuring no order_items row still references it with a
+    NOT NULL constraint (item_id is nullable + ON DELETE SET NULL, so any
+    live references are cleared automatically)."""
+    for img in (item.images or []):
+        try:
+            # Dual-written images have an asset in both stores — clean up each
+            if img.cloudinary_public_id:
+                cloudinary.uploader.destroy(img.cloudinary_public_id)
+            if storage.is_r2_url(img.image_path):
+                storage.delete_image(img.image_path)
+        except Exception:
+            pass
+    try:
+        if item.cloudinary_public_id:
+            cloudinary.uploader.destroy(item.cloudinary_public_id)
+        if storage.is_r2_url(item.image_path):
+            storage.delete_image(item.image_path)
+    except Exception:
+        pass
+    db.delete(item)
+
+def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
+    """Admin-only order cancellation. Restocks (or, for reason="item_unavailable",
+    deletes) the order's items, refunds the buyer via provider payout for a
+    mobile money order (Nylon Pay has no native refund call — a cash-on-delivery
+    order was never charged, so it skips this), and recomputes the checkout's
+    delivery-fee tier if cancelling this order drops it from multi- to single-vendor."""
+    if body.reason not in CANCEL_REASONS:
+        raise HTTPException(status_code=422, detail=f"reason must be one of: {', '.join(sorted(CANCEL_REASONS))}")
+    if body.reason == "other" and not (body.note or "").strip():
+        raise HTTPException(status_code=422, detail="A note is required when reason is 'other'")
+
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == order.checkout_id).with_for_update().first()
+    now = datetime.utcnow()
+
+    deleted_item_ids = []
+    restocked = False
+    if body.reason == "item_unavailable":
+        for oi in order.items:
+            if not oi.item_id:
+                continue
+            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+            if not item:
+                continue
+            oi.item_id = None
+            db.flush()
+            deleted_item_ids.append(item.id)
+            _delete_item_assets_and_row(db, item)
+    else:
+        # Same restock pattern as _release_checkout — sorted by item id to
+        # match its deadlock-avoidance lock ordering.
+        for oi in sorted(order.items, key=lambda oi: oi.item_id or 0):
+            if not oi.item_id:
+                continue
+            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+            if not item:
+                continue
+            was_sold_out = item.quantity == 0
+            _adjust_item_stock(db, item, +oi.quantity, now)
+            if was_sold_out and item.quantity > 0:
+                restocked = True
+
+    order.status = "cancelled"
+    order.cancel_reason = body.reason
+    order.cancel_note = (body.note or "").strip() or None
+    order.cancelled_at = now
+    order.cancelled_by_user_id = current_user.id
+
+    # Delivery fee is distance-based (buyer <-> collection point), not tied to
+    # vendor count, since every order is consolidated into one trip regardless
+    # of how many vendors are represented — so cancelling one order out of a
+    # multi-vendor cart never changes the fee. Only refund it in full when
+    # every order in the checkout has been cancelled (nothing left to deliver).
+    remaining_vendor_count = len({
+        o.vendor_id for o in checkout.orders
+        if o.id != order.id and o.status not in ("cancelled", "failed")
+    })
+    delivery_fee_refund = 0.0
+    if remaining_vendor_count == 0:
+        delivery_fee_refund = checkout.delivery_fee
+        checkout.delivery_fee = 0.0
+        checkout.status = "cancelled"
+    checkout.total_amount = max(checkout.total_amount - order.subtotal - delivery_fee_refund, 0)
+
+    refund_amount = order.subtotal + delivery_fee_refund
+
+    # A cash-on-delivery order was never charged up front — there's no real
+    # money to refund via the payment provider, so skip the payout attempt
+    # (and the Refund row itself, which exists to track a monetary refund)
+    # entirely. The restock/delivery-fee recompute above already covers
+    # everything a COD cancellation needs.
+    if checkout.payment_method == "mobile_money":
+        refund = models.Refund(
+            order_id=order.id,
+            checkout_id=checkout.id,
+            subtotal_refunded=order.subtotal,
+            delivery_fee_refunded=delivery_fee_refund,
+            amount=refund_amount,
+            currency=checkout.currency,
+            destination_phone=checkout.delivery_phone,
+            destination_name=checkout.delivery_name,
+            status="pending",
+        )
+        db.add(refund)
+        db.flush()
+
+        # The order cancellation itself (status, restock/delete, delivery-fee
+        # recompute) is already final at this point regardless of what happens
+        # below — a payout failure (network, provider, bad credentials) must
+        # never look like the cancellation itself failed. So every outcome here
+        # folds into refund.status="failed" + a normal 200 response, not an
+        # HTTPException; the admin sees a cancelled order with a refund that
+        # needs manual follow-up, not a confusing "retry" state that then 409s
+        # on a re-attempt against an order that's already cancelled.
+        tx_ref = f"REFUND-{order.id}-{uuid.uuid4().hex[:10]}"
+        provider_name = settings.DEFAULT_PAYMENT_PROVIDER
+        refund.provider = provider_name
+        try:
+            provider = payments.get_provider(provider_name)
+            result = provider.payout(
+                tx_ref=tx_ref,
+                amount=refund_amount,
+                currency=checkout.currency,
+                destination_phone=checkout.delivery_phone,
+                destination_name=checkout.delivery_name,
+                description=f"Thrifter refund - order #{order.id}",
+            )
+            if result.success:
+                refund.status = "successful"
+                refund.provider_ref = result.provider_ref
+            else:
+                refund.status = "failed"
+                refund.failure_reason = result.failure_reason
+                refund.provider_ref = result.provider_ref
+        except Exception as e:
+            logger.error(f"Refund payout failed for order {order.id}: {str(e)}", exc_info=True)
+            refund.status = "failed"
+            refund.failure_reason = str(e)
+
+    db.commit()
+    db.refresh(order)
+
+    if restocked or deleted_item_ids:
+        cache.feed_invalidate_all()
+        cache.search_invalidate_all()
+    for iid in deleted_item_ids:
+        cache.item_invalidate(iid)
+    cache.admin_stats_invalidate()
+
+    return _serialize_admin_order(order)
+
+>>>>>>> Stashed changes
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
 def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
     # Cancelled/failed orders never needed fulfillment action, so they're

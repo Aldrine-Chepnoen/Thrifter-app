@@ -56,6 +56,19 @@ export const getImageSrc = (image, width = 400) => {
   return getOptimizedCloudinaryUrl(toAbsoluteUrl(image.image_path), width);
 };
 
+// Straight-line distance between two lat/lng points, in km — mirrors the
+// backend's _haversine_km (backend/main.py) so the checkout fee preview
+// matches what /checkout will actually charge.
+export const haversineKm = (lat1, lng1, lat2, lng2) => {
+  const r = 6371; // Earth's mean radius, km
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dPhi = toRad(lat2 - lat1);
+  const dLambda = toRad(lng2 - lng1);
+  const a = Math.sin(dPhi / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLambda / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(a));
+};
+
 // Display labels for backend Order.status values. Purely presentational —
 // the underlying values (pending/paid/picked_up/delivered/cancelled) are
 // unchanged, shared by the buyer's order history and the vendor orders tab.
