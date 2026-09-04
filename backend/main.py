@@ -3488,6 +3488,7 @@ def admin_export_vendor_verification(db: Session = Depends(get_db), _: models.Us
 def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
     vendors = (db.query(models.Vendor)
         .filter(models.Vendor.is_active == True)
+        .filter(models.Vendor.phone_verified_at.is_(None))
         .order_by(models.Vendor.id)
         .all())
 
