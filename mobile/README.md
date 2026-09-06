@@ -42,6 +42,16 @@ To learn more about developing your project with Expo, look at the following res
 - [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
 - [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
+## Building for app stores
+
+App identity is set in `app.json`: display name "Thrifter", bundle identifier / package name `com.thrifterug.app` (placeholder — confirm before the first EAS build, since it becomes permanent once registered with Apple/Google). `eas.json` has `development`/`preview`/`production` build profiles scaffolded; `EXPO_PUBLIC_API_URL` in the `preview`/`production` profiles is a placeholder pointing at `https://your-backend-domain.example` and must be replaced with the real backend URL before building for real.
+
+Still blocked on having Apple Developer / Google Play accounts:
+- `eas login` / `eas init` (needs a free Expo account — separate from Apple/Google — to create the EAS project and fill in `cli.version`/`extra.eas.projectId`)
+- `eas submit` credentials: Apple Team ID + App Store Connect API key, and a Google Play service account JSON
+- Real app icon / splash / adaptive-icon assets — currently the default Expo template placeholders in `assets/images/`, which build fine but aren't final branding. The web app's `apple-touch-icon.png` is a photo of the wordmark, not square icon artwork, so it isn't a drop-in replacement.
+- Privacy policy URL for the store listings — the web app already has one hosted at `/thrifter-privacy-policy.pdf` on production; reuse that once the production domain is confirmed.
+
 ## Join the community
 
 Join our community of developers creating universal apps.
