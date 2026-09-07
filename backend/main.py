@@ -1296,8 +1296,11 @@ def _release_checkout(db: Session, checkout: models.Checkout, now: datetime, sta
         order.status = "cancelled"
     order_items = [oi for order in checkout.orders for oi in order.items]
     restocked = False
-    # Sort by item id — same deadlock-avoidance convention as create_checkout's lock ordering.
-    for oi in sorted(order_items, key=lambda oi: oi.item_id):
+    # Sort by item id — same deadlock-avoidance convention as create_checkout's lock
+    # ordering. `or 0` handles an item deleted while this checkout was still pending
+    # (item_id nulled per _detach_order_history_or_409) — ids are never 0, so it sorts
+    # first with no collision, and the query below simply finds nothing for it.
+    for oi in sorted(order_items, key=lambda oi: oi.item_id or 0):
         item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
         if item:
             was_sold_out = item.quantity == 0
@@ -2209,6 +2212,28 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         ) if refund else None,
     )
 
+def _detach_order_history_or_409(db: Session, item: models.Item) -> None:
+    """Clears item_id on every order_items row referencing this item so it can
+    be deleted without losing order history — item_name_snapshot/price_at_purchase
+    already carry the durable record (see OrderItem.item_id's model comment).
+    Refuses if any referencing order is still awaiting fulfillment (paid/picked_up,
+    i.e. not yet delivered/cancelled): the vendor/admin still needs the product
+    photo to know what to pack, and that image is about to be destroyed."""
+    in_flight = (
+        db.query(models.OrderItem)
+        .join(models.Order, models.OrderItem.order_id == models.Order.id)
+        .filter(models.OrderItem.item_id == item.id, models.Order.status.in_(("paid", "picked_up")))
+        .first()
+    )
+    if in_flight:
+        raise HTTPException(
+            status_code=409,
+            detail="This item has an order awaiting fulfillment and can't be deleted until it's delivered or cancelled.",
+        )
+    for oi in db.query(models.OrderItem).filter(models.OrderItem.item_id == item.id).all():
+        oi.item_id = None
+    db.flush()
+
 def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
     """Destroys an item's Cloudinary/R2 assets and its row. Caller is
     responsible for ensuring no order_items row still references it with a
@@ -3027,41 +3052,15 @@ def delete_item(
 ):
     if not current or not current.is_vendor:
         raise HTTPException(status_code=403, detail="Vendor account required")
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    # Locked so a concurrent checkout can't be mid-reservation against this
+    # item while we detach its order history and delete it out from under it.
+    item = db.query(models.Item).filter(models.Item.id == item_id).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only delete your own items")
-    # order_items.item_id has no cascade — deleting an item that's ever been
-    # part of an order would otherwise destroy its Cloudinary/R2 images below
-    # (not rollback-able) and then fail at the DB delete itself, leaving the
-    # item stuck with broken images. Check first, before touching storage.
-    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
-        raise HTTPException(
-            status_code=409,
-            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
-        )
-    # Delete ItemImage storage assets and rows first to avoid FK constraint error
-    for img in (item.images or []):
-        try:
-            # Dual-written images have an asset in both stores — clean up each
-            if img.cloudinary_public_id:
-                cloudinary.uploader.destroy(img.cloudinary_public_id)
-            if storage.is_r2_url(img.image_path):
-                storage.delete_image(img.image_path)
-        except Exception:
-            pass
-        db.delete(img)
-    # Delete legacy asset
-    try:
-        if item.cloudinary_public_id:
-            cloudinary.uploader.destroy(item.cloudinary_public_id)
-        if storage.is_r2_url(item.image_path):
-            storage.delete_image(item.image_path)
-    except Exception as e:
-        print(f"Image delete error: {e}")
-
-    db.delete(item)
+    _detach_order_history_or_409(db, item)
+    _delete_item_assets_and_row(db, item)
     db.commit()
     cache.feed_invalidate_all()
     cache.search_invalidate_all()
@@ -3691,16 +3690,12 @@ def admin_toggle_promo(db: Session = Depends(get_db), _: models.User = Depends(r
 
 @app.delete("/admin/items/{item_id}", status_code=204)
 def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    # Locked so a concurrent checkout can't be mid-reservation against this
+    # item while we detach its order history and delete it out from under it.
+    item = db.query(models.Item).filter(models.Item.id == item_id).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    # See delete_item's comment — order_items.item_id has no cascade, so check
-    # before destroying storage assets, not after.
-    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
-        raise HTTPException(
-            status_code=409,
-            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
-        )
+    _detach_order_history_or_409(db, item)
     _delete_item_assets_and_row(db, item)
     db.commit()
     cache.feed_invalidate_all()
