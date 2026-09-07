@@ -128,15 +128,11 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
-<<<<<<< Updated upstream
-        "delivery_fee_ugx": settings.DELIVERY_FEE_UGX,
-=======
         "delivery_base_fee_ugx": settings.DELIVERY_BASE_FEE_UGX,
         "delivery_rate_per_km_ugx": settings.DELIVERY_RATE_PER_KM_UGX,
         "delivery_max_radius_km": settings.DELIVERY_MAX_RADIUS_KM,
         "collection_point_lat": settings.COLLECTION_POINT_LAT,
         "collection_point_lng": settings.COLLECTION_POINT_LNG,
->>>>>>> Stashed changes
         "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
@@ -1535,10 +1531,6 @@ def create_checkout(
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
         subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
-<<<<<<< Updated upstream
-        delivery_fee = settings.DELIVERY_FEE_UGX
-=======
->>>>>>> Stashed changes
         total_amount = subtotal + delivery_fee
 
         checkout = models.Checkout(
@@ -2239,8 +2231,6 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         items=items,
     )
 
-<<<<<<< Updated upstream
-=======
 def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
     """Destroys an item's Cloudinary/R2 assets and its row. Caller is
     responsible for ensuring no order_items row still references it with a
@@ -2394,7 +2384,6 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
 
     return _serialize_admin_order(order)
 
->>>>>>> Stashed changes
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
 def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
     # Cancelled/failed orders never needed fulfillment action, so they're

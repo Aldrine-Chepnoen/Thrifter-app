@@ -48,9 +48,6 @@ class Settings(BaseSettings):
 
     # Checkout / commerce
     DEFAULT_PAYMENT_PROVIDER: str = os.getenv("DEFAULT_PAYMENT_PROVIDER", "nylon")
-<<<<<<< Updated upstream
-    DELIVERY_FEE_UGX: float = float(os.getenv("DELIVERY_FEE_UGX", "5000"))
-=======
     # Every order is consolidated at this single physical collection point and
     # shipped to the buyer from there in one trip, regardless of vendor count —
     # Livingstone Hall, Makerere University.
@@ -60,8 +57,7 @@ class Settings(BaseSettings):
     DELIVERY_RATE_PER_KM_UGX: float = float(os.getenv("DELIVERY_RATE_PER_KM_UGX", "700"))
     # Beyond this straight-line distance from the collection point, checkout is
     # blocked rather than charging an ever-larger fee.
-    DELIVERY_MAX_RADIUS_KM: float = float(os.getenv("DELIVERY_MAX_RADIUS_KM", "10"))
->>>>>>> Stashed changes
+    DELIVERY_MAX_RADIUS_KM: float = float(os.getenv("DELIVERY_MAX_RADIUS_KM", "25"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     CHECKOUT_RESERVATION_MINUTES: int = int(os.getenv("CHECKOUT_RESERVATION_MINUTES", "20"))
     # How often the background reconciliation loop sweeps for stale/pending checkouts.

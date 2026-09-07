@@ -360,8 +360,6 @@ class CheckoutCreate(BaseModel):
     delivery_name: str = Field(..., min_length=2, max_length=100)
     delivery_phone: str = Field(..., min_length=7, max_length=20)
     delivery_address: str = Field(..., min_length=5, max_length=500)
-<<<<<<< Updated upstream
-=======
     # Required — the delivery fee is distance-based, so a real resolved
     # location (autocomplete selection, device geolocation, or a dropped map
     # pin) is mandatory. Free-typed text with no resolution is rejected by the
@@ -369,7 +367,6 @@ class CheckoutCreate(BaseModel):
     delivery_lat: float = Field(..., ge=-90, le=90)
     delivery_lng: float = Field(..., ge=-180, le=180)
     payment_method: str = Field("mobile_money", pattern="^(mobile_money|cash_on_delivery)$")
->>>>>>> Stashed changes
 
 class OrderItemOut(BaseModel):
     id: int

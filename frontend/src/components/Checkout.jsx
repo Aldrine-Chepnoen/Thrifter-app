@@ -1,24 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-<<<<<<< Updated upstream
-import { MapPin } from 'lucide-react';
-import api, { createCheckout, payCheckout, API_BASE_URL } from '../api';
-import { getImageSrc } from '../utils';
-=======
 import { createCheckout, payCheckout, confirmCashOnDelivery, API_BASE_URL } from '../api';
 import { getImageSrc, haversineKm } from '../utils';
 import LocationPicker from './LocationPicker';
->>>>>>> Stashed changes
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
-<<<<<<< Updated upstream
-const Checkout = ({ cartItems, onOrderPlaced, deliveryFee, reservationMinutes }) => {
-  const [step, setStep] = useState('form'); // 'form' | 'confirm'
-  const [checkout, setCheckout] = useState(null); // server-created Checkout, set once we move to 'confirm'
-  const [form, setForm] = useState({ delivery_name: '', delivery_phone: '', delivery_address: '' });
-=======
 const Checkout = ({
   cartItems,
   onOrderPlaced,
@@ -35,45 +23,10 @@ const Checkout = ({
     delivery_name: '', delivery_phone: '', delivery_address: '',
     delivery_lat: null, delivery_lng: null, payment_method: 'mobile_money',
   });
->>>>>>> Stashed changes
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const didConfirmRef = useRef(false);
 
-<<<<<<< Updated upstream
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser. Please type your delivery address instead.');
-      return;
-    }
-    if (!window.confirm('Are you sure you want to use your current location as your delivery address?')) {
-      return;
-    }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res = await api.post('/geocode/reverse', {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          });
-          setForm((f) => ({ ...f, delivery_address: res.data.address }));
-        } catch (e) {
-          alert(e?.response?.data?.detail || 'Could not determine your address. Please type your delivery address instead.');
-        } finally {
-          setLocating(false);
-        }
-      },
-      () => {
-        setLocating(false);
-        alert('Could not get your location. Please type your delivery address instead.');
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  };
-
-=======
->>>>>>> Stashed changes
   // Release held stock as soon as the buyer leaves the confirm step without
   // paying, instead of making it wait out the full hold window — silent,
   // best-effort, no UI ever mentions this. `beforeunload` covers a hard tab
@@ -97,9 +50,6 @@ const Checkout = ({
   }, [step, checkout]);
 
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
-<<<<<<< Updated upstream
-  const hasDeliveryFee = deliveryFee != null;
-=======
   const hasFeeConfig = collectionPointLat != null && collectionPointLng != null
     && deliveryBaseFeeUgx != null && deliveryRatePerKmUgx != null;
   const locationResolved = form.delivery_lat != null && form.delivery_lng != null;
@@ -111,7 +61,6 @@ const Checkout = ({
   // Mirrors the backend's _calculate_delivery_fee (backend/main.py) — kept in
   // sync manually so the preview matches what /checkout actually charges.
   const deliveryFee = hasDeliveryFee ? Math.round(deliveryBaseFeeUgx + deliveryRatePerKmUgx * distanceKm) : 0;
->>>>>>> Stashed changes
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
   const total = subtotal + (deliveryFee || 0) + tax;
 
@@ -145,12 +94,9 @@ const Checkout = ({
         delivery_name: form.delivery_name.trim(),
         delivery_phone: form.delivery_phone.trim(),
         delivery_address: form.delivery_address.trim(),
-<<<<<<< Updated upstream
-=======
         delivery_lat: form.delivery_lat,
         delivery_lng: form.delivery_lng,
         payment_method: form.payment_method,
->>>>>>> Stashed changes
       });
       setCheckout(created);
       setStep('confirm');
@@ -308,28 +254,6 @@ const Checkout = ({
           />
         </div>
         <div>
-<<<<<<< Updated upstream
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium">Delivery address <span className="text-red-500">*</span></label>
-            <button
-              type="button"
-              onClick={handleUseMyLocation}
-              disabled={locating}
-              className="flex items-center gap-1 text-xs font-semibold text-[#EAAD11] hover:underline disabled:opacity-50"
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              {locating ? 'Locating…' : 'Use my location'}
-            </button>
-          </div>
-          <textarea
-            value={form.delivery_address}
-            onChange={(e) => setForm((f) => ({ ...f, delivery_address: e.target.value }))}
-            rows={3}
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
-            placeholder="Area, street, landmark..."
-            required
-            minLength={5}
-=======
           <label className="block text-sm font-medium mb-2">Payment method <span className="text-red-500">*</span></label>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -363,7 +287,6 @@ const Checkout = ({
             onChange={({ address, lat, lng }) => setForm((f) => ({
               ...f, delivery_address: address, delivery_lat: lat, delivery_lng: lng,
             }))}
->>>>>>> Stashed changes
           />
           {outOfRange && (
             <p className="text-sm text-red-600 mt-1.5">

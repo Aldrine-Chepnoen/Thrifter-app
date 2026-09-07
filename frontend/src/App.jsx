@@ -531,19 +531,12 @@ function App() {
             onRemove={removeFromCart}
             onUpdateQuantity={updateCartQuantity}
             onClearCart={clearCart}
-<<<<<<< Updated upstream
-            deliveryFee={features?.delivery_fee_ugx}
-=======
             deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
->>>>>>> Stashed changes
             user={user}
             openAuthModal={openAuthModal}
           />
         } />
         <Route path="/checkout" element={user ? (
-<<<<<<< Updated upstream
-          <Checkout cartItems={cartItems} onOrderPlaced={clearCart} deliveryFee={features?.delivery_fee_ugx} reservationMinutes={features?.reservation_minutes} />
-=======
           <Checkout
             cartItems={cartItems}
             onOrderPlaced={clearCart}
@@ -554,7 +547,6 @@ function App() {
             deliveryMaxRadiusKm={features?.delivery_max_radius_km}
             reservationMinutes={features?.reservation_minutes}
           />
->>>>>>> Stashed changes
         ) : <Navigate to="/cart" replace />} />
         <Route path="/checkout/complete" element={user ? (
           <OrderConfirmation />
