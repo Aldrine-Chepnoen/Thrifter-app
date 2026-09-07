@@ -13,6 +13,7 @@
     "@react-oauth/google": "^0.12.1",
     "axios": "^1.6.7",
     "boneyard-js": "^1.8.1",
+    "heic2any": "^0.0.4",
     "ldrs": "^1.1.9",
     "lucide-react": "^0.321.0",
     "posthog-js": "^1.116.0",

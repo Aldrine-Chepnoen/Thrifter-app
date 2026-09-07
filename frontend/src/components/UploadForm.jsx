@@ -5,14 +5,47 @@ import api, { fetchVendorSlotStatus } from '../api';
 import { useNavigate } from 'react-router-dom';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
 import { useToast } from '../context/ToastContext';
+import heic2any from 'heic2any';
 
 const MAX_DIMENSION = 1200;
 const JPEG_QUALITY = 0.85;
+const HEIC_EXTENSION_RE = /\.hei[cf]$/i;
+
+function isHeic(file) {
+  // iOS reports these mime types for its default camera format; Android/desktop
+  // pickers sometimes report an empty/generic type instead, so the extension
+  // is checked too.
+  return file.type === 'image/heic' || file.type === 'image/heif' || HEIC_EXTENSION_RE.test(file.name);
+}
+
+async function toProcessableFile(file) {
+  if (!isHeic(file)) return file;
+  try {
+    // No browser can decode HEIC/HEIF through <img>/canvas reliably (Safari's
+    // support is inconsistent, everything else can't at all) — decode it
+    // ourselves first so resizeImage below always sees a format every browser
+    // can render. This is the common case for an iPhone photo picked straight
+    // from the camera roll.
+    const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: JPEG_QUALITY });
+    const blob = Array.isArray(converted) ? converted[0] : converted;
+    return new File([blob], file.name.replace(HEIC_EXTENSION_RE, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    return null;
+  }
+}
 
 function resizeImage(file) {
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
+    // A file the browser can't decode (a corrupt image, or a format like HEIC
+    // that most non-Safari browsers can't render via <img>) never fires
+    // onload — without this, the promise hangs forever and the vendor's
+    // whole selection silently never appears.
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
     img.onload = () => {
       URL.revokeObjectURL(url);
       const { width, height } = img;
@@ -22,7 +55,7 @@ function resizeImage(file) {
       canvas.height = Math.round(height * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
+        (blob) => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : null),
         'image/jpeg',
         JPEG_QUALITY
       );
@@ -45,6 +78,7 @@ const UploadForm = () => {
   });
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
+  const [processingImages, setProcessingImages] = useState(false);
   const [canUpload, setCanUpload] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
@@ -105,10 +139,30 @@ const UploadForm = () => {
 
   const handleFileChange = async (e) => {
     const selectedFiles = Array.from(e.target.files);
-    const resized = await Promise.all(selectedFiles.map(resizeImage));
-    const newFiles = [...files, ...resized].slice(0, 3);
-    setFiles(newFiles);
-    setPreviews(newFiles.map(f => URL.createObjectURL(f)));
+    // Reset now (not after the async work) so re-picking the same file — the
+    // natural retry after a failure — reliably fires onChange again.
+    e.target.value = '';
+    setProcessingImages(true);
+    try {
+      const resized = await Promise.all(selectedFiles.map(async (f) => {
+        const processable = await toProcessableFile(f);
+        return processable ? resizeImage(processable) : null;
+      }));
+      const usable = resized.filter(Boolean);
+      const failedCount = resized.length - usable.length;
+      if (failedCount > 0) {
+        showToast(
+          failedCount === 1
+            ? "One image couldn't be used — try a JPG or PNG instead."
+            : `${failedCount} images couldn't be used — try JPG or PNG instead.`
+        );
+      }
+      const newFiles = [...files, ...usable].slice(0, 3);
+      setFiles(newFiles);
+      setPreviews(newFiles.map(f => URL.createObjectURL(f)));
+    } finally {
+      setProcessingImages(false);
+    }
   };
 
   const removeFile = (index) => {
@@ -216,15 +270,15 @@ const UploadForm = () => {
               </div>
             ))}
             {files.length < 3 && (
-              <label className={`relative aspect-[4/5] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center transition-colors ${formDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+              <label className={`relative aspect-[4/5] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center transition-colors ${formDisabled || processingImages ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                 <Upload className="w-8 h-8 text-gray-400 mb-1" />
-                <span className="text-[11px] text-gray-500 font-medium">Add Photo</span>
+                <span className="text-[11px] text-gray-500 font-medium">{processingImages ? 'Processing…' : 'Add Photo'}</span>
                 <input
                   type="file"
                   accept="image/*"
                   multiple
                   onChange={handleFileChange}
-                  disabled={formDisabled}
+                  disabled={formDisabled || processingImages}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                 />
               </label>
@@ -319,7 +373,7 @@ const UploadForm = () => {
 
         <button
           type="submit"
-          disabled={!!uploadStatus || formDisabled}
+          disabled={!!uploadStatus || formDisabled || processingImages}
           className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-colors disabled:bg-gray-400 flex items-center justify-center gap-2"
         >
           {uploadStatus && (
