@@ -12,6 +12,7 @@ import shutil
 import os
 import uuid
 import io
+import math
 from typing import List, Optional, Union
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -127,8 +128,12 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
-        "delivery_fee_single_vendor_ugx": settings.DELIVERY_FEE_SINGLE_VENDOR_UGX,
-        "delivery_fee_multi_vendor_ugx": settings.DELIVERY_FEE_MULTI_VENDOR_UGX,
+        "delivery_base_fee_ugx": settings.DELIVERY_BASE_FEE_UGX,
+        "delivery_rate_per_km_ugx": settings.DELIVERY_RATE_PER_KM_UGX,
+        "delivery_max_radius_km": settings.DELIVERY_MAX_RADIUS_KM,
+        "cod_rounding_ugx": settings.COD_ROUNDING_UGX,
+        "collection_point_lat": settings.COLLECTION_POINT_LAT,
+        "collection_point_lng": settings.COLLECTION_POINT_LNG,
         "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
@@ -493,6 +498,102 @@ def reverse_geocode(request: Request, body: schemas.ReverseGeocodeRequest):
         raise HTTPException(status_code=404, detail="Could not determine address for this location")
 
     return schemas.ReverseGeocodeResponse(address=data["results"][0]["formatted_address"])
+
+def _places_new_request(method_path: str, body: dict, field_mask: str):
+    """Shared plumbing for the Places API (New) REST surface — distinct from
+    the legacy Geocoding API used by reverse_geocode above. Raises a 503 (not
+    a 502) whenever the call can't be fulfilled, including when the Places
+    API (New) product itself isn't yet enabled on the GCP project, so the
+    frontend can treat "not configured" and "temporarily unreachable" the
+    same way: hide the affected UI instead of showing a raw error."""
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.post(
+            f"https://places.googleapis.com/v1/{method_path}",
+            json=body,
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": field_mask,
+                "Content-Type": "application/json",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        # Covers both API_KEY_SERVICE_BLOCKED (Places API (New) not enabled
+        # yet on this project) and any other provider-side failure.
+        logger.warning("Places API (New) returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    return resp.json()
+
+@app.post("/geocode/autocomplete", response_model=schemas.PlaceAutocompleteResponse)
+@limiter.limit("30/minute")
+def geocode_autocomplete(request: Request, body: schemas.PlaceAutocompleteRequest):
+    # No auth required: buyers resolve a delivery location before/while filling
+    # out the checkout form.
+    data = _places_new_request(
+        "places:autocomplete",
+        {
+            "input": body.input,
+            "sessionToken": body.session_token,
+            "includedRegionCodes": ["ug"],
+            "locationBias": {
+                "circle": {
+                    "center": {"latitude": settings.COLLECTION_POINT_LAT, "longitude": settings.COLLECTION_POINT_LNG},
+                    "radius": 50000.0,
+                }
+            },
+        },
+        field_mask="suggestions.placePrediction.placeId,suggestions.placePrediction.text",
+    )
+    predictions = [
+        schemas.PlacePrediction(
+            description=s["placePrediction"]["text"]["text"],
+            place_id=s["placePrediction"]["placeId"],
+        )
+        for s in data.get("suggestions", [])
+        if "placePrediction" in s
+    ]
+    return schemas.PlaceAutocompleteResponse(predictions=predictions)
+
+@app.post("/geocode/place-details", response_model=schemas.PlaceDetailsResponse)
+@limiter.limit("30/minute")
+def geocode_place_details(request: Request, body: schemas.PlaceDetailsRequest):
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.get(
+            f"https://places.googleapis.com/v1/places/{body.place_id}",
+            params={"sessionToken": body.session_token},
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": "formattedAddress,location",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) place-details request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        logger.warning("Places API (New) place-details returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    data = resp.json()
+    location = data.get("location") or {}
+    if "latitude" not in location or "longitude" not in location:
+        raise HTTPException(status_code=404, detail="Could not determine coordinates for this place")
+
+    return schemas.PlaceDetailsResponse(
+        address=data.get("formattedAddress", ""),
+        lat=location["latitude"],
+        lng=location["longitude"],
+    )
 
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
@@ -1271,12 +1372,46 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
         ],
     )
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Straight-line distance between two lat/lng points, in km."""
+    r = 6371.0  # Earth's mean radius, km
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+def _calculate_delivery_fee(lat: float, lng: float, payment_method: str) -> float:
+    """Every order is consolidated at settings.COLLECTION_POINT_LAT/LNG and
+    shipped to the buyer from there in one trip — so the fee is base + rate
+    per km of straight-line distance, regardless of how many vendors are in
+    the cart. Raises 422 past DELIVERY_MAX_RADIUS_KM rather than charging an
+    ever-larger fee. Cash-on-delivery fees are rounded up to the nearest
+    COD_ROUNDING_UGX so payment is exact physical cash; mobile money pays the
+    precise amount digitally, so it isn't rounded."""
+    distance_km = _haversine_km(settings.COLLECTION_POINT_LAT, settings.COLLECTION_POINT_LNG, lat, lng)
+    if distance_km > settings.DELIVERY_MAX_RADIUS_KM:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Sorry, we don't deliver that far yet (max {settings.DELIVERY_MAX_RADIUS_KM:g}km from our collection point).",
+                "code": "delivery_out_of_range",
+                "max_km": settings.DELIVERY_MAX_RADIUS_KM,
+            },
+        )
+    fee = settings.DELIVERY_BASE_FEE_UGX + settings.DELIVERY_RATE_PER_KM_UGX * distance_km
+    if payment_method == "cash_on_delivery":
+        fee = math.ceil(fee / settings.COD_ROUNDING_UGX) * settings.COD_ROUNDING_UGX
+    return round(fee)
+
 def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
     return schemas.CheckoutOut(
         id=checkout.id,
         delivery_name=checkout.delivery_name,
         delivery_phone=checkout.delivery_phone,
         delivery_address=checkout.delivery_address,
+        delivery_lat=checkout.delivery_lat,
+        delivery_lng=checkout.delivery_lng,
         delivery_day=checkout.delivery_day,
         subtotal=checkout.subtotal,
         delivery_fee=checkout.delivery_fee,
@@ -1359,6 +1494,11 @@ def create_checkout(
     qty_by_item_id = {i.item_id: i.quantity for i in body.items}
     note_by_item_id = {i.item_id: i.note for i in body.items}
 
+    # Computed before any row locks are taken — pure in-process math, and
+    # failing fast on an out-of-range location means we never hold item locks
+    # for a checkout that was always going to be rejected.
+    delivery_fee = _calculate_delivery_fee(body.delivery_lat, body.delivery_lng, body.payment_method)
+
     try:
         now = datetime.utcnow()
 
@@ -1414,10 +1554,6 @@ def create_checkout(
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
         subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
-        delivery_fee = (
-            settings.DELIVERY_FEE_SINGLE_VENDOR_UGX if len(by_vendor) == 1
-            else settings.DELIVERY_FEE_MULTI_VENDOR_UGX
-        )
         total_amount = subtotal + delivery_fee
 
         checkout = models.Checkout(
@@ -1425,6 +1561,8 @@ def create_checkout(
             delivery_name=body.delivery_name,
             delivery_phone=body.delivery_phone,
             delivery_address=body.delivery_address,
+            delivery_lat=body.delivery_lat,
+            delivery_lng=body.delivery_lng,
             delivery_day=next_delivery_day(now),
             subtotal=subtotal,
             delivery_fee=delivery_fee,
@@ -2304,7 +2442,11 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
     order.cancelled_at = now
     order.cancelled_by_user_id = current_user.id
 
-    # Recompute the checkout's delivery-fee tier against its still-active orders.
+    # Delivery fee is distance-based (buyer <-> collection point), not tied to
+    # vendor count, since every order is consolidated into one trip regardless
+    # of how many vendors are represented — so cancelling one order out of a
+    # multi-vendor cart never changes the fee. Only refund it in full when
+    # every order in the checkout has been cancelled (nothing left to deliver).
     remaining_vendor_count = len({
         o.vendor_id for o in checkout.orders
         if o.id != order.id and o.status not in ("cancelled", "failed")
@@ -2314,9 +2456,6 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
         delivery_fee_refund = checkout.delivery_fee
         checkout.delivery_fee = 0.0
         checkout.status = "cancelled"
-    elif remaining_vendor_count == 1 and checkout.delivery_fee == settings.DELIVERY_FEE_MULTI_VENDOR_UGX:
-        delivery_fee_refund = checkout.delivery_fee - settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
-        checkout.delivery_fee = settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
     checkout.total_amount = max(checkout.total_amount - order.subtotal - delivery_fee_refund, 0)
 
     refund_amount = order.subtotal + delivery_fee_refund

@@ -183,6 +183,10 @@ class Checkout(Base):
     delivery_name = Column(String, nullable=False)
     delivery_phone = Column(String, nullable=False)
     delivery_address = Column(Text, nullable=False)
+    # Nullable — only populated from this feature onward; historical checkouts
+    # predate real coordinate capture and keep their already-settled delivery_fee.
+    delivery_lat = Column(Float, nullable=True)
+    delivery_lng = Column(Float, nullable=True)
     delivery_day = Column(DateTime, nullable=False)
     subtotal = Column(Float, nullable=False)
     delivery_fee = Column(Float, nullable=False)

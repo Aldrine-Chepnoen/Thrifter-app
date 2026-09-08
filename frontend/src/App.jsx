@@ -535,8 +535,7 @@ function App() {
             onUpdateQuantity={updateCartQuantity}
             onUpdateNote={updateCartNote}
             onClearCart={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
             user={user}
             openAuthModal={openAuthModal}
           />
@@ -545,8 +544,12 @@ function App() {
           <Checkout
             cartItems={cartItems}
             onOrderPlaced={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            collectionPointLat={features?.collection_point_lat}
+            collectionPointLng={features?.collection_point_lng}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
+            deliveryRatePerKmUgx={features?.delivery_rate_per_km_ugx}
+            deliveryMaxRadiusKm={features?.delivery_max_radius_km}
+            codRoundingUgx={features?.cod_rounding_ugx}
             reservationMinutes={features?.reservation_minutes}
           />
         ) : <Navigate to="/cart" replace />} />

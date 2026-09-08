@@ -10,7 +10,7 @@ const formatUGX = (n) => {
 
 const NOTE_MAX_LENGTH = 200;
 
-const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart, deliveryFeeSingleVendor, deliveryFeeMultiVendor, user, openAuthModal }) => {
+const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart, deliveryBaseFeeUgx, user, openAuthModal }) => {
   const navigate = useNavigate();
   // Notes that already have text start expanded; everything else starts
   // collapsed behind the "Leave a note?" toggle.
@@ -23,11 +23,11 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
     });
   };
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
-  const vendorCount = new Set(cartItems.map((i) => i.vendor_id)).size;
-  const hasDeliveryFee = deliveryFeeSingleVendor != null && deliveryFeeMultiVendor != null;
-  const deliveryFee = vendorCount > 1 ? deliveryFeeMultiVendor : deliveryFeeSingleVendor;
+  // Delivery is distance-based (buyer's location isn't known until checkout),
+  // so this is only ever a floor — the base fee before any per-km charge.
+  const hasDeliveryFee = deliveryBaseFeeUgx != null;
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
-  const total = subtotal + (hasDeliveryFee ? deliveryFee : 0) + tax;
+  const minTotal = subtotal + (hasDeliveryFee ? deliveryBaseFeeUgx : 0) + tax;
 
   // Silently correct the cart against live stock on every visit — no banner,
   // no mention of "reservation": an item that sold out elsewhere just quietly
@@ -158,7 +158,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
               <span>Delivery fee</span>
-              <span>{hasDeliveryFee ? formatUGX(deliveryFee) : '—'}</span>
+              <span>{hasDeliveryFee ? `From ${formatUGX(deliveryBaseFeeUgx)}` : '—'}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
               <span>Tax</span>
@@ -166,8 +166,11 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
               <span className="font-semibold">Total</span>
-              <span className="text-lg font-bold">{formatUGX(total)}</span>
+              <span className="text-lg font-bold">{hasDeliveryFee ? `From ${formatUGX(minTotal)}` : formatUGX(minTotal)}</span>
             </div>
+            {hasDeliveryFee && (
+              <p className="text-xs text-gray-400 pt-1">Delivery fee depends on your location — confirmed at checkout.</p>
+            )}
           </div>
 
           {/* Coupon codes are not implemented yet — no promo/discount model or

@@ -93,6 +93,28 @@ class ReverseGeocodeRequest(BaseModel):
 class ReverseGeocodeResponse(BaseModel):
     address: str
 
+class PlaceAutocompleteRequest(BaseModel):
+    input: str = Field(..., min_length=1, max_length=200)
+    # Client-generated UUID, reused across one autocomplete session and its
+    # final place-details call — mirrors Google's session-token billing model.
+    session_token: str = Field(..., min_length=1, max_length=100)
+
+class PlacePrediction(BaseModel):
+    description: str
+    place_id: str
+
+class PlaceAutocompleteResponse(BaseModel):
+    predictions: List[PlacePrediction] = []
+
+class PlaceDetailsRequest(BaseModel):
+    place_id: str = Field(..., min_length=1, max_length=200)
+    session_token: str = Field(..., min_length=1, max_length=100)
+
+class PlaceDetailsResponse(BaseModel):
+    address: str
+    lat: float
+    lng: float
+
 class UserInfo(BaseModel):
     id: int
     email: EmailStr
@@ -357,6 +379,12 @@ class CheckoutCreate(BaseModel):
     delivery_name: str = Field(..., min_length=2, max_length=100)
     delivery_phone: str = Field(..., min_length=7, max_length=20)
     delivery_address: str = Field(..., min_length=5, max_length=500)
+    # Required — the delivery fee is distance-based, so a real resolved
+    # location (autocomplete selection, device geolocation, or a dropped map
+    # pin) is mandatory. Free-typed text with no resolution is rejected by the
+    # frontend before it ever reaches here.
+    delivery_lat: float = Field(..., ge=-90, le=90)
+    delivery_lng: float = Field(..., ge=-180, le=180)
     payment_method: str = Field("mobile_money", pattern="^(mobile_money|cash_on_delivery)$")
 
 class OrderItemOut(BaseModel):
@@ -384,6 +412,8 @@ class CheckoutOut(BaseModel):
     delivery_name: str
     delivery_phone: str
     delivery_address: str
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
     delivery_day: datetime
     subtotal: float
     delivery_fee: float
