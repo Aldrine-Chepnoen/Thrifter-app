@@ -469,36 +469,71 @@ function App() {
               <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
             ) : (
               <>
-                {/* Homepage Banner */}
-                <div className="px-4 md:px-6 mb-8 mt-2">
-                  <div className="relative h-[150px] md:h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
-                    <div className="z-10 max-w-[65%] banner-text-shadow">
-                      <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
-                        Secure your next fit.
-                      </h2>
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Discover fashion around Kampala
-                        </p>
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Thrift stores, Clothing brands, Fashion Designers
-                        </p>
-                        <p className="text-[9px] md:text-[10px] text-white/90 font-medium italic pt-1 border-t border-white/10 mt-1">
-                          Tip: Add items to your wardrobe for a personalized 'For You' feed.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
-                      <img
-                        src="https://res.cloudinary.com/dqhcuxgu9/image/upload/w_400,q_auto,f_auto,c_limit/v1782600189/homepage-banner_c6nneb.png"
-                        alt="Fashion showcase"
-                        className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
-                      />
-                    </div>
-                    <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
-                  </div>
-                </div>
+{/* Homepage Banner */}
+<div className="px-3 sm:px-4 md:px-6 mb-8 mt-2">
+  <div className="relative w-full overflow-hidden rounded-[22px] border-2 border-[#D99A1E] bg-[#F8F5ED] shadow-sm">
 
+    <div className="grid min-h-[360px] grid-cols-1 md:min-h-[390px] md:grid-cols-2">
+
+      {/* LEFT SIDE */}
+      <div className="flex flex-col justify-center px-6 py-8 sm:px-8 sm:py-10 md:px-10 lg:px-12 md:py-10">
+        <div className="max-w-[560px]">
+
+          <h2 className="text-[30px] leading-[0.98] font-extrabold tracking-[-0.03em] text-[#252B32] sm:text-[38px] md:text-[42px] lg:text-[48px]">
+            SECURE YOUR
+            <br />
+            NEXT FIT
+          </h2>
+
+          <div className="mt-5 sm:mt-6">
+            <p className="text-[17px] leading-tight font-bold tracking-[0.08em] text-[#252B32] sm:text-[20px] md:text-[22px]">
+              DISCOVER FASHION
+              <br />
+              AROUND KAMPALA
+            </p>
+
+            <p className="mt-4 text-[12px] leading-[1.45] font-semibold tracking-[0.08em] text-[#252B32] sm:text-[14px] md:text-[15px]">
+              THRIFT STORES, CLOTHING
+              <br />
+              BRANDS, FASHION DESIGNERS
+            </p>
+          </div>
+
+          {/* EXPLORE NOW */}
+          <button
+            type="button"
+            onClick={() =>
+              window.scrollBy({
+                top: window.innerHeight * 0.8,
+                behavior: "smooth",
+              })
+            }
+            className="mt-6 inline-flex w-fit items-center justify-center gap-3 rounded-full bg-[#252B32] px-6 py-3 text-sm font-bold text-white shadow-md transition-all duration-200 hover:scale-[1.02] hover:bg-[#1D2228] active:scale-95 sm:mt-7 sm:px-8 sm:py-3.5 sm:text-base"
+          >
+            <span>Explore now</span>
+            <span
+              className="text-xl leading-none sm:text-2xl"
+              aria-hidden="true"
+            >
+              →
+            </span>
+          </button>
+
+        </div>
+      </div>
+
+      {/* RIGHT SIDE — EXACT NEW BANNER IMAGE */}
+      <div className="relative min-h-[250px] overflow-hidden bg-[#EEE5D4] md:min-h-0">
+        <img
+          src="/new-banner.png"
+          alt="Thrifter fashion showcase"
+          className="absolute inset-0 h-full w-full object-cover object-center"
+        />
+      </div>
+
+    </div>
+  </div>
+</div>
                 {loading ? (
                   <ThrifterLoader />
                 ) : items.length > 0 ? (
