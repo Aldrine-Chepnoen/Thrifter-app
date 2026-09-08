@@ -92,7 +92,7 @@ const Checkout = ({
       return;
     }
     if (outOfRange) {
-      setError(`Sorry, we don't deliver that far yet (max ${deliveryMaxRadiusKm}km from our collection point).`);
+      setError(`Sorry, we don't deliver that far yet.`);
       return;
     }
     setSubmitting(true);
