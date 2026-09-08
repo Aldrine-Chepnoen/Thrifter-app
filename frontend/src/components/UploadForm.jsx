@@ -119,6 +119,13 @@ const UploadForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const price = Number(formData.price);
+
+      if(!price || price < 1000){
+        showToast("Minimum item price is UGX 1,000");
+        return;
+      }
     if (!canUpload) {
       showToast('Login with a business account to list items');
       navigate('/');
@@ -254,6 +261,7 @@ const UploadForm = () => {
               onChange={handleChange}
               className="w-full p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-black dark:focus:ring-gray-500 outline-none"
               required
+              min="1000"
               disabled={formDisabled}
             />
           </div>
