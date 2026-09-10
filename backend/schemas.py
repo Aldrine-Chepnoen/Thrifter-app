@@ -484,6 +484,11 @@ class AdminOrderOut(BaseModel):
     payment_method: str
     created_at: datetime
     delivery_day: datetime
+    # Checkout-level figures (shared by every order in the same checkout) —
+    # order.subtotal above is only this vendor's slice, not what the buyer
+    # actually owes for the whole delivery.
+    delivery_fee: float
+    checkout_total_amount: float
     items: List[OrderItemOut] = []
     cancel_reason: Optional[str] = None
     cancel_note: Optional[str] = None

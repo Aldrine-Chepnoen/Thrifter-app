@@ -2293,14 +2293,17 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
 # Admin order fulfillment
 # ---------------------------------------------------------------------------
 # Record of the full transition chain: paid ("Order placed") -> picked_up
-# ("On delivery") -> delivered ("Delivered"). One-way — an admin correcting a
-# mistake goes through the DB directly, same as the vendor-side version this
-# replaces. "cancelled" is the one exit, reachable from paid or picked_up but
-# never from delivered (see _cancel_order) — once it's out the door, that's a
-# return/dispute, not a cancellation.
+# ("On delivery"). "cancelled" is the one exit, reachable from paid or
+# picked_up but never from delivered (see _cancel_order) — once it's out the
+# door, that's a return/dispute, not a cancellation.
+# "delivered" isn't reachable through this per-order transition at all — a
+# checkout is delivered as a whole, all its vendors' orders at once, via
+# POST /admin/checkouts/{checkout_id}/deliver (every order in one delivery
+# trip reaches the buyer together, so there's no such thing as delivering
+# one vendor's slice of a checkout on its own).
 _ADMIN_ORDER_STATUS_TRANSITIONS = {
     "paid": {"picked_up", "cancelled"},
-    "picked_up": {"delivered", "cancelled"},
+    "picked_up": {"cancelled"},
 }
 
 CANCEL_REASONS = {"item_unavailable", "buyer_requested", "delivery_issue", "vendor_unable_to_fulfill", "other"}
@@ -2337,6 +2340,8 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         payment_method=checkout.payment_method,
         created_at=order.created_at,
         delivery_day=checkout.delivery_day,
+        delivery_fee=checkout.delivery_fee,
+        checkout_total_amount=checkout.total_amount,
         items=items,
         cancel_reason=order.cancel_reason,
         cancel_note=order.cancel_note,
@@ -2567,11 +2572,57 @@ def update_admin_order_status(
         return _cancel_order(db, order, body, current_user)
 
     order.status = body.status
-    if body.status == "delivered":
-        # Credits the vendor's wallet with their 95% share. The order_id
-        # unique constraint on VendorWalletTransaction is a second line of
-        # defense against double-crediting on top of the state machine above
-        # already preventing a re-transition into "delivered".
+    if body.status == "picked_up":
+        # The buyer gets one "on delivery" text for the whole checkout, not
+        # one per vendor — so only send it once this was the last of the
+        # checkout's still-active orders to reach picked_up. (Excludes the
+        # current order from the query rather than relying on autoflush,
+        # since the session has autoflush=False.)
+        still_pending = db.query(models.Order).filter(
+            models.Order.checkout_id == order.checkout_id,
+            models.Order.id != order.id,
+            models.Order.status.notin_(["picked_up", "delivered", "cancelled"]),
+        ).count()
+        if still_pending == 0:
+            sms.send_sms(order.checkout.delivery_phone if order.checkout else None, sms.order_picked_up_message(order))
+    db.commit()
+    db.refresh(order)
+    return _serialize_admin_order(order)
+
+@app.patch("/admin/checkouts/{checkout_id}/deliver", response_model=List[schemas.AdminOrderOut])
+def deliver_checkout(
+    checkout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    # Locked for the same reason as update_admin_order_status: two concurrent
+    # requests for the same checkout must not both pass the "all picked up"
+    # check before either commits.
+    orders = (
+        db.query(models.Order)
+        .filter(models.Order.checkout_id == checkout_id)
+        .with_for_update()
+        .all()
+    )
+    if not orders:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+
+    active_orders = [o for o in orders if o.status != "cancelled"]
+    if not active_orders:
+        raise HTTPException(status_code=409, detail="Every order in this checkout was cancelled")
+    not_picked_up = [o for o in active_orders if o.status != "picked_up"]
+    if not_picked_up:
+        raise HTTPException(
+            status_code=409,
+            detail="Every vendor's order must be picked up before the checkout can be marked delivered",
+        )
+
+    for order in active_orders:
+        order.status = "delivered"
+        # Credits the vendor's wallet with their share. The order_id unique
+        # constraint on VendorWalletTransaction is a second line of defense
+        # against double-crediting on top of the state machine above already
+        # preventing a re-transition into "delivered".
         old_balance = _vendor_wallet_balance(db, order.vendor_id)
         db.add(models.VendorWalletTransaction(
             vendor_id=order.vendor_id,
@@ -2581,11 +2632,11 @@ def update_admin_order_status(
         ))
         new_balance = old_balance + order.vendor_payout_amount
         sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_delivered_vendor_message(order, new_balance))
-    elif body.status == "picked_up":
-        sms.send_sms(order.checkout.delivery_phone if order.checkout else None, sms.order_picked_up_message(order))
+
     db.commit()
-    db.refresh(order)
-    return _serialize_admin_order(order)
+    for order in active_orders:
+        db.refresh(order)
+    return [_serialize_admin_order(order) for order in active_orders]
 
 # ---------------------------------------------------------------------------
 # Vendor wallet & withdrawals

@@ -323,7 +323,7 @@ const Checkout = ({
           />
           {outOfRange && (
             <p className="text-sm text-red-600 mt-1.5">
-              Sorry, we don't deliver that far yet (max {deliveryMaxRadiusKm}km from our collection point).
+              Sorry, we don't deliver that far yet.
             </p>
           )}
         </div>

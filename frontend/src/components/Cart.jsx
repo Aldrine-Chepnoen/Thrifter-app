@@ -23,11 +23,12 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
     });
   };
   const subtotal = cartItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.cartQuantity || 1), 0);
-  // Delivery is distance-based (buyer's location isn't known until checkout),
-  // so this is only ever a floor — the base fee before any per-km charge.
+  // Delivery is distance-based and the buyer's location isn't known until
+  // checkout — never show a number here, not even a floor, so the total
+  // below stays just the items until checkout confirms the real fee.
   const hasDeliveryFee = deliveryBaseFeeUgx != null;
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
-  const minTotal = subtotal + (hasDeliveryFee ? deliveryBaseFeeUgx : 0) + tax;
+  const total = subtotal + tax;
 
   // Silently correct the cart against live stock on every visit — no banner,
   // no mention of "reservation": an item that sold out elsewhere just quietly
@@ -158,7 +159,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
               <span>Delivery fee</span>
-              <span>{hasDeliveryFee ? `From ${formatUGX(deliveryBaseFeeUgx)}` : '—'}</span>
+              <span>{hasDeliveryFee ? 'Depends on delivery location' : '—'}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
               <span>Tax</span>
@@ -166,10 +167,10 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
               <span className="font-semibold">Total</span>
-              <span className="text-lg font-bold">{hasDeliveryFee ? `From ${formatUGX(minTotal)}` : formatUGX(minTotal)}</span>
+              <span className="text-lg font-bold">{formatUGX(total)}</span>
             </div>
             {hasDeliveryFee && (
-              <p className="text-xs text-gray-400 pt-1">Delivery fee depends on your location — confirmed at checkout.</p>
+              <p className="text-xs text-gray-400 pt-1">Delivery fee is calculated after you enter your delivery location at checkout.</p>
             )}
           </div>
 

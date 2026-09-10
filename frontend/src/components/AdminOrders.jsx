@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, X, MessageSquare } from 'lucide-react';
-import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder } from '../api';
+import { RefreshCw, X, MessageSquare, ChevronDown } from 'lucide-react';
+import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder, deliverAdminCheckout } from '../api';
 import { getImageSrc } from '../utils';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
@@ -20,8 +20,11 @@ const STATUS_STYLES = {
 };
 
 const STATUS_LABELS = { paid: 'Order placed', picked_up: 'On delivery', delivered: 'Delivered' };
-const NEXT_STATUS = { paid: 'picked_up', picked_up: 'delivered' };
-const NEXT_LABEL = { paid: 'Mark Picked Up', picked_up: 'Mark Delivered' };
+// "delivered" isn't reachable per-order anymore — a checkout is delivered
+// as a whole via the "Mark Delivered" action on its grouped card, not row
+// by row (see handleDeliverCheckout).
+const NEXT_STATUS = { paid: 'picked_up' };
+const NEXT_LABEL = { paid: 'Mark Picked Up' };
 
 const CANCEL_REASONS = [
   { value: 'item_unavailable', label: 'Item unavailable (will be removed from the catalog)' },
@@ -125,6 +128,29 @@ const byLocation = (key) => (a, b) => {
   return av.localeCompare(bv);
 };
 
+// Collapses a flat list of (already same-checkout-eligible) orders into one
+// card per checkout — every order in a checkout shares the same buyer/
+// delivery/payment fields, so those are lifted from the first order seen.
+const groupByCheckout = (list) => {
+  const groups = new Map();
+  for (const order of list) {
+    if (!groups.has(order.checkout_id)) {
+      groups.set(order.checkout_id, {
+        checkout_id: order.checkout_id,
+        delivery_name: order.delivery_name,
+        delivery_phone: order.delivery_phone,
+        delivery_address: order.delivery_address,
+        delivery_day: order.delivery_day,
+        payment_method: order.payment_method,
+        checkout_total_amount: order.checkout_total_amount,
+        orders: [],
+      });
+    }
+    groups.get(order.checkout_id).orders.push(order);
+  }
+  return Array.from(groups.values());
+};
+
 const AdminOrders = () => {
   const { showToast, confirmToast } = useToast();
   const [orders, setOrders] = useState([]);
@@ -132,6 +158,8 @@ const AdminOrders = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [section, setSection] = useState('pending'); // 'pending' | 'complete'
   const [updatingId, setUpdatingId] = useState(null);
+  const [deliveringCheckoutId, setDeliveringCheckoutId] = useState(null);
+  const [expandedCheckouts, setExpandedCheckouts] = useState(new Set());
   const [cancelOrder, setCancelOrder] = useState(null); // order currently in the cancel-reason modal
   const [lightbox, setLightbox] = useState(null); // { src, alt } of the enlarged item image, or null
 
@@ -164,13 +192,62 @@ const AdminOrders = () => {
     }
   };
 
+  const handleDeliverCheckout = async (group) => {
+    const confirmed = await confirmToast(
+      `Mark checkout #${group.checkout_id} as delivered? This pays out every vendor in it and cannot be undone.`,
+      'Mark Delivered'
+    );
+    if (!confirmed) return;
+    setDeliveringCheckoutId(group.checkout_id);
+    try {
+      const updated = await deliverAdminCheckout(group.checkout_id);
+      const updatedById = new Map(updated.map((o) => [o.id, o]));
+      setOrders((prev) => prev.map((o) => updatedById.get(o.id) || o));
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not mark this checkout as delivered.');
+    } finally {
+      setDeliveringCheckoutId(null);
+    }
+  };
+
+  const toggleExpanded = (checkoutId) => {
+    setExpandedCheckouts((prev) => {
+      const next = new Set(prev);
+      if (next.has(checkoutId)) next.delete(checkoutId); else next.add(checkoutId);
+      return next;
+    });
+  };
+
   if (loading) return <ThrifterLoader />;
+
+  // A checkout only consolidates into "On delivery" once every one of its
+  // still-active (non-cancelled) orders has been picked up — a multi-vendor
+  // checkout is delivered in one trip, so one uncollected vendor keeps the
+  // whole checkout in the pickup phase. Until then its orders (even ones
+  // already picked up) stay under "Recently placed" at today's per-vendor
+  // granularity so they don't disappear from view while collection is
+  // still in progress.
+  const activeByCheckout = new Map();
+  for (const order of orders) {
+    if (order.status !== 'paid' && order.status !== 'picked_up') continue;
+    if (!activeByCheckout.has(order.checkout_id)) activeByCheckout.set(order.checkout_id, []);
+    activeByCheckout.get(order.checkout_id).push(order);
+  }
+  const readyCheckoutIds = new Set(
+    Array.from(activeByCheckout.entries())
+      .filter(([, list]) => list.every((o) => o.status === 'picked_up'))
+      .map(([checkoutId]) => checkoutId)
+  );
 
   // Recently placed sorts by vendor location (planning a pickup route);
   // on delivery sorts by the buyer's delivery location (planning a drop-off
   // route). Complete has no operational reason to group by area.
-  const recentlyPlaced = orders.filter((o) => o.status === 'paid').sort(byLocation('vendor_location'));
-  const onDelivery = orders.filter((o) => o.status === 'picked_up').sort(byLocation('delivery_address'));
+  const recentlyPlaced = orders
+    .filter((o) => o.status === 'paid' || (o.status === 'picked_up' && !readyCheckoutIds.has(o.checkout_id)))
+    .sort(byLocation('vendor_location'));
+  const onDeliveryCheckouts = groupByCheckout(
+    orders.filter((o) => o.status === 'picked_up' && readyCheckoutIds.has(o.checkout_id))
+  ).sort(byLocation('delivery_address'));
   const complete = orders.filter((o) => o.status === 'delivered');
 
   // One row per line item — order-level fields (vendor, buyer, dates, status)
@@ -280,6 +357,103 @@ const AdminOrders = () => {
     </div>
   );
 
+  // One card per checkout — every vendor's order in it moves to "delivered"
+  // together, so the delivery person needs one total to collect and one
+  // action, not a row per item like the pickup-planning tables above.
+  const CheckoutDeliveryCard = ({ group }) => {
+    const expanded = expandedCheckouts.has(group.checkout_id);
+    const isDelivering = deliveringCheckoutId === group.checkout_id;
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <p className="font-medium">{group.delivery_name}</p>
+            <p className="text-xs text-gray-400">{group.delivery_phone}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{group.delivery_address}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-gray-400">Total to collect</p>
+            <p className="font-semibold whitespace-nowrap">
+              {formatUGX(group.checkout_total_amount)}
+              {group.payment_method === 'cash_on_delivery' && (
+                <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">(COD)</span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => toggleExpanded(group.checkout_id)}
+              className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+              {group.orders.length} vendor{group.orders.length > 1 ? 's' : ''}
+            </button>
+            <button
+              onClick={() => handleDeliverCheckout(group)}
+              disabled={isDelivering}
+              className="text-xs bg-[#EAAD11] text-black font-bold px-3 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+            >
+              {isDelivering ? 'Saving…' : 'Mark Delivered'}
+            </button>
+          </div>
+        </div>
+        {expanded && (
+          <div className="border-t border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-700">
+            {group.orders.map((order) => (
+              <div key={order.id} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <div className="text-sm">
+                    {order.vendor_name ? (
+                      <Link to={`/vendor/${encodeURIComponent(order.vendor_name)}`} className="font-medium hover:underline">
+                        {order.vendor_name}
+                      </Link>
+                    ) : <span className="font-medium">—</span>}
+                    <span className="text-xs text-gray-400 ml-2">Order #{order.id}</span>
+                    {order.vendor_whatsapp && <span className="text-xs text-gray-400 ml-2">{order.vendor_whatsapp}</span>}
+                  </div>
+                  <button
+                    onClick={() => setCancelOrder(order)}
+                    disabled={updatingId === order.id}
+                    className="text-xs text-red-600 font-semibold px-2 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {order.items.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3">
+                      <img
+                        src={getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 100) || undefined}
+                        alt={item.item_name_snapshot}
+                        onClick={() => setLightbox({
+                          src: getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 1000),
+                          alt: item.item_name_snapshot,
+                        })}
+                        className="w-9 h-11 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium line-clamp-1">{item.item_name_snapshot}</p>
+                        {item.note && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1 mt-0.5">
+                            <MessageSquare className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                            <span className="whitespace-normal break-words">{item.note}</span>
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 whitespace-nowrap">
+                        Qty {item.quantity} · {formatUGX(item.price_at_purchase)}{item.quantity > 1 ? ' each' : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -317,7 +491,17 @@ const AdminOrders = () => {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-gray-500 mb-3">On delivery</h3>
-            <OrderTable list={onDelivery} emptyText="No orders out for delivery." />
+            {onDeliveryCheckouts.length === 0 ? (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
+                <p className="text-center py-12 text-gray-400 text-sm">No orders out for delivery.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {onDeliveryCheckouts.map((group) => (
+                  <CheckoutDeliveryCard key={group.checkout_id} group={group} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ) : (
