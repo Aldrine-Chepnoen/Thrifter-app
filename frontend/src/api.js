@@ -45,7 +45,7 @@ export const sendVendorPhoneVerification = () => api.post('/vendor/me/verify-sms
 
 export const searchVendors = (q) => api.get('/vendors/search', { params: { q } }).then(r => r.data);
 
-export const fetchAdminOrders = () => api.get('/admin/orders').then(r => r.data);
+export const fetchAdminOrders = (section = 'pending') => api.get('/admin/orders', { params: { section } }).then(r => r.data);
 export const updateAdminOrderStatus = (id, status) => api.patch(`/admin/orders/${id}/status`, { status }).then(r => r.data);
 export const cancelAdminOrder = (id, reason, note) => api.patch(`/admin/orders/${id}/status`, { status: 'cancelled', reason, note }).then(r => r.data);
 export const deliverAdminCheckout = (checkoutId) => api.patch(`/admin/checkouts/${checkoutId}/deliver`).then(r => r.data);

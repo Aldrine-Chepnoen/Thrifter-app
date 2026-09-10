@@ -157,21 +157,49 @@ const AdminOrders = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [section, setSection] = useState('pending'); // 'pending' | 'complete'
+  // Complete is only ever fetched once the admin actually opens that tab —
+  // it only grows over time, and pulling every delivered order on every
+  // page load was the main reason this screen was slow to open.
+  const [completeLoaded, setCompleteLoaded] = useState(false);
+  const [completeLoading, setCompleteLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [deliveringCheckoutId, setDeliveringCheckoutId] = useState(null);
   const [expandedCheckouts, setExpandedCheckouts] = useState(new Set());
   const [cancelOrder, setCancelOrder] = useState(null); // order currently in the cancel-reason modal
   const [lightbox, setLightbox] = useState(null); // { src, alt } of the enlarged item image, or null
 
-  const loadOrders = ({ silent } = {}) => {
-    if (silent) setRefreshing(true); else setLoading(true);
-    return fetchAdminOrders()
-      .then(setOrders)
-      .catch(() => {})
-      .finally(() => { setLoading(false); setRefreshing(false); });
+  // Merges a section's freshly fetched orders into state by id, rather than
+  // replacing the array outright — otherwise refreshing one section would
+  // wipe out whatever the other section had already loaded.
+  const mergeOrders = (fetched) => {
+    setOrders((prev) => {
+      const byId = new Map(prev.map((o) => [o.id, o]));
+      for (const o of fetched) byId.set(o.id, o);
+      return Array.from(byId.values());
+    });
   };
 
-  useEffect(() => { loadOrders(); }, []);
+  const loadSection = (targetSection, { silent } = {}) => {
+    if (silent) setRefreshing(true);
+    else if (targetSection === 'complete') setCompleteLoading(true);
+    else setLoading(true);
+    return fetchAdminOrders(targetSection)
+      .then((fetched) => {
+        mergeOrders(fetched);
+        if (targetSection === 'complete') setCompleteLoaded(true);
+      })
+      .catch(() => {})
+      .finally(() => { setLoading(false); setRefreshing(false); setCompleteLoading(false); });
+  };
+
+  useEffect(() => { loadSection('pending'); }, []);
+
+  const handleSectionChange = (key) => {
+    setSection(key);
+    if (key === 'complete' && !completeLoaded) loadSection('complete');
+  };
+
+  const handleRefresh = () => loadSection(section, { silent: true });
 
   const handleAdvance = async (order) => {
     const nextStatus = NEXT_STATUS[order.status];
@@ -461,7 +489,7 @@ const AdminOrders = () => {
           {[{ key: 'pending', label: 'Pending' }, { key: 'complete', label: 'Complete' }].map((s) => (
             <button
               key={s.key}
-              onClick={() => setSection(s.key)}
+              onClick={() => handleSectionChange(s.key)}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 section === s.key
                   ? 'bg-white dark:bg-gray-700 shadow-sm text-black dark:text-white'
@@ -473,7 +501,7 @@ const AdminOrders = () => {
           ))}
         </div>
         <button
-          onClick={() => loadOrders({ silent: true })}
+          onClick={handleRefresh}
           disabled={refreshing}
           title="Refresh"
           className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
@@ -504,6 +532,8 @@ const AdminOrders = () => {
             )}
           </div>
         </div>
+      ) : completeLoading ? (
+        <ThrifterLoader />
       ) : (
         <OrderTable list={complete} emptyText="No completed orders yet." />
       )}

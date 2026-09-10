@@ -2530,10 +2530,25 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
 
     return _serialize_admin_order(order)
 
+_ADMIN_ORDER_SECTION_STATUSES = {
+    "pending": ["paid", "picked_up"],
+    "complete": ["delivered"],
+}
+
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
-def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+def list_admin_orders(
+    section: str = "pending",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    # Split by section (rather than always returning paid/picked_up/delivered
+    # together) so the admin dashboard isn't forced to pull every delivered
+    # order — which only grows over time — just to show what's pending.
     # Cancelled/failed orders never needed fulfillment action, so they're
     # excluded here rather than given a bucket in the admin UI.
+    statuses = _ADMIN_ORDER_SECTION_STATUSES.get(section)
+    if statuses is None:
+        raise HTTPException(status_code=400, detail=f"Unknown section '{section}'")
     orders = (
         db.query(models.Order)
         .options(
@@ -2541,7 +2556,7 @@ def list_admin_orders(db: Session = Depends(get_db), current_user: models.User =
             joinedload(models.Order.vendor),
             joinedload(models.Order.items).joinedload(models.OrderItem.item),
         )
-        .filter(models.Order.status.in_(["paid", "picked_up", "delivered"]))
+        .filter(models.Order.status.in_(statuses))
         .order_by(models.Order.created_at.desc())
         .limit(500)
         .all()
