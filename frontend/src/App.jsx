@@ -470,32 +470,26 @@ function App() {
             ) : (
               <>
 {/* Homepage Banner */}
-<div className="px-3 sm:px-4 md:px-6 mb-8 mt-2">
-  <div className="relative w-full overflow-hidden rounded-[22px] border-2 border-[#D99A1E] bg-[#F8F5ED] shadow-sm">
+<div className="px-3 md:px-6 mb-8 mt-2">
+  <div className="relative w-full overflow-hidden rounded-2xl md:rounded-[22px] border-2 border-[#D99A1E] bg-[#F8F5ED] shadow-sm">
 
-    <div className="grid min-h-[360px] grid-cols-1 md:min-h-[390px] md:grid-cols-2">
+    <div className="grid grid-cols-[1fr_36%] h-[134px] md:grid-cols-2 md:h-auto md:min-h-[390px]">
 
       {/* LEFT SIDE */}
-      <div className="flex flex-col justify-center px-6 py-8 sm:px-8 sm:py-10 md:px-10 lg:px-12 md:py-10">
+      <div className="flex flex-col justify-center px-4 py-2 md:px-10 lg:px-12 md:py-10">
         <div className="max-w-[560px]">
 
-          <h2 className="text-[30px] leading-[0.98] font-extrabold tracking-[-0.03em] text-[#252B32] sm:text-[38px] md:text-[42px] lg:text-[48px]">
-            SECURE YOUR
-            <br />
-            NEXT FIT
+          <h2 className="text-[15px] leading-[1.1] font-extrabold tracking-[-0.01em] text-[#252B32] md:text-[42px] md:leading-[0.98] md:tracking-[-0.03em] lg:text-[48px]">
+            Secure your next fit
           </h2>
 
-          <div className="mt-5 sm:mt-6">
-            <p className="text-[17px] leading-tight font-bold tracking-[0.08em] text-[#252B32] sm:text-[20px] md:text-[22px]">
-              DISCOVER FASHION
-              <br />
-              AROUND KAMPALA
+          <div className="mt-1 md:mt-6">
+            <p className="text-[9px] leading-[1.3] font-bold tracking-[0.02em] text-[#252B32] md:text-[22px] md:leading-tight md:tracking-[0.08em]">
+              Discover fashion around Kampala
             </p>
 
-            <p className="mt-4 text-[12px] leading-[1.45] font-semibold tracking-[0.08em] text-[#252B32] sm:text-[14px] md:text-[15px]">
-              THRIFT STORES, CLOTHING
-              <br />
-              BRANDS, FASHION DESIGNERS
+            <p className="mt-0.5 text-[8px] leading-[1.3] font-semibold tracking-[0.01em] text-[#252B32]/75 md:mt-4 md:text-[15px] md:leading-[1.45] md:tracking-[0.08em] md:text-[#252B32]">
+              Thrift stores, clothing brands, fashion designers
             </p>
           </div>
 
@@ -508,11 +502,11 @@ function App() {
                 behavior: "smooth",
               })
             }
-            className="mt-6 inline-flex w-fit items-center justify-center gap-3 rounded-full bg-[#252B32] px-6 py-3 text-sm font-bold text-white shadow-md transition-all duration-200 hover:scale-[1.02] hover:bg-[#1D2228] active:scale-95 sm:mt-7 sm:px-8 sm:py-3.5 sm:text-base"
+            className="mt-1.5 inline-flex w-fit items-center justify-center gap-1 rounded-full bg-[#252B32] px-3 py-1 text-[10px] font-bold text-white shadow-md transition-all duration-200 hover:scale-[1.02] hover:bg-[#1D2228] active:scale-95 md:mt-7 md:gap-3 md:px-8 md:py-3.5 md:text-base"
           >
             <span>Explore now</span>
             <span
-              className="text-xl leading-none sm:text-2xl"
+              className="text-xs leading-none md:text-2xl"
               aria-hidden="true"
             >
               →
@@ -523,7 +517,7 @@ function App() {
       </div>
 
       {/* RIGHT SIDE — EXACT NEW BANNER IMAGE */}
-      <div className="relative min-h-[250px] overflow-hidden bg-[#EEE5D4] md:min-h-0">
+      <div className="relative h-full overflow-hidden bg-[#EEE5D4] md:min-h-[250px]">
         <img
           src="/new-banner.png"
           alt="Thrifter fashion showcase"
