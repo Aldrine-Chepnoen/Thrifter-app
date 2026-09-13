@@ -2709,10 +2709,21 @@ def get_vendor_wallet(db: Session = Depends(get_db), current_user: models.User =
         .order_by(models.VendorWithdrawal.id.desc())
         .first()
     )
+    recent_failed = None
+    if not pending:
+        candidate = (
+            db.query(models.VendorWithdrawal)
+            .filter(models.VendorWithdrawal.vendor_id == current_user.vendor_id, models.VendorWithdrawal.status == "failed")
+            .order_by(models.VendorWithdrawal.id.desc())
+            .first()
+        )
+        if candidate and _withdrawal_is_retryable(candidate):
+            recent_failed = candidate
     return schemas.VendorWalletStatus(
         balance=balance,
         currency="UGX",
         pending_withdrawal=_serialize_withdrawal(pending) if pending else None,
+        recent_failed_withdrawal=_serialize_withdrawal(recent_failed) if recent_failed else None,
     )
 
 @app.post("/vendor/me/wallet/withdraw", response_model=schemas.VendorWalletStatus)
@@ -2723,13 +2734,23 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    existing_pending = (
+    unresolved = (
         db.query(models.VendorWithdrawal)
-        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status == "pending_approval")
-        .first()
+        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status.in_(("pending_approval", "failed")))
+        .all()
     )
-    if existing_pending:
+    if any(w.status == "pending_approval" for w in unresolved):
         raise HTTPException(status_code=409, detail="You already have a withdrawal awaiting approval.")
+    # A failed attempt is an admin's to retry (see WITHDRAWAL_RETRY_WINDOW), not
+    # the vendor's — letting them submit a fresh request in the meantime is
+    # exactly how the same money ends up requested twice while the original
+    # attempt is still being sorted out. Once it's past the window, nothing
+    # else can act on it, so a new request is fine again.
+    if any(_withdrawal_is_retryable(w) for w in unresolved):
+        raise HTTPException(
+            status_code=409,
+            detail="Your last withdrawal is still being processed — we'll have it completed shortly. If it doesn't go through within a couple of hours, please contact us.",
+        )
 
     balance = _vendor_wallet_balance(db, vendor.id)
     if balance <= 0:
@@ -2794,10 +2815,13 @@ def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.U
     )
     return [_serialize_admin_withdrawal(w) for w in withdrawals]
 
-def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> None:
+def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal, reason: str) -> None:
     """Restores the vendor's balance for a withdrawal that didn't go
-    through — used by both reject and a failed payout attempt. Covers the
-    "rejected"/"failed" SMS too, so a future 4th call site can't miss it."""
+    through. `reason` is "rejected" (an admin explicitly declined it — final,
+    nothing left to retry) or "failed" (a payout attempt itself failed — an
+    admin can retry it within WITHDRAWAL_RETRY_WINDOW, so the vendor is told
+    to sit tight rather than to take any action, since a new request of
+    their own would just create a second live attempt on top of this one)."""
     db.add(models.VendorWalletTransaction(
         vendor_id=withdrawal.vendor_id,
         amount=withdrawal.amount,
@@ -2805,7 +2829,11 @@ def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> Non
         withdrawal_id=withdrawal.id,
     ))
     vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
-    sms.send_sms(withdrawal.destination_phone, sms.withdrawal_reversed_message(withdrawal, vendor_name))
+    message = (
+        sms.withdrawal_rejected_message(withdrawal, vendor_name) if reason == "rejected"
+        else sms.withdrawal_failed_message(withdrawal, vendor_name)
+    )
+    sms.send_sms(withdrawal.destination_phone, message)
 
 def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal, vendor: Optional[models.Vendor], current_user: models.User) -> None:
     """Calls the payment provider to actually send the payout and updates
@@ -2833,7 +2861,7 @@ def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal,
         withdrawal.provider = provider_name
         withdrawal.reviewed_at = datetime.utcnow()
         withdrawal.reviewed_by_user_id = current_user.id
-        _reverse_withdrawal(db, withdrawal)
+        _reverse_withdrawal(db, withdrawal, "failed")
         db.commit()
         raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
 
@@ -2848,7 +2876,7 @@ def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal,
         withdrawal.status = "failed"
         withdrawal.failure_reason = result.failure_reason
         withdrawal.provider_ref = result.provider_ref
-        _reverse_withdrawal(db, withdrawal)
+        _reverse_withdrawal(db, withdrawal, "failed")
     db.commit()
     db.refresh(withdrawal)
 
@@ -2913,7 +2941,7 @@ def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current
     withdrawal.status = "rejected"
     withdrawal.reviewed_at = datetime.utcnow()
     withdrawal.reviewed_by_user_id = current_user.id
-    _reverse_withdrawal(db, withdrawal)
+    _reverse_withdrawal(db, withdrawal, "rejected")
     db.commit()
     db.refresh(withdrawal)
     vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()

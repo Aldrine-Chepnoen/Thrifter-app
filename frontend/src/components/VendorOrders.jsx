@@ -76,6 +76,24 @@ const VendorOrders = () => {
               </p>
               <p className="text-xs text-gray-400 mt-0.5">Requested {formatDate(wallet.pending_withdrawal.requested_at)}</p>
             </div>
+          ) : wallet.recent_failed_withdrawal ? (
+            <div className="text-right max-w-xs">
+              <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                {formatUGX(wallet.recent_failed_withdrawal.amount)} withdrawal in progress
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                We're actively working on the withdrawal amidst network issues. In case it's been over a
+                few hours,{' '}
+                <a
+                  href="https://wa.me/256794185787"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#EAAD11] hover:underline font-medium"
+                >
+                  contact us
+                </a>.
+              </p>
+            </div>
           ) : (
             <button
               onClick={handleWithdraw}

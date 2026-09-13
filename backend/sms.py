@@ -112,10 +112,22 @@ def withdrawal_paid_message(withdrawal, vendor_name: str) -> str:
     )
 
 
-def withdrawal_reversed_message(withdrawal, vendor_name: str) -> str:
+def withdrawal_rejected_message(withdrawal, vendor_name: str) -> str:
     return (
         f"Thrifter: Hi {vendor_name}, your withdrawal request of {_ugx(withdrawal.amount)} "
-        f"could not be completed and has been returned to your wallet."
+        f"was rejected and has been returned to your wallet."
+    )
+
+
+def withdrawal_failed_message(withdrawal, vendor_name: str) -> str:
+    # Deliberately doesn't say "failed" or invite the vendor to request again —
+    # an admin can retry this on our end (see WITHDRAWAL_RETRY_WINDOW in
+    # main.py), and a vendor submitting a fresh request in the meantime is
+    # exactly how the same money ends up requested twice.
+    return (
+        f"Thrifter: Hi {vendor_name}, your withdrawal of {_ugx(withdrawal.amount)} is taking a little "
+        f"longer than usual. We're on it and it will be completed shortly — if you haven't received it "
+        f"in a couple of hours, please contact us."
     )
 
 
