@@ -56,6 +56,7 @@ export const fetchAdminWithdrawals = () => api.get('/admin/withdrawals').then(r 
 export const checkPaymentProviderStatus = () => api.get('/admin/payment-provider-status').then(r => r.data);
 export const approveWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/approve`).then(r => r.data);
 export const rejectWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/reject`).then(r => r.data);
+export const retryWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/retry`).then(r => r.data);
 export const initiateVendorSubscriptionPayment = (provider) => api.post('/vendor/subscription/checkout', { provider }).then(r => r.data);
 
 export default api;

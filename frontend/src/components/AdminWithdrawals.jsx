@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Activity } from 'lucide-react';
-import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal, checkPaymentProviderStatus } from '../api';
+import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal, retryWithdrawal, checkPaymentProviderStatus } from '../api';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
 import { useToast } from '../context/ToastContext';
@@ -59,6 +59,19 @@ const AdminWithdrawals = () => {
       setWithdrawals((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     } catch (err) {
       showToast(err?.response?.data?.detail || 'Could not reject withdrawal.');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleRetry = async (w) => {
+    if (!window.confirm(`Retry paying out ${formatUGX(w.amount)} to ${w.vendor_name || 'this vendor'} at ${w.destination_phone}? This sends real money and can't be undone.`)) return;
+    setActingId(w.id);
+    try {
+      const updated = await retryWithdrawal(w.id);
+      setWithdrawals((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not retry withdrawal.');
     } finally {
       setActingId(null);
     }
@@ -193,6 +206,18 @@ const AdminWithdrawals = () => {
                       </span>
                       {w.failure_reason && (
                         <p className="text-xs text-red-500 mt-1 max-w-[240px]" title={w.failure_reason}>{w.failure_reason}</p>
+                      )}
+                      {w.status === 'failed' && !w.retryable && (
+                        <p className="text-xs text-gray-400 mt-1 max-w-[240px]">Too old to retry — ask the vendor to request again.</p>
+                      )}
+                      {w.retryable && (
+                        <button
+                          onClick={() => handleRetry(w)}
+                          disabled={actingId === w.id}
+                          className="mt-1.5 block text-xs bg-[#EAAD11] text-black font-bold px-3 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {actingId === w.id ? 'Working…' : 'Retry'}
+                        </button>
                       )}
                     </td>
                   </tr>

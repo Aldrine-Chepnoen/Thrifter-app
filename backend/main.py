@@ -2661,10 +2661,37 @@ def deliver_checkout(
 # at the provider regardless of what we send.
 MIN_PAYOUT_AMOUNT_UGX = 5000
 
+# A failed withdrawal stops being retryable once it's this old — past this
+# window it's more likely the vendor's details have gone stale (changed
+# phone, etc.) or they've already been paid out some other way, so an admin
+# retrying it blind is more likely to cause confusion than help. Measured
+# from the most recent failed attempt (reviewed_at), not the original
+# request, so retrying resets the clock rather than racing the original one.
+WITHDRAWAL_RETRY_WINDOW = timedelta(days=2)
+
 def _vendor_wallet_balance(db: Session, vendor_id: int) -> float:
     return db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).filter(
         models.VendorWalletTransaction.vendor_id == vendor_id
     ).scalar()
+
+def _withdrawal_is_retryable(w: models.VendorWithdrawal) -> bool:
+    return (
+        w.status == "failed"
+        and w.reviewed_at is not None
+        and datetime.utcnow() - w.reviewed_at <= WITHDRAWAL_RETRY_WINDOW
+    )
+
+def _serialize_admin_withdrawal(w: models.VendorWithdrawal, vendor: Optional[models.Vendor] = None) -> schemas.AdminWithdrawalOut:
+    vendor = vendor or w.vendor
+    return schemas.AdminWithdrawalOut(
+        id=w.id, vendor_id=w.vendor_id,
+        vendor_name=vendor.name if vendor else None,
+        destination_phone=w.destination_phone,
+        amount=w.amount, status=w.status,
+        failure_reason=w.failure_reason,
+        requested_at=w.requested_at, reviewed_at=w.reviewed_at,
+        retryable=_withdrawal_is_retryable(w),
+    )
 
 def _serialize_withdrawal(w: models.VendorWithdrawal) -> schemas.VendorWithdrawalOut:
     return schemas.VendorWithdrawalOut(
@@ -2765,17 +2792,7 @@ def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.U
         .order_by(models.VendorWithdrawal.requested_at.desc())
         .all()
     )
-    return [
-        schemas.AdminWithdrawalOut(
-            id=w.id, vendor_id=w.vendor_id,
-            vendor_name=w.vendor.name if w.vendor else None,
-            destination_phone=w.destination_phone,
-            amount=w.amount, status=w.status,
-            failure_reason=w.failure_reason,
-            requested_at=w.requested_at, reviewed_at=w.reviewed_at,
-        )
-        for w in withdrawals
-    ]
+    return [_serialize_admin_withdrawal(w) for w in withdrawals]
 
 def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> None:
     """Restores the vendor's balance for a withdrawal that didn't go
@@ -2790,15 +2807,13 @@ def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> Non
     vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
     sms.send_sms(withdrawal.destination_phone, sms.withdrawal_reversed_message(withdrawal, vendor_name))
 
-@app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
-def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
-    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
-    if not withdrawal:
-        raise HTTPException(status_code=404, detail="Withdrawal not found")
-    if withdrawal.status != "pending_approval":
-        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
-
-    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal, vendor: Optional[models.Vendor], current_user: models.User) -> None:
+    """Calls the payment provider to actually send the payout and updates
+    withdrawal.status/failure_reason/provider_ref accordingly. Shared by the
+    initial approval and a later retry of a failed one — same call, same
+    bookkeeping either way. Raises HTTPException(502) if the provider itself
+    couldn't be reached, after already recording the failure and reversing
+    the debit the caller took for this attempt."""
     tx_ref = f"PAYOUT-{withdrawal.id}-{uuid.uuid4().hex[:10]}"
     provider_name = settings.DEFAULT_PAYMENT_PROVIDER
     try:
@@ -2836,14 +2851,56 @@ def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), curren
         _reverse_withdrawal(db, withdrawal)
     db.commit()
     db.refresh(withdrawal)
-    return schemas.AdminWithdrawalOut(
-        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
-        vendor_name=vendor.name if vendor else None,
-        destination_phone=withdrawal.destination_phone,
-        amount=withdrawal.amount, status=withdrawal.status,
-        failure_reason=withdrawal.failure_reason,
-        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
-    )
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
+def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "pending_approval":
+        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+    _attempt_withdrawal_payout(db, withdrawal, vendor, current_user)
+    return _serialize_admin_withdrawal(withdrawal, vendor)
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/retry", response_model=schemas.AdminWithdrawalOut)
+def retry_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    """Re-attempts a failed payout without the vendor having to submit a new
+    withdrawal request. A failed attempt already reversed (credited back)
+    its debit — see _reverse_withdrawal — so this re-debits the same amount
+    for the new attempt first, exactly as the original request did, then
+    runs the same payout logic approve_withdrawal uses."""
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).with_for_update().first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "failed":
+        raise HTTPException(status_code=409, detail=f"Only a failed withdrawal can be retried (this one is '{withdrawal.status}')")
+    if not _withdrawal_is_retryable(withdrawal):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This withdrawal failed more than {WITHDRAWAL_RETRY_WINDOW.days} days ago and can no longer be retried — ask the vendor to submit a new withdrawal request.",
+        )
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).with_for_update().first()
+    balance = _vendor_wallet_balance(db, withdrawal.vendor_id)
+    if balance < withdrawal.amount:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Vendor's current balance (UGX {balance:,.0f}) no longer covers this UGX {withdrawal.amount:,.0f} withdrawal.",
+        )
+
+    db.add(models.VendorWalletTransaction(
+        vendor_id=withdrawal.vendor_id,
+        amount=-withdrawal.amount,
+        reason="withdrawal_requested",
+        withdrawal_id=withdrawal.id,
+    ))
+    withdrawal.failure_reason = None
+    db.flush()
+
+    _attempt_withdrawal_payout(db, withdrawal, vendor, current_user)
+    return _serialize_admin_withdrawal(withdrawal, vendor)
 
 @app.patch("/admin/withdrawals/{withdrawal_id}/reject", response_model=schemas.AdminWithdrawalOut)
 def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2860,14 +2917,7 @@ def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current
     db.commit()
     db.refresh(withdrawal)
     vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
-    return schemas.AdminWithdrawalOut(
-        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
-        vendor_name=vendor.name if vendor else None,
-        destination_phone=withdrawal.destination_phone,
-        amount=withdrawal.amount, status=withdrawal.status,
-        failure_reason=withdrawal.failure_reason,
-        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
-    )
+    return _serialize_admin_withdrawal(withdrawal, vendor)
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):

@@ -518,6 +518,10 @@ class AdminWithdrawalOut(BaseModel):
     failure_reason: Optional[str] = None
     requested_at: datetime
     reviewed_at: Optional[datetime] = None
+    # True only while status == "failed" and the failure is recent enough to
+    # retry (see WITHDRAWAL_RETRY_WINDOW) — the frontend shows the Retry
+    # button purely off this, so the cutoff logic lives in one place.
+    retryable: bool = False
 
 class PaymentProviderHealth(BaseModel):
     healthy: bool
