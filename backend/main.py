@@ -2283,6 +2283,10 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
 def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
     orders = (
         db.query(models.Order)
+        .options(
+            joinedload(models.Order.checkout),
+            joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
+        )
         .filter(models.Order.vendor_id == current_user.vendor_id, models.Order.status != "pending")
         .order_by(models.Order.created_at.desc())
         .all()
@@ -2554,7 +2558,7 @@ def list_admin_orders(
         .options(
             joinedload(models.Order.checkout),
             joinedload(models.Order.vendor),
-            joinedload(models.Order.items).joinedload(models.OrderItem.item),
+            joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
         )
         .filter(models.Order.status.in_(statuses))
         .order_by(models.Order.created_at.desc())
