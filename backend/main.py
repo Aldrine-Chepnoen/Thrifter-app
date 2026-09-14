@@ -2558,6 +2558,7 @@ def list_admin_orders(
         .options(
             joinedload(models.Order.checkout),
             joinedload(models.Order.vendor),
+            joinedload(models.Order.refund),
             joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
         )
         .filter(models.Order.status.in_(statuses))
