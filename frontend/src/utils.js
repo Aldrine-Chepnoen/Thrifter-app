@@ -56,6 +56,26 @@ export const getImageSrc = (image, width = 400) => {
   return getOptimizedCloudinaryUrl(toAbsoluteUrl(image.image_path), width);
 };
 
+/**
+ * Builds the { images, initialIndex } a multi-image ImageLightbox needs from
+ * an order item — falls back to its single display image/fallback_url when
+ * `images` is empty (legacy items with no ItemImage rows). initialIndex
+ * points at the primary image so the lightbox opens on the same photo the
+ * thumbnail already showed.
+ * @param {object} item - An order item: { image_path, fallback_url, images? }
+ * @returns {{ images: {src: string}[], initialIndex: number }}
+ */
+export const getLightboxImages = (item) => {
+  const raw = item.images && item.images.length > 0
+    ? item.images
+    : [{ image_path: item.image_path, fallback_url: item.fallback_url, is_primary: true }];
+  const images = raw
+    .map((img) => ({ src: getImageSrc(img, 1000), isPrimary: !!img.is_primary }))
+    .filter((img) => img.src);
+  const initialIndex = Math.max(0, images.findIndex((img) => img.isPrimary));
+  return { images, initialIndex };
+};
+
 // Straight-line distance between two lat/lng points, in km — mirrors the
 // backend's _haversine_km (backend/main.py) so the checkout fee preview
 // matches what /checkout will actually charge.

@@ -397,6 +397,11 @@ class OrderItemOut(BaseModel):
     quantity: int = 1
     image_path: Optional[str] = None
     fallback_url: Optional[str] = None
+    # Every image the item currently has (empty if the item's been deleted) —
+    # image_path/fallback_url above stay as the single display image so
+    # existing thumbnail rendering doesn't need to change; this is for a
+    # lightbox that wants to page through all of them.
+    images: List[ItemImage] = []
     note: Optional[str] = None
 
 class OrderOut(BaseModel):

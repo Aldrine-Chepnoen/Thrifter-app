@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Wallet, MessageSquare } from 'lucide-react';
 import { fetchVendorOrders, fetchVendorWallet, requestVendorWithdrawal } from '../api';
-import { getImageSrc, ORDER_STATUS_LABELS } from '../utils';
+import { getImageSrc, getLightboxImages, ORDER_STATUS_LABELS } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 import ImageLightbox from './ImageLightbox';
 import { useToast } from '../context/ToastContext';
@@ -125,10 +125,7 @@ const VendorOrders = () => {
                   <img
                     src={getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 100) || undefined}
                     alt={item.item_name_snapshot}
-                    onClick={() => setLightbox({
-                      src: getImageSrc({ image_path: item.image_path, fallback_url: item.fallback_url }, 1000),
-                      alt: item.item_name_snapshot,
-                    })}
+                    onClick={() => setLightbox({ ...getLightboxImages(item), alt: item.item_name_snapshot })}
                     className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                   />
                   <div className="min-w-0">
@@ -164,7 +161,7 @@ const VendorOrders = () => {
       </div>
 
       {lightbox && (
-        <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />
+        <ImageLightbox images={lightbox.images} initialIndex={lightbox.initialIndex} alt={lightbox.alt} onClose={() => setLightbox(null)} />
       )}
     </div>
   );

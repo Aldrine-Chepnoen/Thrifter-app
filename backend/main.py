@@ -810,23 +810,26 @@ def _display_image(item: models.Item):
     return image_path, cloudinary_id, fallback_url
 
 
+def _serialize_item_images(item: models.Item) -> List[schemas.ItemImage]:
+    if not hasattr(item, 'images'):
+        return []
+    return [
+        schemas.ItemImage(
+            id=img.id,
+            image_path=img.image_path,
+            cloudinary_public_id=img.cloudinary_public_id,
+            # Only R2-era images need a fallback; legacy paths already point at Cloudinary
+            fallback_url=cloudinary_fallback_url(img.cloudinary_public_id)
+                if storage.is_r2_url(img.image_path) else None,
+            is_primary=img.is_primary
+        ) for img in item.images
+    ]
+
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
 
-    images = []
-    if hasattr(item, 'images'):
-        images = [
-            schemas.ItemImage(
-                id=img.id,
-                image_path=img.image_path,
-                cloudinary_public_id=img.cloudinary_public_id,
-                # Only R2-era images need a fallback; legacy paths already point at Cloudinary
-                fallback_url=cloudinary_fallback_url(img.cloudinary_public_id)
-                    if storage.is_r2_url(img.image_path) else None,
-                is_primary=img.is_primary
-            ) for img in item.images
-        ]
+    images = _serialize_item_images(item)
 
     display_image_path, display_cloudinary_id, display_fallback_url = _display_image(item)
 
@@ -2258,6 +2261,7 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
     items = []
     for oi in order.items:
         image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        item_images = _serialize_item_images(oi.item) if oi.item else []
         items.append(schemas.OrderItemOut(
             id=oi.id, item_id=oi.item_id,
             item_name_snapshot=oi.item_name_snapshot,
@@ -2265,6 +2269,7 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            images=item_images,
             note=oi.note,
         ))
     return schemas.VendorOrderOut(
@@ -2316,6 +2321,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
     items = []
     for oi in order.items:
         image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        item_images = _serialize_item_images(oi.item) if oi.item else []
         items.append(schemas.OrderItemOut(
             id=oi.id, item_id=oi.item_id,
             item_name_snapshot=oi.item_name_snapshot,
@@ -2323,6 +2329,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            images=item_images,
             note=oi.note,
         ))
     checkout = order.checkout
