@@ -13,12 +13,13 @@ const formatDate = (d) => new Date(d).toLocaleDateString('en-UG', { day: 'numeri
 
 const STATUS_STYLES = {
   pending_approval: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  processing: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   paid: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
   rejected: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
 
-const STATUS_LABELS = { pending_approval: 'Pending approval', paid: 'Paid', rejected: 'Rejected', failed: 'Failed' };
+const STATUS_LABELS = { pending_approval: 'Pending approval', processing: 'Processing', paid: 'Paid', rejected: 'Rejected', failed: 'Failed' };
 
 const AdminWithdrawals = () => {
   const { showToast } = useToast();

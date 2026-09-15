@@ -2000,6 +2000,46 @@ def _run_reconciliation_sweep() -> None:
             )
             if locked and locked.status == "pending":
                 vendor_premium.finalize_subscription_payment(db, locked, "failed", "Payment timed out waiting for confirmation")
+
+        # Withdrawals left "processing" (on_hold/pending/ambiguous at Nylon Pay —
+        # see _attempt_withdrawal_payout) never resolve on their own; this is the
+        # only place that ever moves them out of that state. Never reverse the
+        # debit or mark "failed" here on anything but a confirmed terminal
+        # answer from the provider — that's exactly the ambiguity that caused
+        # the double-payout incident this replaces.
+        processing_withdrawals = (
+            db.query(models.VendorWithdrawal)
+            .filter(models.VendorWithdrawal.status == "processing", models.VendorWithdrawal.provider_ref.isnot(None))
+            .all()
+        )
+        for withdrawal in processing_withdrawals:
+            try:
+                locked = (
+                    db.query(models.VendorWithdrawal)
+                    .filter(models.VendorWithdrawal.id == withdrawal.id)
+                    .with_for_update()
+                    .first()
+                )
+                if not locked or locked.status != "processing":
+                    continue
+                provider = payments.get_provider(locked.provider)
+                verify_result = provider.verify(f"WITHDRAWAL-{locked.id}", locked.provider_ref)
+                if verify_result.status == "successful":
+                    vendor = db.query(models.Vendor).filter(models.Vendor.id == locked.vendor_id).first()
+                    locked.status = "paid"
+                    locked.reviewed_at = datetime.utcnow()
+                    db.commit()
+                    sms.send_sms(locked.destination_phone, sms.withdrawal_paid_message(locked, vendor.name if vendor else "there"))
+                elif verify_result.status == "failed":
+                    locked.status = "failed"
+                    locked.failure_reason = verify_result.failure_reason
+                    locked.reviewed_at = datetime.utcnow()
+                    _reverse_withdrawal(db, locked, "failed")
+                    db.commit()
+                # else still pending/on_hold — leave as "processing", nothing to do yet.
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Reconciliation verify failed for withdrawal {withdrawal.id}: {str(e)}")
     except Exception as e:
         logger.error(f"Reconciliation sweep failed: {str(e)}", exc_info=True)
     finally:
@@ -2721,21 +2761,26 @@ def get_vendor_wallet(db: Session = Depends(get_db), current_user: models.User =
         .order_by(models.VendorWithdrawal.id.desc())
         .first()
     )
-    recent_failed = None
+    # "processing" (ambiguous/on_hold at the provider, being reconciled) and a
+    # still-admin-retryable "failed" both mean the same thing to the vendor:
+    # this isn't resolved yet, don't let them start a new one. "processing"
+    # has no window (only reconciliation moves it forward); "failed" only
+    # counts while WITHDRAWAL_RETRY_WINDOW hasn't lapsed.
+    in_progress = None
     if not pending:
         candidate = (
             db.query(models.VendorWithdrawal)
-            .filter(models.VendorWithdrawal.vendor_id == current_user.vendor_id, models.VendorWithdrawal.status == "failed")
+            .filter(models.VendorWithdrawal.vendor_id == current_user.vendor_id, models.VendorWithdrawal.status.in_(("processing", "failed")))
             .order_by(models.VendorWithdrawal.id.desc())
             .first()
         )
-        if candidate and _withdrawal_is_retryable(candidate):
-            recent_failed = candidate
+        if candidate and (candidate.status == "processing" or _withdrawal_is_retryable(candidate)):
+            in_progress = candidate
     return schemas.VendorWalletStatus(
         balance=balance,
         currency="UGX",
         pending_withdrawal=_serialize_withdrawal(pending) if pending else None,
-        recent_failed_withdrawal=_serialize_withdrawal(recent_failed) if recent_failed else None,
+        in_progress_withdrawal=_serialize_withdrawal(in_progress) if in_progress else None,
     )
 
 @app.post("/vendor/me/wallet/withdraw", response_model=schemas.VendorWalletStatus)
@@ -2748,11 +2793,21 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
 
     unresolved = (
         db.query(models.VendorWithdrawal)
-        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status.in_(("pending_approval", "failed")))
+        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status.in_(("pending_approval", "processing", "failed")))
         .all()
     )
     if any(w.status == "pending_approval" for w in unresolved):
         raise HTTPException(status_code=409, detail="You already have a withdrawal awaiting approval.")
+    # "processing" means the payout is genuinely still alive/ambiguous at the
+    # provider (see _attempt_withdrawal_payout) — there's no window here,
+    # since we don't know its outcome yet; only reconciliation can move it
+    # out of this state. Letting the vendor request again in the meantime is
+    # exactly how the same money ends up paid out twice.
+    if any(w.status == "processing" for w in unresolved):
+        raise HTTPException(
+            status_code=409,
+            detail="Your last withdrawal is still being processed — we'll have it completed shortly. If it doesn't go through within a couple of hours, please contact us.",
+        )
     # A failed attempt is an admin's to retry (see WITHDRAWAL_RETRY_WINDOW), not
     # the vendor's — letting them submit a fresh request in the meantime is
     # exactly how the same money ends up requested twice while the original
@@ -2851,9 +2906,13 @@ def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal,
     """Calls the payment provider to actually send the payout and updates
     withdrawal.status/failure_reason/provider_ref accordingly. Shared by the
     initial approval and a later retry of a failed one — same call, same
-    bookkeeping either way. Raises HTTPException(502) if the provider itself
-    couldn't be reached, after already recording the failure and reversing
-    the debit the caller took for this attempt."""
+    bookkeeping either way. Three possible outcomes: "paid" (confirmed
+    success), "processing" (ambiguous/on_hold — left untouched, no reversal,
+    resolved later by reconciliation), or "failed" (confirmed dead — reversed).
+    Raises HTTPException(502) only if the provider call couldn't even be
+    attempted (e.g. get_provider() itself failing) — a genuine in-call
+    failure/ambiguity from the provider is handled by the three-way branch
+    above, not this exception path."""
     tx_ref = f"PAYOUT-{withdrawal.id}-{uuid.uuid4().hex[:10]}"
     provider_name = settings.DEFAULT_PAYMENT_PROVIDER
     try:
@@ -2878,23 +2937,36 @@ def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal,
         raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
 
     withdrawal.provider = provider_name
+    withdrawal.provider_ref = result.provider_ref
     withdrawal.reviewed_at = datetime.utcnow()
     withdrawal.reviewed_by_user_id = current_user.id
     if result.success:
         withdrawal.status = "paid"
-        withdrawal.provider_ref = result.provider_ref
         sms.send_sms(withdrawal.destination_phone, sms.withdrawal_paid_message(withdrawal, vendor.name if vendor else "there"))
+    elif result.status == "pending":
+        # Ambiguous / on_hold / still in flight at the provider — the request
+        # may genuinely still resolve to a real payout, so the debit must NOT
+        # be reversed and this must NOT be offered for retry: doing either
+        # is exactly how the same money ends up requested (and paid) twice.
+        # _run_reconciliation_sweep checks provider_ref periodically and only
+        # resolves this once Nylon Pay gives a real terminal answer.
+        withdrawal.status = "processing"
+        withdrawal.failure_reason = None
     else:
         withdrawal.status = "failed"
         withdrawal.failure_reason = result.failure_reason
-        withdrawal.provider_ref = result.provider_ref
         _reverse_withdrawal(db, withdrawal, "failed")
     db.commit()
     db.refresh(withdrawal)
 
 @app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
 def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
-    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
+    # Locked so a double-click (or any near-simultaneous second call) can't
+    # both read status="pending_approval" before either commits — without
+    # this, both would independently fire a real payout and each reverse the
+    # same single debit, inflating the vendor's wallet with money that was
+    # never actually returned. This is exactly how a prior incident happened.
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).with_for_update().first()
     if not withdrawal:
         raise HTTPException(status_code=404, detail="Withdrawal not found")
     if withdrawal.status != "pending_approval":

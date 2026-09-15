@@ -512,11 +512,12 @@ class VendorWalletStatus(BaseModel):
     balance: float
     currency: str = "UGX"
     pending_withdrawal: Optional[VendorWithdrawalOut] = None
-    # Only populated while the failure is still within WITHDRAWAL_RETRY_WINDOW
-    # (an admin can still retry it) — lets the vendor's wallet card show a
-    # "we're on it" state instead of silently reverting to a plain Withdraw
-    # button the moment a failed attempt refunds their balance.
-    recent_failed_withdrawal: Optional[VendorWithdrawalOut] = None
+    # Populated when the vendor's last withdrawal is "processing" (ambiguous
+    # at the provider, being reconciled) or a "failed" one still within
+    # WITHDRAWAL_RETRY_WINDOW (an admin can still retry it) — lets the
+    # wallet card show a "we're on it" state instead of silently reverting to
+    # a plain Withdraw button while the previous attempt is still unresolved.
+    in_progress_withdrawal: Optional[VendorWithdrawalOut] = None
 
 class AdminWithdrawalOut(BaseModel):
     id: int

@@ -215,6 +215,15 @@ class NylonPayProvider(PaymentProvider):
             raw=data,
         )
 
+    # Error categories where the request never actually reached real
+    # processing (bad input, auth, destination account, or a clean "no such
+    # thing") — safe to treat as a genuine, final failure. Everything else
+    # (network/timeout/internal/provider/duplicate/limit/rate_limit) means we
+    # can't tell whether Nylon Pay actually started moving money before
+    # erroring back to us, so those are never treated as final here — see
+    # payout()'s docstring.
+    _DEFINITE_FAILURE_CATEGORIES = {"validation", "auth", "account", "not_found"}
+
     def payout(
         self,
         *,
@@ -225,6 +234,18 @@ class NylonPayProvider(PaymentProvider):
         destination_name: str,
         description: str,
     ) -> PayoutResult:
+        """Send money out. Returns status="successful" only on a confirmed
+        terminal success, status="failed" only on a confirmed terminal
+        failure/cancellation (or a request that's certain to have never been
+        processed — see _DEFINITE_FAILURE_CATEGORIES) — those two are the only
+        cases callers should ever reverse a wallet debit for. Anything else
+        (on_hold/pending/processing, or an ambiguous network/gateway/timeout/
+        duplicate error) comes back as status="pending": the request may
+        genuinely still be alive at Nylon Pay, so the caller must leave the
+        withdrawal exactly as-is and let reconciliation (get_status against
+        provider_ref, which is always populated below) resolve it later —
+        never assume failure and free the vendor to request again, which is
+        exactly how the same money ends up paid out twice."""
         client = self._get_client()
         reference = str(uuid.uuid4())
         # Mobile-money payout: the "account" is the phone number itself, so
@@ -247,15 +268,22 @@ class NylonPayProvider(PaymentProvider):
                 reference=reference,
             )
         except SdkException as e:
-            return PayoutResult(success=False, status="failed", failure_reason=_humanize_payout_failure(f"[{e.category}] {e}"))
+            status = "failed" if e.category in self._DEFINITE_FAILURE_CATEGORIES else "pending"
+            return PayoutResult(success=False, status=status, provider_ref=reference, failure_reason=_humanize_payout_failure(f"[{e.category}] {e}"))
 
         if result.is_err:
-            return PayoutResult(success=False, status="failed", failure_reason=_humanize_payout_failure(str(result.error)))
+            parsed = _try_parse_json(str(result.error))
+            category = parsed.get("category") if isinstance(parsed, dict) else None
+            status = "failed" if category in self._DEFINITE_FAILURE_CATEGORIES else "pending"
+            return PayoutResult(success=False, status=status, provider_ref=reference, failure_reason=_humanize_payout_failure(str(result.error)))
 
         txn = result.value
         if txn.status == "successful":
             return PayoutResult(success=True, status="successful", provider_ref=txn.id)
-        return PayoutResult(success=False, status=txn.status, provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
+        if txn.status in ("failed", "cancelled"):
+            return PayoutResult(success=False, status="failed", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
+        # on_hold / pending / processing — still alive at Nylon Pay.
+        return PayoutResult(success=False, status="pending", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
 
     def health_check(self) -> HealthCheckResult:
         """Cheap, side-effect-free probe of whether Nylon Pay's shared API
