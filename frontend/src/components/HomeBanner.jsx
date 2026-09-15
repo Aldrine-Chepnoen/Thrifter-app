@@ -73,60 +73,67 @@ function CurrentBanner() {
   );
 }
 
-// Shared by the two promo slides below — a black-ish stroke behind white
-// text, matching the Figma source's white-fill/black-stroke/drop-shadow
-// text style (measured off the actual layers: Inter Bold, white fill,
-// 1px black stroke, drop shadow) since Tailwind has no stroke utility.
-const promoTextShadow = {
-  textShadow:
-    '-1px -1px 0 rgba(0,0,0,0.55), 1px -1px 0 rgba(0,0,0,0.55), -1px 1px 0 rgba(0,0,0,0.55), 1px 1px 0 rgba(0,0,0,0.55), 0 3px 6px rgba(0,0,0,0.35)',
-};
-
 // Vendor-facing promo slide, ported from the Figma "SELL AN ITEM NOW" frame.
-// Same gradient measured off that frame (D6D6D6 → EAAD11 — the site's own
-// gold accent already used as the card border) and the same Inter
-// Bold/uppercase treatment; EAAD11 already suits dark mode as-is, so only
-// the light-gray gradient anchor gets a dark-mode swap. No button in the
-// source design (the arrow-flow line stands in for one) — ported as-is
-// rather than inventing a CTA and destination the design didn't specify.
+// Originally kept the source's own gold gradient, white/stroked Inter
+// uppercase treatment — recolored to CurrentBanner's exact palette and type
+// scale (serif headline, same cream/navy or gray-900/gray-100 card, same
+// body/tip sizes) instead, so the carousel reads as one consistent banner
+// rather than three differently-styled ones. No button in the source design
+// (the arrow-flow line stands in for one) — left non-interactive as-is.
+// Desktop text sized up beyond CurrentBanner/BuyBanner's scale (mobile
+// separately below) since this is the one slide with no image reserving
+// half the card — the full banner width is free for text, so it can run
+// bigger without the wrapping risk a split-column slide would have.
+// Mobile also got a size pass: no button and no second body line means this
+// slide uses noticeably less of its fixed 134px row than CurrentBanner does,
+// leaving enough slack to grow the text and show the tip without growing
+// the row itself — the shared 134px stays untouched so the carousel doesn't
+// jump height between slides.
 function SellBanner() {
   return (
-    <div className="relative w-full h-[134px] md:h-[232px] overflow-hidden rounded-2xl md:rounded-[20px] border-2 border-[#D99A1E] dark:border-[#EAAD11] shadow-sm bg-gradient-to-r from-[#D6D6D6] to-[#EAAD11] dark:from-gray-700 dark:to-[#EAAD11]">
-      <div className="relative z-10 flex h-full flex-col justify-center px-4 py-2 md:px-10 lg:px-12" style={promoTextShadow}>
-        <h2 className="text-[15px] leading-[1.15] font-extrabold uppercase tracking-tight text-white md:text-[29px] md:leading-[1.15]">
-          Sell an item now
-        </h2>
-        <p className="mt-1 text-[8.5px] leading-[1.3] font-bold text-white md:mt-3 md:text-[18px] md:leading-[1.4]">
-          Sign up as a brand → Upload items → We deliver
-        </p>
-        <p className="mt-2 hidden max-w-[320px] text-[12.5px] font-medium italic leading-[1.4] text-white/80 md:block">
-          Tip: share your vendor link on socials to get more page visits.
-        </p>
+    <div className="relative w-full h-[134px] md:h-[232px] overflow-hidden rounded-2xl md:rounded-[20px] border-2 border-[#D99A1E] dark:border-[#EAAD11] bg-[#F8F5ED] dark:bg-gray-900 shadow-sm">
+      <div className="flex h-full flex-col justify-center px-4 py-2 md:px-10 lg:px-12">
+        <div className="max-w-[460px] md:max-w-[620px]">
+          <h2 className="font-serif text-[19px] leading-[1.15] font-bold text-[#252B32] dark:text-gray-100 md:text-[46px] md:leading-[1.1]">
+            Sell an item now
+          </h2>
+
+          <p className="mt-1.5 text-[13px] leading-[1.35] font-semibold text-[#252B32] dark:text-gray-200 md:mt-4 md:text-[20px] md:font-medium md:leading-[1.4]">
+            Sign up as a brand → Upload items → We deliver
+          </p>
+
+          <p className="mt-2 max-w-[300px] text-[10px] italic leading-[1.35] text-[#252B32]/55 dark:text-gray-500 md:max-w-[400px] md:text-[14px] md:leading-[1.4]">
+            Tip: share your vendor link on socials to get more page visits.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
 // Buyer-facing promo slide, ported from the Figma "GET YOUR ITEMS NOW"
-// frame — same gradient/type treatment as SellBanner, plus the frame's own
-// image (hands taping a delivery box, exported from Figma as
-// delivery-box.png), absolutely positioned bottom-right the same way the
-// source has it floating over the gradient rather than sitting in its own
-// panel.
+// frame — same recoloring as SellBanner, plus the frame's own image (hands
+// taping a delivery box, exported from Figma as delivery-box.png).
+// Absolutely positioned bottom-right and floated directly on the card's own
+// background rather than a separate colored panel — the same treatment
+// CurrentBanner's photo already uses since its image column background was
+// matched to the card color. Mobile sized up like SellBanner (same slack
+// from having no button/second body line to fill the fixed 134px row), but
+// a bit more conservatively since the image still takes 42% of the width
+// here — the shared 134px row height itself is unchanged.
 function BuyBanner() {
   return (
-    <div className="relative w-full h-[134px] md:h-[232px] overflow-hidden rounded-2xl md:rounded-[20px] border-2 border-[#D99A1E] dark:border-[#EAAD11] shadow-sm bg-gradient-to-r from-[#D6D6D6] to-[#EAAD11] dark:from-gray-700 dark:to-[#EAAD11]">
-      <div
-        className="relative z-10 flex h-full max-w-[62%] flex-col justify-center px-4 py-2 md:max-w-[58%] md:px-10 lg:px-12"
-        style={promoTextShadow}
-      >
-        <h2 className="text-[14px] leading-[1.15] font-extrabold uppercase tracking-tight text-white md:text-[29px] md:leading-[1.15]">
+    <div className="relative w-full h-[134px] md:h-[232px] overflow-hidden rounded-2xl md:rounded-[20px] border-2 border-[#D99A1E] dark:border-[#EAAD11] bg-[#F8F5ED] dark:bg-gray-900 shadow-sm">
+      <div className="relative z-10 flex h-full max-w-[62%] flex-col justify-center px-4 py-2 md:max-w-[58%] md:px-10 lg:px-12">
+        <h2 className="font-serif text-[17px] leading-[1.15] font-bold text-[#252B32] dark:text-gray-100 md:text-[40px] md:leading-[1.15]">
           Get your items now
         </h2>
-        <p className="mt-1 text-[8px] leading-[1.3] font-bold text-white md:mt-3 md:text-[18px] md:leading-[1.4]">
+
+        <p className="mt-1.5 text-[11.5px] leading-[1.3] font-semibold text-[#252B32] dark:text-gray-200 md:mt-4 md:text-[19px] md:font-medium md:leading-[1.4]">
           Add to cart → Checkout → We deliver
         </p>
-        <p className="mt-2 hidden max-w-[300px] text-[12.5px] font-medium italic leading-[1.4] text-white/80 md:block">
+
+        <p className="mt-1.5 max-w-[200px] text-[9px] italic leading-[1.3] text-[#252B32]/55 dark:text-gray-500 md:mt-3 md:max-w-[320px] md:text-[13.5px] md:leading-[1.4]">
           Tip: order from multiple vendors and receive all pieces in one delivery.
         </p>
       </div>
