@@ -2779,6 +2779,7 @@ def get_vendor_wallet(db: Session = Depends(get_db), current_user: models.User =
     return schemas.VendorWalletStatus(
         balance=balance,
         currency="UGX",
+        min_payout_amount=MIN_PAYOUT_AMOUNT_UGX,
         pending_withdrawal=_serialize_withdrawal(pending) if pending else None,
         in_progress_withdrawal=_serialize_withdrawal(in_progress) if in_progress else None,
     )
@@ -2856,6 +2857,7 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     return schemas.VendorWalletStatus(
         balance=0.0,
         currency="UGX",
+        min_payout_amount=MIN_PAYOUT_AMOUNT_UGX,
         pending_withdrawal=_serialize_withdrawal(withdrawal),
     )
 

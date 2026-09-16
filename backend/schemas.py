@@ -511,6 +511,11 @@ class VendorWithdrawalOut(BaseModel):
 class VendorWalletStatus(BaseModel):
     balance: float
     currency: str = "UGX"
+    # Lets the wallet card show "minimum withdrawal is X" proactively (greying
+    # out Withdraw before the vendor tries and hits the 400 from
+    # request_vendor_withdrawal) instead of only surfacing it as an error toast
+    # after a failed attempt.
+    min_payout_amount: float
     pending_withdrawal: Optional[VendorWithdrawalOut] = None
     # Populated when the vendor's last withdrawal is "processing" (ambiguous
     # at the provider, being reconciled) or a "failed" one still within

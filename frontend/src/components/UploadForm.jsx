@@ -257,7 +257,8 @@ const UploadForm = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Image Upload */}
         <div className="w-full">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Item Photos (Up to 3) <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item Photos (Up to 3) <span className="text-red-500">*</span></label>
+          <p className="text-xs text-gray-400 mb-2">Real photos of this exact item, not stock images.</p>
           <div className="grid grid-cols-3 gap-4 mb-4">
             {previews.map((preview, index) => (
               <div key={index} className="relative aspect-[4/5] bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden group">
@@ -369,6 +370,7 @@ const UploadForm = () => {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description <span className="text-gray-400 font-normal">(optional)</span>
           </label>
+          <p className="text-xs text-gray-400 mb-1">Mention any wear, marks or flaws — buyers can report items that arrive materially different from the listing.</p>
           <textarea
             name="description"
             value={formData.description}
