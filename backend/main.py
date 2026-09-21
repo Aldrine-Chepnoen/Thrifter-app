@@ -161,9 +161,15 @@ JWT_EXP_SECONDS = settings.JWT_EXP_SECONDS
 SEED_DEMO = settings.SEED_DEMO
 
 def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Optional[str] = None) -> "models.Vendor":
-    formatted_whatsapp = format_whatsapp_number(whatsapp or "")
     vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
     if not vendor:
+        # Only validate when we're about to persist a new vendor's number —
+        # an existing vendor being looked up by name (elif below) never
+        # writes `whatsapp` at all, so an unrelated/irrelevant value passed
+        # in for that case must not block the request.
+        formatted_whatsapp = format_whatsapp_number(whatsapp or "")
+        if not formatted_whatsapp:
+            raise HTTPException(status_code=400, detail="Invalid WhatsApp number")
         vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp, location=location or None)
         db.add(vendor)
         db.commit()
