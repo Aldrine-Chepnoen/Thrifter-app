@@ -691,10 +691,18 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
     if current.is_vendor:
         raise HTTPException(status_code=400, detail="Account is already a vendor")
 
+    # `current` is a cache.CachedUser (see get_current_user) — a detached
+    # dataclass copy, not a session-tracked row. Mutating it directly is a
+    # no-op against the database: db.commit() below would have nothing to
+    # flush for the user, silently leaving is_vendor/vendor_id unchanged in
+    # Postgres while the cached copy (and this response) claim success. Must
+    # load and mutate the real row instead.
+    user = db.query(models.User).filter(models.User.id == current.id).first()
     vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp, body.vendor_location)
-    current.is_vendor = True
-    current.vendor_id = vendor.id
+    user.is_vendor = True
+    user.vendor_id = vendor.id
     db.commit()
+    cache.user_invalidate(user.id)
     logger.info(f"User upgraded to vendor: {current.id}")
     try:
         _issue_vendor_verify_sms(db, vendor)
@@ -702,8 +710,8 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
         logger.error(f"Auto verification SMS failed for vendor {vendor.id}: {str(e)}", exc_info=True)
 
     return schemas.UserInfo(
-        id=current.id, email=current.email, is_vendor=current.is_vendor,
-        is_admin=current.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
+        id=user.id, email=user.email, is_vendor=user.is_vendor,
+        is_admin=user.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
