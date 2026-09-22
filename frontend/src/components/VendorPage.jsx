@@ -245,40 +245,34 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
-  const handleShare = async () => {
-    setShareMenuOpen(false);
-    await navigator.clipboard.writeText(window.location.href);
-    showToast('Link copied!', 'success');
-  };
-
-  // Uses the Web Share API where it's available (mobile Chrome/Safari) —
-  // this opens the OS share sheet, where WhatsApp is one option among
-  // others, and "Status" is a choice the vendor makes inside WhatsApp's own
-  // share screen; there's no API that posts to Status directly. Desktop
-  // browsers (and any mobile browser without Web Share support) fall back
-  // to a plain wa.me compose link, which opens WhatsApp with the same text
-  // pre-filled and lets the vendor pick who to send it to.
-  const handleShareWhatsApp = async () => {
-    setShareMenuOpen(false);
+  // Shared by both share options so the copied text and the WhatsApp
+  // message always say the same thing.
+  const buildShareText = () => {
     const vendorDisplayName = vendorInfo?.name || name;
     const itemCount = items.length;
     const lines = [`Check out my store "${vendorDisplayName}" on Thrifter!`];
     if (vendorInfo?.description) lines.push(vendorInfo.description);
     lines.push(`${itemCount} item${itemCount !== 1 ? 's' : ''} available`);
     lines.push(window.location.href);
-    const text = lines.join('\n');
+    return lines.join('\n');
+  };
 
-    if (navigator.share) {
-      try {
-        await navigator.share({ text });
-        return;
-      } catch (err) {
-        if (err?.name === 'AbortError') return; // vendor cancelled the share sheet
-        // Any other failure (e.g. share not actually supported despite the
-        // API existing) falls through to the wa.me link below.
-      }
-    }
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  const handleShare = async () => {
+    setShareMenuOpen(false);
+    await navigator.clipboard.writeText(buildShareText());
+    showToast('Link copied!', 'success');
+  };
+
+  // Deliberately skips the Web Share API (navigator.share): that opens the
+  // OS's generic "share to any app" picker — WhatsApp, Messages, Gmail,
+  // Copy, etc. all listed together — not a WhatsApp-specific action. A
+  // plain wa.me link goes straight into WhatsApp itself instead. It still
+  // lands on WhatsApp's own contact-picker (pick who to send to) rather
+  // than Status directly — there's no API that posts to Status directly —
+  // but at least the OS app-picker step is gone.
+  const handleShareWhatsApp = () => {
+    setShareMenuOpen(false);
+    window.open(`https://wa.me/?text=${encodeURIComponent(buildShareText())}`, '_blank', 'noopener,noreferrer');
   };
 
   const openSettings = () => {
