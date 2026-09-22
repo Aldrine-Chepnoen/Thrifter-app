@@ -46,6 +46,7 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [error, setError] = useState('');
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const shareMenuRef = useRef(null);
+  const [preparingWhatsAppShare, setPreparingWhatsAppShare] = useState(false);
   const [viewStats, setViewStats] = useState({});
   const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
@@ -250,11 +251,34 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const buildShareText = () => {
     const vendorDisplayName = vendorInfo?.name || name;
     const itemCount = items.length;
-    const lines = [`Check out my store "${vendorDisplayName}" on Thrifter!`];
+    const lines = [`Get these items on Thrifter;`, `"${vendorDisplayName}"`];
     if (vendorInfo?.description) lines.push(vendorInfo.description);
     lines.push(`${itemCount} item${itemCount !== 1 ? 's' : ''} available`);
     lines.push(window.location.href);
     return lines.join('\n');
+  };
+
+  const MIME_EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+  // Item images live on two hosts: R2 (images.thrifter-ug.com), which sends
+  // no CORS headers at all, and Cloudinary, which allows any origin — so
+  // fetching for a File attachment has to go through fallback_url (each
+  // R2 item's Cloudinary copy) rather than the primary image_path. Items
+  // that predate R2 already have image_path pointing at Cloudinary
+  // directly, so falling back to that when there's no fallback_url still
+  // resolves to a fetchable URL.
+  const fetchItemImageFile = async (item) => {
+    const url = item.fallback_url || item.image_path;
+    if (!url) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const ext = MIME_EXTENSIONS[blob.type] || 'jpg';
+      return new File([blob], `item-${item.id}.${ext}`, { type: blob.type || 'image/jpeg' });
+    } catch {
+      return null; // CORS failure, network error, etc. — just skip this item's photo
+    }
   };
 
   const handleShare = async () => {
@@ -263,16 +287,35 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     showToast('Link copied!', 'success');
   };
 
-  // Deliberately skips the Web Share API (navigator.share): that opens the
-  // OS's generic "share to any app" picker — WhatsApp, Messages, Gmail,
-  // Copy, etc. all listed together — not a WhatsApp-specific action. A
-  // plain wa.me link goes straight into WhatsApp itself instead. It still
-  // lands on WhatsApp's own contact-picker (pick who to send to) rather
-  // than Status directly — there's no API that posts to Status directly —
-  // but at least the OS app-picker step is gone.
-  const handleShareWhatsApp = () => {
+  // Attaches every item's primary photo plus one shared caption, via the
+  // Web Share API — the only browser mechanism that can attach real image
+  // files, at the cost of opening the OS's generic "share to any app"
+  // picker (WhatsApp is one option among others there; there's no API to
+  // restrict that list to a single app). Falls back to the text-only
+  // wa.me link — no picker, no images — wherever file sharing isn't
+  // supported, or if every image fetch happens to fail.
+  const handleShareWhatsApp = async () => {
     setShareMenuOpen(false);
-    window.open(`https://wa.me/?text=${encodeURIComponent(buildShareText())}`, '_blank', 'noopener,noreferrer');
+    const text = buildShareText();
+
+    if (navigator.share && navigator.canShare) {
+      setPreparingWhatsAppShare(true);
+      try {
+        const files = (await Promise.all(items.map(fetchItemImageFile))).filter(Boolean);
+        if (files.length > 0 && navigator.canShare({ files })) {
+          try {
+            await navigator.share({ files, text });
+            return;
+          } catch (err) {
+            if (err?.name === 'AbortError') return; // vendor cancelled the share sheet
+            // Any other failure falls through to the wa.me link below.
+          }
+        }
+      } finally {
+        setPreparingWhatsAppShare(false);
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
   const openSettings = () => {
@@ -583,11 +626,16 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         <div className="relative" ref={shareMenuRef}>
           <button
             onClick={() => setShareMenuOpen((open) => !open)}
+            disabled={preparingWhatsAppShare}
             aria-label="Share this profile"
             aria-expanded={shareMenuOpen}
-            className="flex items-center justify-center bg-black/80 text-white p-3 rounded-full hover:opacity-90 transition-all"
+            className="flex items-center justify-center bg-black/80 text-white p-3 rounded-full hover:opacity-90 transition-all disabled:opacity-50"
           >
-            <Share2 className="w-5 h-5" />
+            {preparingWhatsAppShare ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Share2 className="w-5 h-5" />
+            )}
           </button>
           {shareMenuOpen && (
             <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden z-20">
