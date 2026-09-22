@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Plus, Share2, MessageCircle, Copy, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
@@ -44,7 +44,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const shareMenuRef = useRef(null);
   const [viewStats, setViewStats] = useState({});
   const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
@@ -179,6 +180,26 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   }, [verifyState, vendorInfo]);
 
+  // Closes the share menu on an outside click/tap or Escape — only wired up
+  // while it's actually open, so it's not doing work on every render.
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+    const handlePointerDown = (e) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target)) setShareMenuOpen(false);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setShareMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [shareMenuOpen]);
+
   const handleUseMyLocationForVerify = () => {
     if (!navigator.geolocation) {
       showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
@@ -225,9 +246,39 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   };
 
   const handleShare = async () => {
+    setShareMenuOpen(false);
     await navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    showToast('Link copied!', 'success');
+  };
+
+  // Uses the Web Share API where it's available (mobile Chrome/Safari) —
+  // this opens the OS share sheet, where WhatsApp is one option among
+  // others, and "Status" is a choice the vendor makes inside WhatsApp's own
+  // share screen; there's no API that posts to Status directly. Desktop
+  // browsers (and any mobile browser without Web Share support) fall back
+  // to a plain wa.me compose link, which opens WhatsApp with the same text
+  // pre-filled and lets the vendor pick who to send it to.
+  const handleShareWhatsApp = async () => {
+    setShareMenuOpen(false);
+    const vendorDisplayName = vendorInfo?.name || name;
+    const itemCount = items.length;
+    const lines = [`Check out my store "${vendorDisplayName}" on Thrifter!`];
+    if (vendorInfo?.description) lines.push(vendorInfo.description);
+    lines.push(`${itemCount} item${itemCount !== 1 ? 's' : ''} available`);
+    lines.push(window.location.href);
+    const text = lines.join('\n');
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return; // vendor cancelled the share sheet
+        // Any other failure (e.g. share not actually supported despite the
+        // API existing) falls through to the wa.me link below.
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
   const openSettings = () => {
@@ -535,13 +586,34 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
             sell a piece
           </Link>
         ) : <div />}
-        <button
-          onClick={handleShare}
-          className="flex items-center gap-2 bg-black/80 text-white font-bold px-5 py-2.5 rounded-full text-sm hover:opacity-90 transition-all"
-        >
-          {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-          {copied ? 'Copied!' : 'share profile'}
-        </button>
+        <div className="relative" ref={shareMenuRef}>
+          <button
+            onClick={() => setShareMenuOpen((open) => !open)}
+            aria-label="Share this profile"
+            aria-expanded={shareMenuOpen}
+            className="flex items-center justify-center bg-black/80 text-white p-3 rounded-full hover:opacity-90 transition-all"
+          >
+            <Share2 className="w-5 h-5" />
+          </button>
+          {shareMenuOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden z-20">
+              <button
+                onClick={handleShareWhatsApp}
+                className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                share on whatsapp
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Copy className="w-4 h-4 text-gray-400" />
+                copy link
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Settings panel */}
