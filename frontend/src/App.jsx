@@ -400,6 +400,22 @@ function App() {
     }
   }, [location.pathname, user, location.state]);
 
+  // The Meta Pixel base code (index.html) only fires PageView once, on the
+  // initial full page load — it has no way to see React Router's
+  // client-side navigations. metaPixelMounted skips the first run here
+  // since that first PageView was already sent by the base code itself;
+  // every route change after that fires one explicitly.
+  const metaPixelMounted = useRef(false);
+  useEffect(() => {
+    if (!metaPixelMounted.current) {
+      metaPixelMounted.current = true;
+      return;
+    }
+    if (typeof window.fbq === 'function') {
+      window.fbq('track', 'PageView');
+    }
+  }, [location.pathname]);
+
   const getImageUrl = (path) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
