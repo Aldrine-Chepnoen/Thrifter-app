@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { X, ShoppingBag, MessageSquarePlus } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, ShoppingBag, MessageSquarePlus, AlertCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getImageSrc } from '../utils';
 import api from '../api';
@@ -9,6 +9,10 @@ const formatUGX = (n) => {
 };
 
 const NOTE_MAX_LENGTH = 200;
+// How often to re-check live stock while the buyer stays on this page — a
+// one-time check on mount misses an item going unavailable mid-session
+// (e.g. while they're filling in checkout in another tab).
+const AVAILABILITY_POLL_MS = 20000;
 
 const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart, deliveryBaseFeeUgx, user, openAuthModal }) => {
   const navigate = useNavigate();
@@ -30,36 +34,51 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
   const tax = 0; // Thrifter charges no tax today; shown for price-breakdown transparency.
   const total = subtotal + tax;
 
-  // Silently correct the cart against live stock on every visit — no banner,
-  // no mention of "reservation": an item that sold out elsewhere just quietly
-  // disappears (or its quantity clamps down) instead of sitting there stale
-  // until checkout rejects it. Checkout's own server-side check remains the
-  // final authority regardless.
+  // Items confirmed gone (quantity 0) stay visible with a clear tag rather
+  // than being silently dropped, and block checkout until the buyer removes
+  // them — the point is to catch this here instead of after they've filled
+  // in delivery details, only for checkout's own stock check to reject them.
+  // A partial shortfall (some stock left, just less than they want) is still
+  // auto-clamped below rather than flagged, since that's not a blocker.
+  const [unavailableIds, setUnavailableIds] = useState(() => new Set());
+  const cartItemsRef = useRef(cartItems);
+  useEffect(() => { cartItemsRef.current = cartItems; }, [cartItems]);
+
   useEffect(() => {
     let cancelled = false;
-    Promise.all(
-      cartItems.map((item) =>
-        api.get(`/items/${item.id}`)
-          .then((res) => ({ id: item.id, quantity: res.data.quantity }))
-          .catch(() => ({ id: item.id, quantity: 0 }))
-      )
-    ).then((results) => {
-      if (cancelled) return;
-      for (const { id, quantity } of results) {
-        const cartItem = cartItems.find((i) => i.id === id);
-        if (!cartItem) continue;
-        if (quantity <= 0) {
-          onRemove(id);
-        } else if ((cartItem.cartQuantity || 1) > quantity) {
-          onUpdateQuantity(id, quantity);
+    const checkAvailability = () => {
+      const items = cartItemsRef.current;
+      Promise.all(
+        items.map((item) =>
+          api.get(`/items/${item.id}`)
+            .then((res) => ({ id: item.id, quantity: res.data.quantity }))
+            .catch(() => ({ id: item.id, quantity: 0 }))
+        )
+      ).then((results) => {
+        if (cancelled) return;
+        const stillGone = new Set();
+        for (const { id, quantity } of results) {
+          const cartItem = cartItemsRef.current.find((i) => i.id === id);
+          if (!cartItem) continue;
+          if (quantity <= 0) {
+            stillGone.add(id);
+          } else if ((cartItem.cartQuantity || 1) > quantity) {
+            onUpdateQuantity(id, quantity);
+          }
         }
-      }
-    });
-    return () => { cancelled = true; };
+        setUnavailableIds(stillGone);
+      });
+    };
+    checkAvailability();
+    const interval = setInterval(checkAvailability, AVAILABILITY_POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasUnavailable = cartItems.some((i) => unavailableIds.has(i.id));
+
   const handleCheckout = () => {
+    if (hasUnavailable) return;
     if (!user) {
       openAuthModal();
       return;
@@ -89,9 +108,11 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
       ) : (
         <>
           <div className="space-y-3 mb-8">
-            {cartItems.map((item) => (
-              <div key={item.id} className="flex items-center gap-4 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-3">
-                <img src={getImageSrc(item, 160)} alt={item.name} className="w-16 h-20 object-cover rounded-lg flex-shrink-0" />
+            {cartItems.map((item) => {
+              const isUnavailable = unavailableIds.has(item.id);
+              return (
+              <div key={item.id} className={`flex items-center gap-4 bg-gray-50 dark:bg-gray-900 border rounded-xl p-3 ${isUnavailable ? 'border-red-200 dark:border-red-900' : 'border-gray-200 dark:border-gray-800'}`}>
+                <img src={getImageSrc(item, 160)} alt={item.name} className={`w-16 h-20 object-cover rounded-lg flex-shrink-0 ${isUnavailable ? 'grayscale opacity-50' : ''}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold truncate">{item.name}</p>
@@ -99,7 +120,12 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
                   </div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{item.vendor_name}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Size - <span className="font-semibold text-gray-700 dark:text-gray-300">{item.size}</span></p>
-                  {item.quantity > 1 && (
+                  {isUnavailable ? (
+                    <p className="flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400 mt-2">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      No longer available — remove it to continue
+                    </p>
+                  ) : item.quantity > 1 && (
                     <div className="flex items-center gap-2 mt-2">
                       <button
                         onClick={() => onUpdateQuantity(item.id, Math.max(1, (item.cartQuantity || 1) - 1))}
@@ -116,7 +142,7 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
                       </button>
                     </div>
                   )}
-                  {openNoteIds.has(item.id) ? (
+                  {!isUnavailable && (openNoteIds.has(item.id) ? (
                     <div className="mt-2">
                       <textarea
                         value={item.cartNote || ''}
@@ -139,17 +165,18 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
                       <MessageSquarePlus className="w-3.5 h-3.5" />
                       Add Order details (Size/Colors)?
                     </button>
-                  )}
+                  ))}
                 </div>
                 <button
                   onClick={() => onRemove(item.id)}
-                  className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-red-600 self-start"
+                  className={`p-2 rounded-full self-start ${isUnavailable ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-red-600'}`}
                   title="Remove"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="border-t border-gray-200 dark:border-gray-800 pt-4 space-y-2 mb-6">
@@ -178,9 +205,16 @@ const Cart = ({ cartItems, onRemove, onUpdateQuantity, onUpdateNote, onClearCart
               checkout-side validation exists. Add an "Enter Coupon Code" field
               here once that system is built. */}
 
+          {hasUnavailable && (
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400 mb-3">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              Remove the unavailable item{cartItems.filter((i) => unavailableIds.has(i.id)).length > 1 ? 's' : ''} above to continue.
+            </p>
+          )}
           <button
             onClick={handleCheckout}
-            className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors"
+            disabled={hasUnavailable}
+            className="w-full bg-[#EAAD11] text-black py-4 px-6 rounded-xl font-bold hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
           >
             Checkout
           </button>
