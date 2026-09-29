@@ -16,6 +16,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [stylesSubTab, setStylesSubTab] = useState('curated'); // 'curated' or 'library'
   const [stats, setStats] = useState(null);
+  const [vendorWallets, setVendorWallets] = useState(null);
+  const [vendorWalletsLoading, setVendorWalletsLoading] = useState(false);
+  const [showVendorWalletsModal, setShowVendorWalletsModal] = useState(false);
+  const [vendorWalletsSearch, setVendorWalletsSearch] = useState('');
   const [vendors, setVendors] = useState([]);
   const [unverifiedVendors, setUnverifiedVendors] = useState([]);
   const [selectedForDeactivation, setSelectedForDeactivation] = useState(new Set());
@@ -201,6 +205,21 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       setStats(res.data);
     } catch (e) {
       console.error('Failed to load stats', e);
+    }
+  };
+
+  const openVendorWalletsModal = async () => {
+    setShowVendorWalletsModal(true);
+    setVendorWalletsSearch('');
+    setVendorWalletsLoading(true);
+    try {
+      const res = await api.get('/admin/vendor-wallets');
+      setVendorWallets(res.data);
+    } catch (e) {
+      console.error('Failed to load vendor wallets', e);
+      showToast('Could not load vendor wallet balances.');
+    } finally {
+      setVendorWalletsLoading(false);
     }
   };
 
@@ -543,7 +562,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 <StatCard icon={<DollarSign />} label="Total Platform Earnings" value={stats.total_platform_earnings} prefix="UGX" color="green" />
                 <StatCard icon={<DollarSign />} label="Commission Earnings" value={stats.total_commission_earnings} prefix="UGX" />
                 <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" />
-                <StatCard icon={<Wallet />} label="Total Current Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" />
+                <StatCard icon={<Wallet />} label="Total Current Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" onClick={openVendorWalletsModal} />
               </div>
             </>
           ) : <ThrifterLoader />}
@@ -1646,23 +1665,96 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
           </div>
         )}
       </AnimatePresence>
+
+      {showVendorWalletsModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowVendorWalletsModal(false)} />
+          <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-[#EAAD11]" />
+                Vendor Wallet Balances
+              </h3>
+              <button
+                onClick={() => setShowVendorWalletsModal(false)}
+                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Highest balance first — only vendors with wallet activity are listed.</p>
+
+            {vendorWalletsLoading ? (
+              <div className="py-10"><ThrifterLoader /></div>
+            ) : !vendorWallets || vendorWallets.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">No vendor wallet activity yet.</p>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={vendorWalletsSearch}
+                  onChange={(e) => setVendorWalletsSearch(e.target.value)}
+                  placeholder="Search vendors..."
+                  className="w-full text-sm p-2.5 mb-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                />
+                <div className="flex-1 overflow-y-auto -mx-2 px-2">
+                  {vendorWallets
+                    .filter((v) => v.vendor_name.toLowerCase().includes(vendorWalletsSearch.trim().toLowerCase()))
+                    .map((v) => (
+                      <Link
+                        key={v.vendor_id}
+                        to={`/vendor/${encodeURIComponent(v.vendor_name)}`}
+                        onClick={() => setShowVendorWalletsModal(false)}
+                        className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg px-2 -mx-2"
+                      >
+                        <span className="text-sm font-medium truncate">{v.vendor_name}</span>
+                        <span className="flex items-center gap-2 flex-shrink-0">
+                          {v.has_pending_withdrawal && (
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full whitespace-nowrap">
+                              Withdrawal pending
+                            </span>
+                          )}
+                          <span className="text-sm font-bold whitespace-nowrap">UGX {Number(v.balance).toLocaleString()}</span>
+                        </span>
+                      </Link>
+                    ))}
+                </div>
+                <div className="flex items-center justify-between pt-3 mt-1 border-t border-gray-100 dark:border-gray-700">
+                  <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total</span>
+                  <span className="text-sm font-bold">
+                    UGX {vendorWallets.reduce((sum, v) => sum + v.balance, 0).toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const StatCard = ({ icon, label, value, color, prefix }) => (
-  <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
-    <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${
-      color === 'green' ? 'bg-green-50 text-green-600' :
-      color === 'red'   ? 'bg-red-50 text-red-600' :
-                          'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-    }`}>
-      {React.cloneElement(icon, { className: 'w-5 h-5' })}
-    </div>
-    <p className="text-2xl font-bold">{prefix ? `${prefix} ` : ''}{Number(value).toLocaleString()}</p>
-    <p className="text-sm text-gray-500 mt-1">{label}</p>
-  </div>
-);
+const StatCard = ({ icon, label, value, color, prefix, onClick }) => {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag
+      onClick={onClick}
+      className={`bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-6 text-left w-full ${
+        onClick ? 'hover:border-[#EAAD11] hover:shadow-md transition-all cursor-pointer' : ''
+      }`}
+    >
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${
+        color === 'green' ? 'bg-green-50 text-green-600' :
+        color === 'red'   ? 'bg-red-50 text-red-600' :
+                            'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+      }`}>
+        {React.cloneElement(icon, { className: 'w-5 h-5' })}
+      </div>
+      <p className="text-2xl font-bold">{prefix ? `${prefix} ` : ''}{Number(value).toLocaleString()}</p>
+      <p className="text-sm text-gray-500 mt-1">{label}</p>
+    </Tag>
+  );
+};
 
 const Badge = ({ color, label }) => {
   const styles = {

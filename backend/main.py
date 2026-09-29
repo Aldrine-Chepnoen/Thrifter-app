@@ -3773,6 +3773,35 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
     cache.admin_stats_set(result)
     return result
 
+@app.get("/admin/vendor-wallets", response_model=List[schemas.AdminVendorWallet])
+def admin_vendor_wallets(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Per-vendor breakdown backing the "Total Current Vendor Wallet
+    Balances" stat card — only vendors with at least one wallet transaction
+    are listed (a vendor who's never sold anything trivially has a balance
+    of 0, and isn't useful clutter here)."""
+    balance_expr = func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)
+    rows = (
+        db.query(models.VendorWalletTransaction.vendor_id, models.Vendor.name, balance_expr.label("balance"))
+        .join(models.Vendor, models.Vendor.id == models.VendorWalletTransaction.vendor_id)
+        .group_by(models.VendorWalletTransaction.vendor_id, models.Vendor.name)
+        .order_by(balance_expr.desc())
+        .all()
+    )
+    pending_vendor_ids = {
+        row.vendor_id for row in db.query(models.VendorWithdrawal.vendor_id)
+        .filter(models.VendorWithdrawal.status.in_(("pending_approval", "processing")))
+        .all()
+    }
+    return [
+        schemas.AdminVendorWallet(
+            vendor_id=r.vendor_id,
+            vendor_name=r.name,
+            balance=r.balance,
+            has_pending_withdrawal=r.vendor_id in pending_vendor_ids,
+        )
+        for r in rows
+    ]
+
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
 def admin_list_users(
     skip: int = 0,

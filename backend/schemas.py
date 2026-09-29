@@ -183,6 +183,15 @@ class AdminStats(BaseModel):
     # that hasn't been withdrawn yet, not a separately-tracked balance.
     total_vendor_wallet_balance: float
 
+class AdminVendorWallet(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    balance: float
+    # True when the vendor has a withdrawal sitting in pending_approval or
+    # processing — a large balance next to this flag means "already
+    # requested, awaiting payout", not "hasn't asked yet".
+    has_pending_withdrawal: bool
+
 class AdminUser(BaseModel):
     id: int
     email: str
