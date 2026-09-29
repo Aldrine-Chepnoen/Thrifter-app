@@ -12,6 +12,7 @@ import shutil
 import os
 import uuid
 import io
+import math
 from typing import List, Optional, Union
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -127,8 +128,12 @@ def get_features(db: Session = Depends(get_db)):
     promo_setting = db.query(models.AppSetting).filter(models.AppSetting.key == "promo_10k_enabled").first()
     return {
         "promo_10k_enabled": promo_setting.value_bool if promo_setting else False,
-        "delivery_fee_single_vendor_ugx": settings.DELIVERY_FEE_SINGLE_VENDOR_UGX,
-        "delivery_fee_multi_vendor_ugx": settings.DELIVERY_FEE_MULTI_VENDOR_UGX,
+        "delivery_base_fee_ugx": settings.DELIVERY_BASE_FEE_UGX,
+        "delivery_rate_per_km_ugx": settings.DELIVERY_RATE_PER_KM_UGX,
+        "delivery_max_radius_km": settings.DELIVERY_MAX_RADIUS_KM,
+        "cod_rounding_ugx": settings.COD_ROUNDING_UGX,
+        "collection_point_lat": settings.COLLECTION_POINT_LAT,
+        "collection_point_lng": settings.COLLECTION_POINT_LNG,
         "reservation_minutes": settings.CHECKOUT_RESERVATION_MINUTES,
     }
 
@@ -156,9 +161,15 @@ JWT_EXP_SECONDS = settings.JWT_EXP_SECONDS
 SEED_DEMO = settings.SEED_DEMO
 
 def get_or_create_vendor(db: Session, name: str, whatsapp: str, location: Optional[str] = None) -> "models.Vendor":
-    formatted_whatsapp = format_whatsapp_number(whatsapp or "")
     vendor = db.query(models.Vendor).filter(models.Vendor.name == name).first()
     if not vendor:
+        # Only validate when we're about to persist a new vendor's number —
+        # an existing vendor being looked up by name (elif below) never
+        # writes `whatsapp` at all, so an unrelated/irrelevant value passed
+        # in for that case must not block the request.
+        formatted_whatsapp = format_whatsapp_number(whatsapp or "")
+        if not formatted_whatsapp:
+            raise HTTPException(status_code=400, detail="Invalid WhatsApp number")
         vendor = models.Vendor(name=name, whatsapp=formatted_whatsapp, location=location or None)
         db.add(vendor)
         db.commit()
@@ -494,6 +505,102 @@ def reverse_geocode(request: Request, body: schemas.ReverseGeocodeRequest):
 
     return schemas.ReverseGeocodeResponse(address=data["results"][0]["formatted_address"])
 
+def _places_new_request(method_path: str, body: dict, field_mask: str):
+    """Shared plumbing for the Places API (New) REST surface — distinct from
+    the legacy Geocoding API used by reverse_geocode above. Raises a 503 (not
+    a 502) whenever the call can't be fulfilled, including when the Places
+    API (New) product itself isn't yet enabled on the GCP project, so the
+    frontend can treat "not configured" and "temporarily unreachable" the
+    same way: hide the affected UI instead of showing a raw error."""
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.post(
+            f"https://places.googleapis.com/v1/{method_path}",
+            json=body,
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": field_mask,
+                "Content-Type": "application/json",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        # Covers both API_KEY_SERVICE_BLOCKED (Places API (New) not enabled
+        # yet on this project) and any other provider-side failure.
+        logger.warning("Places API (New) returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    return resp.json()
+
+@app.post("/geocode/autocomplete", response_model=schemas.PlaceAutocompleteResponse)
+@limiter.limit("30/minute")
+def geocode_autocomplete(request: Request, body: schemas.PlaceAutocompleteRequest):
+    # No auth required: buyers resolve a delivery location before/while filling
+    # out the checkout form.
+    data = _places_new_request(
+        "places:autocomplete",
+        {
+            "input": body.input,
+            "sessionToken": body.session_token,
+            "includedRegionCodes": ["ug"],
+            "locationBias": {
+                "circle": {
+                    "center": {"latitude": settings.COLLECTION_POINT_LAT, "longitude": settings.COLLECTION_POINT_LNG},
+                    "radius": 50000.0,
+                }
+            },
+        },
+        field_mask="suggestions.placePrediction.placeId,suggestions.placePrediction.text",
+    )
+    predictions = [
+        schemas.PlacePrediction(
+            description=s["placePrediction"]["text"]["text"],
+            place_id=s["placePrediction"]["placeId"],
+        )
+        for s in data.get("suggestions", [])
+        if "placePrediction" in s
+    ]
+    return schemas.PlaceAutocompleteResponse(predictions=predictions)
+
+@app.post("/geocode/place-details", response_model=schemas.PlaceDetailsResponse)
+@limiter.limit("30/minute")
+def geocode_place_details(request: Request, body: schemas.PlaceDetailsRequest):
+    if not settings.GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Address search is not configured")
+    try:
+        resp = requests.get(
+            f"https://places.googleapis.com/v1/places/{body.place_id}",
+            params={"sessionToken": body.session_token},
+            headers={
+                "X-Goog-Api-Key": settings.GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": "formattedAddress,location",
+            },
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.exception("Places API (New) place-details request failed")
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    if resp.status_code != 200:
+        logger.warning("Places API (New) place-details returned %d: %s", resp.status_code, resp.text[:300])
+        raise HTTPException(status_code=503, detail="Address search is temporarily unavailable")
+
+    data = resp.json()
+    location = data.get("location") or {}
+    if "latitude" not in location or "longitude" not in location:
+        raise HTTPException(status_code=404, detail="Could not determine coordinates for this place")
+
+    return schemas.PlaceDetailsResponse(
+        address=data.get("formattedAddress", ""),
+        lat=location["latitude"],
+        lng=location["longitude"],
+    )
+
 @app.post("/auth/register", response_model=schemas.UserInfo)
 @limiter.limit("5/minute")
 def register(request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -511,6 +618,12 @@ def register(request: Request, user: schemas.UserCreate, db: Session = Depends(g
         vendor_id = vendor.id
         vendor_name = vendor.name
         vendor_whatsapp = vendor.whatsapp
+        try:
+            _issue_vendor_verify_sms(db, vendor)
+        except Exception as e:
+            # Best-effort — a vendor with no working SMS route can still self-serve
+            # a resend later from their settings panel; must never block signup.
+            logger.error(f"Auto verification SMS failed for vendor {vendor.id}: {str(e)}", exc_info=True)
     u = models.User(email=user.email, hashed_password=hash_password(user.password), is_vendor=user.is_vendor, vendor_id=vendor_id)
     db.add(u)
     db.commit()
@@ -584,15 +697,27 @@ def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_us
     if current.is_vendor:
         raise HTTPException(status_code=400, detail="Account is already a vendor")
 
+    # `current` is a cache.CachedUser (see get_current_user) — a detached
+    # dataclass copy, not a session-tracked row. Mutating it directly is a
+    # no-op against the database: db.commit() below would have nothing to
+    # flush for the user, silently leaving is_vendor/vendor_id unchanged in
+    # Postgres while the cached copy (and this response) claim success. Must
+    # load and mutate the real row instead.
+    user = db.query(models.User).filter(models.User.id == current.id).first()
     vendor = get_or_create_vendor(db, body.vendor_name, body.vendor_whatsapp, body.vendor_location)
-    current.is_vendor = True
-    current.vendor_id = vendor.id
+    user.is_vendor = True
+    user.vendor_id = vendor.id
     db.commit()
+    cache.user_invalidate(user.id)
     logger.info(f"User upgraded to vendor: {current.id}")
+    try:
+        _issue_vendor_verify_sms(db, vendor)
+    except Exception as e:
+        logger.error(f"Auto verification SMS failed for vendor {vendor.id}: {str(e)}", exc_info=True)
 
     return schemas.UserInfo(
-        id=current.id, email=current.email, is_vendor=current.is_vendor,
-        is_admin=current.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
+        id=user.id, email=user.email, is_vendor=user.is_vendor,
+        is_admin=user.is_admin, vendor_name=vendor.name, vendor_whatsapp=vendor.whatsapp,
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
@@ -699,23 +824,26 @@ def _display_image(item: models.Item):
     return image_path, cloudinary_id, fallback_url
 
 
+def _serialize_item_images(item: models.Item) -> List[schemas.ItemImage]:
+    if not hasattr(item, 'images'):
+        return []
+    return [
+        schemas.ItemImage(
+            id=img.id,
+            image_path=img.image_path,
+            cloudinary_public_id=img.cloudinary_public_id,
+            # Only R2-era images need a fallback; legacy paths already point at Cloudinary
+            fallback_url=cloudinary_fallback_url(img.cloudinary_public_id)
+                if storage.is_r2_url(img.image_path) else None,
+            is_primary=img.is_primary
+        ) for img in item.images
+    ]
+
 def serialize_item(item: models.Item) -> schemas.Item:
     vendor_name = item.vendor.name if item.vendor else None
     vendor_whatsapp = item.vendor.whatsapp if item.vendor else None
 
-    images = []
-    if hasattr(item, 'images'):
-        images = [
-            schemas.ItemImage(
-                id=img.id,
-                image_path=img.image_path,
-                cloudinary_public_id=img.cloudinary_public_id,
-                # Only R2-era images need a fallback; legacy paths already point at Cloudinary
-                fallback_url=cloudinary_fallback_url(img.cloudinary_public_id)
-                    if storage.is_r2_url(img.image_path) else None,
-                is_primary=img.is_primary
-            ) for img in item.images
-        ]
+    images = _serialize_item_images(item)
 
     display_image_path, display_cloudinary_id, display_fallback_url = _display_image(item)
 
@@ -1261,12 +1389,46 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
         ],
     )
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Straight-line distance between two lat/lng points, in km."""
+    r = 6371.0  # Earth's mean radius, km
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+def _calculate_delivery_fee(lat: float, lng: float, payment_method: str) -> float:
+    """Every order is consolidated at settings.COLLECTION_POINT_LAT/LNG and
+    shipped to the buyer from there in one trip — so the fee is base + rate
+    per km of straight-line distance, regardless of how many vendors are in
+    the cart. Raises 422 past DELIVERY_MAX_RADIUS_KM rather than charging an
+    ever-larger fee. Cash-on-delivery fees are rounded up to the nearest
+    COD_ROUNDING_UGX so payment is exact physical cash; mobile money pays the
+    precise amount digitally, so it isn't rounded."""
+    distance_km = _haversine_km(settings.COLLECTION_POINT_LAT, settings.COLLECTION_POINT_LNG, lat, lng)
+    if distance_km > settings.DELIVERY_MAX_RADIUS_KM:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Sorry, we don't deliver that far yet (max {settings.DELIVERY_MAX_RADIUS_KM:g}km from our collection point).",
+                "code": "delivery_out_of_range",
+                "max_km": settings.DELIVERY_MAX_RADIUS_KM,
+            },
+        )
+    fee = settings.DELIVERY_BASE_FEE_UGX + settings.DELIVERY_RATE_PER_KM_UGX * distance_km
+    if payment_method == "cash_on_delivery":
+        fee = math.ceil(fee / settings.COD_ROUNDING_UGX) * settings.COD_ROUNDING_UGX
+    return round(fee)
+
 def serialize_checkout(checkout: models.Checkout) -> schemas.CheckoutOut:
     return schemas.CheckoutOut(
         id=checkout.id,
         delivery_name=checkout.delivery_name,
         delivery_phone=checkout.delivery_phone,
         delivery_address=checkout.delivery_address,
+        delivery_lat=checkout.delivery_lat,
+        delivery_lng=checkout.delivery_lng,
         delivery_day=checkout.delivery_day,
         subtotal=checkout.subtotal,
         delivery_fee=checkout.delivery_fee,
@@ -1286,8 +1448,11 @@ def _release_checkout(db: Session, checkout: models.Checkout, now: datetime, sta
         order.status = "cancelled"
     order_items = [oi for order in checkout.orders for oi in order.items]
     restocked = False
-    # Sort by item id — same deadlock-avoidance convention as create_checkout's lock ordering.
-    for oi in sorted(order_items, key=lambda oi: oi.item_id):
+    # Sort by item id — same deadlock-avoidance convention as create_checkout's lock
+    # ordering. `or 0` handles an item deleted while this checkout was still pending
+    # (item_id nulled per _detach_order_history_or_409) — ids are never 0, so it sorts
+    # first with no collision, and the query below simply finds nothing for it.
+    for oi in sorted(order_items, key=lambda oi: oi.item_id or 0):
         item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
         if item:
             was_sold_out = item.quantity == 0
@@ -1346,6 +1511,11 @@ def create_checkout(
     qty_by_item_id = {i.item_id: i.quantity for i in body.items}
     note_by_item_id = {i.item_id: i.note for i in body.items}
 
+    # Computed before any row locks are taken — pure in-process math, and
+    # failing fast on an out-of-range location means we never hold item locks
+    # for a checkout that was always going to be rejected.
+    delivery_fee = _calculate_delivery_fee(body.delivery_lat, body.delivery_lng, body.payment_method)
+
     try:
         now = datetime.utcnow()
 
@@ -1401,10 +1571,6 @@ def create_checkout(
             by_vendor.setdefault(item.vendor_id, []).append(item)
 
         subtotal = sum(item.price * qty_by_item_id[item.id] for item in items_by_id.values())
-        delivery_fee = (
-            settings.DELIVERY_FEE_SINGLE_VENDOR_UGX if len(by_vendor) == 1
-            else settings.DELIVERY_FEE_MULTI_VENDOR_UGX
-        )
         total_amount = subtotal + delivery_fee
 
         checkout = models.Checkout(
@@ -1412,6 +1578,8 @@ def create_checkout(
             delivery_name=body.delivery_name,
             delivery_phone=body.delivery_phone,
             delivery_address=body.delivery_address,
+            delivery_lat=body.delivery_lat,
+            delivery_lng=body.delivery_lng,
             delivery_day=next_delivery_day(now),
             subtotal=subtotal,
             delivery_fee=delivery_fee,
@@ -1846,6 +2014,46 @@ def _run_reconciliation_sweep() -> None:
             )
             if locked and locked.status == "pending":
                 vendor_premium.finalize_subscription_payment(db, locked, "failed", "Payment timed out waiting for confirmation")
+
+        # Withdrawals left "processing" (on_hold/pending/ambiguous at Nylon Pay —
+        # see _attempt_withdrawal_payout) never resolve on their own; this is the
+        # only place that ever moves them out of that state. Never reverse the
+        # debit or mark "failed" here on anything but a confirmed terminal
+        # answer from the provider — that's exactly the ambiguity that caused
+        # the double-payout incident this replaces.
+        processing_withdrawals = (
+            db.query(models.VendorWithdrawal)
+            .filter(models.VendorWithdrawal.status == "processing", models.VendorWithdrawal.provider_ref.isnot(None))
+            .all()
+        )
+        for withdrawal in processing_withdrawals:
+            try:
+                locked = (
+                    db.query(models.VendorWithdrawal)
+                    .filter(models.VendorWithdrawal.id == withdrawal.id)
+                    .with_for_update()
+                    .first()
+                )
+                if not locked or locked.status != "processing":
+                    continue
+                provider = payments.get_provider(locked.provider)
+                verify_result = provider.verify(f"WITHDRAWAL-{locked.id}", locked.provider_ref)
+                if verify_result.status == "successful":
+                    vendor = db.query(models.Vendor).filter(models.Vendor.id == locked.vendor_id).first()
+                    locked.status = "paid"
+                    locked.reviewed_at = datetime.utcnow()
+                    db.commit()
+                    sms.send_sms(locked.destination_phone, sms.withdrawal_paid_message(locked, vendor.name if vendor else "there"))
+                elif verify_result.status == "failed":
+                    locked.status = "failed"
+                    locked.failure_reason = verify_result.failure_reason
+                    locked.reviewed_at = datetime.utcnow()
+                    _reverse_withdrawal(db, locked, "failed")
+                    db.commit()
+                # else still pending/on_hold — leave as "processing", nothing to do yet.
+            except Exception as e:
+                db.rollback()
+                logger.warning(f"Reconciliation verify failed for withdrawal {withdrawal.id}: {str(e)}")
     except Exception as e:
         logger.error(f"Reconciliation sweep failed: {str(e)}", exc_info=True)
     finally:
@@ -2016,6 +2224,7 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         # Re-read after the reverify above, which may have just resolved it.
         pending_payment=(latest_pending.status == "pending") if latest_pending else False,
         last_failure_reason=last_failure_reason,
+        vendor_whatsapp=vendor.whatsapp,
     )
 
 @app.post("/vendor/subscription/checkout", response_model=schemas.PaymentInitiateResponse)
@@ -2034,12 +2243,11 @@ def initiate_vendor_subscription(
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    if vendor_premium.is_vendor_premium(db, vendor.id):
-        raise HTTPException(status_code=409, detail={
-            "message": "You already have an active Premium subscription.",
-            "code": "already_premium",
-        })
-
+    # Being premium already is deliberately NOT blocked here — a vendor can
+    # pay for an extra month ahead of their current expiry, and
+    # finalize_subscription_payment stacks the new period onto whatever time
+    # is already remaining rather than wasting it. Only an ambiguous in-flight
+    # payment (checked below) is worth blocking, to avoid a real double charge.
     latest_pending = (
         db.query(models.VendorSubscription)
         .filter(models.VendorSubscription.vendor_id == vendor.id, models.VendorSubscription.status == "pending")
@@ -2071,6 +2279,14 @@ def initiate_vendor_subscription(
             })
         # status == "failed" -> fall through, a fresh attempt is safe.
 
+    # The number to actually charge for THIS attempt — provided fresh by the
+    # vendor rather than reused from vendor.whatsapp (their stored business
+    # contact, which isn't necessarily the mobile money line they're paying
+    # from, and can't be corrected per-attempt if it's wrong).
+    payment_phone = format_whatsapp_number(body.phone or "")
+    if not payment_phone:
+        raise HTTPException(status_code=400, detail="Please provide a valid mobile money phone number to pay with")
+
     tx_ref = f"PREM-{vendor.id}-{uuid.uuid4().hex[:10]}"
     redirect_url = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(vendor.name)}?subscription=complete"
 
@@ -2082,7 +2298,7 @@ def initiate_vendor_subscription(
             currency="UGX",
             customer_email=current_user.email,
             customer_name=vendor.name,
-            customer_phone=vendor.whatsapp or "",
+            customer_phone=payment_phone,
             redirect_url=redirect_url,
         )
     except Exception as e:
@@ -2107,6 +2323,7 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
     items = []
     for oi in order.items:
         image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        item_images = _serialize_item_images(oi.item) if oi.item else []
         items.append(schemas.OrderItemOut(
             id=oi.id, item_id=oi.item_id,
             item_name_snapshot=oi.item_name_snapshot,
@@ -2114,6 +2331,7 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            images=item_images,
             note=oi.note,
         ))
     return schemas.VendorOrderOut(
@@ -2132,6 +2350,10 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
 def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_vendor)):
     orders = (
         db.query(models.Order)
+        .options(
+            joinedload(models.Order.checkout),
+            joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
+        )
         .filter(models.Order.vendor_id == current_user.vendor_id, models.Order.status != "pending")
         .order_by(models.Order.created_at.desc())
         .all()
@@ -2142,14 +2364,17 @@ def list_vendor_orders(db: Session = Depends(get_db), current_user: models.User 
 # Admin order fulfillment
 # ---------------------------------------------------------------------------
 # Record of the full transition chain: paid ("Order placed") -> picked_up
-# ("On delivery") -> delivered ("Delivered"). One-way — an admin correcting a
-# mistake goes through the DB directly, same as the vendor-side version this
-# replaces. "cancelled" is the one exit, reachable from paid or picked_up but
-# never from delivered (see _cancel_order) — once it's out the door, that's a
-# return/dispute, not a cancellation.
+# ("On delivery"). "cancelled" is the one exit, reachable from paid or
+# picked_up but never from delivered (see _cancel_order) — once it's out the
+# door, that's a return/dispute, not a cancellation.
+# "delivered" isn't reachable through this per-order transition at all — a
+# checkout is delivered as a whole, all its vendors' orders at once, via
+# POST /admin/checkouts/{checkout_id}/deliver (every order in one delivery
+# trip reaches the buyer together, so there's no such thing as delivering
+# one vendor's slice of a checkout on its own).
 _ADMIN_ORDER_STATUS_TRANSITIONS = {
     "paid": {"picked_up", "cancelled"},
-    "picked_up": {"delivered", "cancelled"},
+    "picked_up": {"cancelled"},
 }
 
 CANCEL_REASONS = {"item_unavailable", "buyer_requested", "delivery_issue", "vendor_unable_to_fulfill", "other"}
@@ -2158,6 +2383,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
     items = []
     for oi in order.items:
         image_path, _, fallback_url = _display_image(oi.item) if oi.item else (None, None, None)
+        item_images = _serialize_item_images(oi.item) if oi.item else []
         items.append(schemas.OrderItemOut(
             id=oi.id, item_id=oi.item_id,
             item_name_snapshot=oi.item_name_snapshot,
@@ -2165,6 +2391,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             quantity=oi.quantity,
             image_path=image_path,
             fallback_url=fallback_url,
+            images=item_images,
             note=oi.note,
         ))
     checkout = order.checkout
@@ -2186,6 +2413,8 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         payment_method=checkout.payment_method,
         created_at=order.created_at,
         delivery_day=checkout.delivery_day,
+        delivery_fee=checkout.delivery_fee,
+        checkout_total_amount=checkout.total_amount,
         items=items,
         cancel_reason=order.cancel_reason,
         cancel_note=order.cancel_note,
@@ -2198,6 +2427,28 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             failure_reason=refund.failure_reason,
         ) if refund else None,
     )
+
+def _detach_order_history_or_409(db: Session, item: models.Item) -> None:
+    """Clears item_id on every order_items row referencing this item so it can
+    be deleted without losing order history — item_name_snapshot/price_at_purchase
+    already carry the durable record (see OrderItem.item_id's model comment).
+    Refuses if any referencing order is still awaiting fulfillment (paid/picked_up,
+    i.e. not yet delivered/cancelled): the vendor/admin still needs the product
+    photo to know what to pack, and that image is about to be destroyed."""
+    in_flight = (
+        db.query(models.OrderItem)
+        .join(models.Order, models.OrderItem.order_id == models.Order.id)
+        .filter(models.OrderItem.item_id == item.id, models.Order.status.in_(("paid", "picked_up")))
+        .first()
+    )
+    if in_flight:
+        raise HTTPException(
+            status_code=409,
+            detail="This item has an order awaiting fulfillment and can't be deleted until it's delivered or cancelled.",
+        )
+    for oi in db.query(models.OrderItem).filter(models.OrderItem.item_id == item.id).all():
+        oi.item_id = None
+    db.flush()
 
 def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
     """Destroys an item's Cloudinary/R2 assets and its row. Caller is
@@ -2269,7 +2520,11 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
     order.cancelled_at = now
     order.cancelled_by_user_id = current_user.id
 
-    # Recompute the checkout's delivery-fee tier against its still-active orders.
+    # Delivery fee is distance-based (buyer <-> collection point), not tied to
+    # vendor count, since every order is consolidated into one trip regardless
+    # of how many vendors are represented — so cancelling one order out of a
+    # multi-vendor cart never changes the fee. Only refund it in full when
+    # every order in the checkout has been cancelled (nothing left to deliver).
     remaining_vendor_count = len({
         o.vendor_id for o in checkout.orders
         if o.id != order.id and o.status not in ("cancelled", "failed")
@@ -2279,9 +2534,6 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
         delivery_fee_refund = checkout.delivery_fee
         checkout.delivery_fee = 0.0
         checkout.status = "cancelled"
-    elif remaining_vendor_count == 1 and checkout.delivery_fee == settings.DELIVERY_FEE_MULTI_VENDOR_UGX:
-        delivery_fee_refund = checkout.delivery_fee - settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
-        checkout.delivery_fee = settings.DELIVERY_FEE_SINGLE_VENDOR_UGX
     checkout.total_amount = max(checkout.total_amount - order.subtotal - delivery_fee_refund, 0)
 
     refund_amount = order.subtotal + delivery_fee_refund
@@ -2351,18 +2603,34 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
 
     return _serialize_admin_order(order)
 
+_ADMIN_ORDER_SECTION_STATUSES = {
+    "pending": ["paid", "picked_up"],
+    "complete": ["delivered"],
+}
+
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
-def list_admin_orders(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+def list_admin_orders(
+    section: str = "pending",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    # Split by section (rather than always returning paid/picked_up/delivered
+    # together) so the admin dashboard isn't forced to pull every delivered
+    # order — which only grows over time — just to show what's pending.
     # Cancelled/failed orders never needed fulfillment action, so they're
     # excluded here rather than given a bucket in the admin UI.
+    statuses = _ADMIN_ORDER_SECTION_STATUSES.get(section)
+    if statuses is None:
+        raise HTTPException(status_code=400, detail=f"Unknown section '{section}'")
     orders = (
         db.query(models.Order)
         .options(
             joinedload(models.Order.checkout),
             joinedload(models.Order.vendor),
-            joinedload(models.Order.items).joinedload(models.OrderItem.item),
+            joinedload(models.Order.refund),
+            joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
         )
-        .filter(models.Order.status.in_(["paid", "picked_up", "delivered"]))
+        .filter(models.Order.status.in_(statuses))
         .order_by(models.Order.created_at.desc())
         .limit(500)
         .all()
@@ -2393,11 +2661,57 @@ def update_admin_order_status(
         return _cancel_order(db, order, body, current_user)
 
     order.status = body.status
-    if body.status == "delivered":
-        # Credits the vendor's wallet with their 95% share. The order_id
-        # unique constraint on VendorWalletTransaction is a second line of
-        # defense against double-crediting on top of the state machine above
-        # already preventing a re-transition into "delivered".
+    if body.status == "picked_up":
+        # The buyer gets one "on delivery" text for the whole checkout, not
+        # one per vendor — so only send it once this was the last of the
+        # checkout's still-active orders to reach picked_up. (Excludes the
+        # current order from the query rather than relying on autoflush,
+        # since the session has autoflush=False.)
+        still_pending = db.query(models.Order).filter(
+            models.Order.checkout_id == order.checkout_id,
+            models.Order.id != order.id,
+            models.Order.status.notin_(["picked_up", "delivered", "cancelled"]),
+        ).count()
+        if still_pending == 0:
+            sms.send_sms(order.checkout.delivery_phone if order.checkout else None, sms.order_picked_up_message(order))
+    db.commit()
+    db.refresh(order)
+    return _serialize_admin_order(order)
+
+@app.patch("/admin/checkouts/{checkout_id}/deliver", response_model=List[schemas.AdminOrderOut])
+def deliver_checkout(
+    checkout_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    # Locked for the same reason as update_admin_order_status: two concurrent
+    # requests for the same checkout must not both pass the "all picked up"
+    # check before either commits.
+    orders = (
+        db.query(models.Order)
+        .filter(models.Order.checkout_id == checkout_id)
+        .with_for_update()
+        .all()
+    )
+    if not orders:
+        raise HTTPException(status_code=404, detail="Checkout not found")
+
+    active_orders = [o for o in orders if o.status != "cancelled"]
+    if not active_orders:
+        raise HTTPException(status_code=409, detail="Every order in this checkout was cancelled")
+    not_picked_up = [o for o in active_orders if o.status != "picked_up"]
+    if not_picked_up:
+        raise HTTPException(
+            status_code=409,
+            detail="Every vendor's order must be picked up before the checkout can be marked delivered",
+        )
+
+    for order in active_orders:
+        order.status = "delivered"
+        # Credits the vendor's wallet with their share. The order_id unique
+        # constraint on VendorWalletTransaction is a second line of defense
+        # against double-crediting on top of the state machine above already
+        # preventing a re-transition into "delivered".
         old_balance = _vendor_wallet_balance(db, order.vendor_id)
         db.add(models.VendorWalletTransaction(
             vendor_id=order.vendor_id,
@@ -2407,11 +2721,11 @@ def update_admin_order_status(
         ))
         new_balance = old_balance + order.vendor_payout_amount
         sms.send_sms(order.vendor.whatsapp if order.vendor else None, sms.order_delivered_vendor_message(order, new_balance))
-    elif body.status == "picked_up":
-        sms.send_sms(order.checkout.delivery_phone if order.checkout else None, sms.order_picked_up_message(order))
+
     db.commit()
-    db.refresh(order)
-    return _serialize_admin_order(order)
+    for order in active_orders:
+        db.refresh(order)
+    return [_serialize_admin_order(order) for order in active_orders]
 
 # ---------------------------------------------------------------------------
 # Vendor wallet & withdrawals
@@ -2421,10 +2735,37 @@ def update_admin_order_status(
 # at the provider regardless of what we send.
 MIN_PAYOUT_AMOUNT_UGX = 5000
 
+# A failed withdrawal stops being retryable once it's this old — past this
+# window it's more likely the vendor's details have gone stale (changed
+# phone, etc.) or they've already been paid out some other way, so an admin
+# retrying it blind is more likely to cause confusion than help. Measured
+# from the most recent failed attempt (reviewed_at), not the original
+# request, so retrying resets the clock rather than racing the original one.
+WITHDRAWAL_RETRY_WINDOW = timedelta(days=2)
+
 def _vendor_wallet_balance(db: Session, vendor_id: int) -> float:
     return db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).filter(
         models.VendorWalletTransaction.vendor_id == vendor_id
     ).scalar()
+
+def _withdrawal_is_retryable(w: models.VendorWithdrawal) -> bool:
+    return (
+        w.status == "failed"
+        and w.reviewed_at is not None
+        and datetime.utcnow() - w.reviewed_at <= WITHDRAWAL_RETRY_WINDOW
+    )
+
+def _serialize_admin_withdrawal(w: models.VendorWithdrawal, vendor: Optional[models.Vendor] = None) -> schemas.AdminWithdrawalOut:
+    vendor = vendor or w.vendor
+    return schemas.AdminWithdrawalOut(
+        id=w.id, vendor_id=w.vendor_id,
+        vendor_name=vendor.name if vendor else None,
+        destination_phone=w.destination_phone,
+        amount=w.amount, status=w.status,
+        failure_reason=w.failure_reason,
+        requested_at=w.requested_at, reviewed_at=w.reviewed_at,
+        retryable=_withdrawal_is_retryable(w),
+    )
 
 def _serialize_withdrawal(w: models.VendorWithdrawal) -> schemas.VendorWithdrawalOut:
     return schemas.VendorWithdrawalOut(
@@ -2442,10 +2783,27 @@ def get_vendor_wallet(db: Session = Depends(get_db), current_user: models.User =
         .order_by(models.VendorWithdrawal.id.desc())
         .first()
     )
+    # "processing" (ambiguous/on_hold at the provider, being reconciled) and a
+    # still-admin-retryable "failed" both mean the same thing to the vendor:
+    # this isn't resolved yet, don't let them start a new one. "processing"
+    # has no window (only reconciliation moves it forward); "failed" only
+    # counts while WITHDRAWAL_RETRY_WINDOW hasn't lapsed.
+    in_progress = None
+    if not pending:
+        candidate = (
+            db.query(models.VendorWithdrawal)
+            .filter(models.VendorWithdrawal.vendor_id == current_user.vendor_id, models.VendorWithdrawal.status.in_(("processing", "failed")))
+            .order_by(models.VendorWithdrawal.id.desc())
+            .first()
+        )
+        if candidate and (candidate.status == "processing" or _withdrawal_is_retryable(candidate)):
+            in_progress = candidate
     return schemas.VendorWalletStatus(
         balance=balance,
         currency="UGX",
+        min_payout_amount=MIN_PAYOUT_AMOUNT_UGX,
         pending_withdrawal=_serialize_withdrawal(pending) if pending else None,
+        in_progress_withdrawal=_serialize_withdrawal(in_progress) if in_progress else None,
     )
 
 @app.post("/vendor/me/wallet/withdraw", response_model=schemas.VendorWalletStatus)
@@ -2456,13 +2814,33 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    existing_pending = (
+    unresolved = (
         db.query(models.VendorWithdrawal)
-        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status == "pending_approval")
-        .first()
+        .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status.in_(("pending_approval", "processing", "failed")))
+        .all()
     )
-    if existing_pending:
+    if any(w.status == "pending_approval" for w in unresolved):
         raise HTTPException(status_code=409, detail="You already have a withdrawal awaiting approval.")
+    # "processing" means the payout is genuinely still alive/ambiguous at the
+    # provider (see _attempt_withdrawal_payout) — there's no window here,
+    # since we don't know its outcome yet; only reconciliation can move it
+    # out of this state. Letting the vendor request again in the meantime is
+    # exactly how the same money ends up paid out twice.
+    if any(w.status == "processing" for w in unresolved):
+        raise HTTPException(
+            status_code=409,
+            detail="Your last withdrawal is still being processed — we'll have it completed shortly. If it doesn't go through within a couple of hours, please contact us.",
+        )
+    # A failed attempt is an admin's to retry (see WITHDRAWAL_RETRY_WINDOW), not
+    # the vendor's — letting them submit a fresh request in the meantime is
+    # exactly how the same money ends up requested twice while the original
+    # attempt is still being sorted out. Once it's past the window, nothing
+    # else can act on it, so a new request is fine again.
+    if any(_withdrawal_is_retryable(w) for w in unresolved):
+        raise HTTPException(
+            status_code=409,
+            detail="Your last withdrawal is still being processed — we'll have it completed shortly. If it doesn't go through within a couple of hours, please contact us.",
+        )
 
     balance = _vendor_wallet_balance(db, vendor.id)
     if balance <= 0:
@@ -2501,8 +2879,22 @@ def request_vendor_withdrawal(db: Session = Depends(get_db), current_user: model
     return schemas.VendorWalletStatus(
         balance=0.0,
         currency="UGX",
+        min_payout_amount=MIN_PAYOUT_AMOUNT_UGX,
         pending_withdrawal=_serialize_withdrawal(withdrawal),
     )
+
+@app.get("/admin/payment-provider-status", response_model=schemas.PaymentProviderHealth)
+@limiter.limit("10/minute")
+def check_payment_provider_status(request: Request, current_user: models.User = Depends(require_admin)):
+    """Lets an admin check whether Nylon Pay's API is reachable before
+    retrying a withdrawal, instead of probing it with a real payout attempt.
+    Only confirms the API itself is up — Nylon Pay can pause a specific
+    action (e.g. payouts) while the rest keeps working; see
+    NylonPayProvider.health_check()'s docstring for why that can't be
+    distinguished without sending a real payout."""
+    provider = payments.get_provider(settings.DEFAULT_PAYMENT_PROVIDER)
+    result = provider.health_check()
+    return schemas.PaymentProviderHealth(healthy=result.healthy, message=result.message)
 
 @app.get("/admin/withdrawals", response_model=List[schemas.AdminWithdrawalOut])
 def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2512,22 +2904,15 @@ def list_admin_withdrawals(db: Session = Depends(get_db), current_user: models.U
         .order_by(models.VendorWithdrawal.requested_at.desc())
         .all()
     )
-    return [
-        schemas.AdminWithdrawalOut(
-            id=w.id, vendor_id=w.vendor_id,
-            vendor_name=w.vendor.name if w.vendor else None,
-            destination_phone=w.destination_phone,
-            amount=w.amount, status=w.status,
-            failure_reason=w.failure_reason,
-            requested_at=w.requested_at, reviewed_at=w.reviewed_at,
-        )
-        for w in withdrawals
-    ]
+    return [_serialize_admin_withdrawal(w) for w in withdrawals]
 
-def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> None:
+def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal, reason: str) -> None:
     """Restores the vendor's balance for a withdrawal that didn't go
-    through — used by both reject and a failed payout attempt. Covers the
-    "rejected"/"failed" SMS too, so a future 4th call site can't miss it."""
+    through. `reason` is "rejected" (an admin explicitly declined it — final,
+    nothing left to retry) or "failed" (a payout attempt itself failed — an
+    admin can retry it within WITHDRAWAL_RETRY_WINDOW, so the vendor is told
+    to sit tight rather than to take any action, since a new request of
+    their own would just create a second live attempt on top of this one)."""
     db.add(models.VendorWalletTransaction(
         vendor_id=withdrawal.vendor_id,
         amount=withdrawal.amount,
@@ -2535,17 +2920,23 @@ def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal) -> Non
         withdrawal_id=withdrawal.id,
     ))
     vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
-    sms.send_sms(withdrawal.destination_phone, sms.withdrawal_reversed_message(withdrawal, vendor_name))
+    message = (
+        sms.withdrawal_rejected_message(withdrawal, vendor_name) if reason == "rejected"
+        else sms.withdrawal_failed_message(withdrawal, vendor_name)
+    )
+    sms.send_sms(withdrawal.destination_phone, message)
 
-@app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
-def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
-    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).first()
-    if not withdrawal:
-        raise HTTPException(status_code=404, detail="Withdrawal not found")
-    if withdrawal.status != "pending_approval":
-        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
-
-    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal, vendor: Optional[models.Vendor], current_user: models.User) -> None:
+    """Calls the payment provider to actually send the payout and updates
+    withdrawal.status/failure_reason/provider_ref accordingly. Shared by the
+    initial approval and a later retry of a failed one — same call, same
+    bookkeeping either way. Three possible outcomes: "paid" (confirmed
+    success), "processing" (ambiguous/on_hold — left untouched, no reversal,
+    resolved later by reconciliation), or "failed" (confirmed dead — reversed).
+    Raises HTTPException(502) only if the provider call couldn't even be
+    attempted (e.g. get_provider() itself failing) — a genuine in-call
+    failure/ambiguity from the provider is handled by the three-way branch
+    above, not this exception path."""
     tx_ref = f"PAYOUT-{withdrawal.id}-{uuid.uuid4().hex[:10]}"
     provider_name = settings.DEFAULT_PAYMENT_PROVIDER
     try:
@@ -2565,32 +2956,87 @@ def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), curren
         withdrawal.provider = provider_name
         withdrawal.reviewed_at = datetime.utcnow()
         withdrawal.reviewed_by_user_id = current_user.id
-        _reverse_withdrawal(db, withdrawal)
+        _reverse_withdrawal(db, withdrawal, "failed")
         db.commit()
         raise HTTPException(status_code=502, detail="Could not reach payment provider, please try again")
 
     withdrawal.provider = provider_name
+    withdrawal.provider_ref = result.provider_ref
     withdrawal.reviewed_at = datetime.utcnow()
     withdrawal.reviewed_by_user_id = current_user.id
     if result.success:
         withdrawal.status = "paid"
-        withdrawal.provider_ref = result.provider_ref
         sms.send_sms(withdrawal.destination_phone, sms.withdrawal_paid_message(withdrawal, vendor.name if vendor else "there"))
+    elif result.status == "pending":
+        # Ambiguous / on_hold / still in flight at the provider — the request
+        # may genuinely still resolve to a real payout, so the debit must NOT
+        # be reversed and this must NOT be offered for retry: doing either
+        # is exactly how the same money ends up requested (and paid) twice.
+        # _run_reconciliation_sweep checks provider_ref periodically and only
+        # resolves this once Nylon Pay gives a real terminal answer.
+        withdrawal.status = "processing"
+        withdrawal.failure_reason = None
     else:
         withdrawal.status = "failed"
         withdrawal.failure_reason = result.failure_reason
-        withdrawal.provider_ref = result.provider_ref
-        _reverse_withdrawal(db, withdrawal)
+        _reverse_withdrawal(db, withdrawal, "failed")
     db.commit()
     db.refresh(withdrawal)
-    return schemas.AdminWithdrawalOut(
-        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
-        vendor_name=vendor.name if vendor else None,
-        destination_phone=withdrawal.destination_phone,
-        amount=withdrawal.amount, status=withdrawal.status,
-        failure_reason=withdrawal.failure_reason,
-        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
-    )
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/approve", response_model=schemas.AdminWithdrawalOut)
+def approve_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    # Locked so a double-click (or any near-simultaneous second call) can't
+    # both read status="pending_approval" before either commits — without
+    # this, both would independently fire a real payout and each reverse the
+    # same single debit, inflating the vendor's wallet with money that was
+    # never actually returned. This is exactly how a prior incident happened.
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).with_for_update().first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "pending_approval":
+        raise HTTPException(status_code=409, detail=f"Withdrawal is already '{withdrawal.status}'")
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
+    _attempt_withdrawal_payout(db, withdrawal, vendor, current_user)
+    return _serialize_admin_withdrawal(withdrawal, vendor)
+
+@app.patch("/admin/withdrawals/{withdrawal_id}/retry", response_model=schemas.AdminWithdrawalOut)
+def retry_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    """Re-attempts a failed payout without the vendor having to submit a new
+    withdrawal request. A failed attempt already reversed (credited back)
+    its debit — see _reverse_withdrawal — so this re-debits the same amount
+    for the new attempt first, exactly as the original request did, then
+    runs the same payout logic approve_withdrawal uses."""
+    withdrawal = db.query(models.VendorWithdrawal).filter(models.VendorWithdrawal.id == withdrawal_id).with_for_update().first()
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if withdrawal.status != "failed":
+        raise HTTPException(status_code=409, detail=f"Only a failed withdrawal can be retried (this one is '{withdrawal.status}')")
+    if not _withdrawal_is_retryable(withdrawal):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This withdrawal failed more than {WITHDRAWAL_RETRY_WINDOW.days} days ago and can no longer be retried — ask the vendor to submit a new withdrawal request.",
+        )
+
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).with_for_update().first()
+    balance = _vendor_wallet_balance(db, withdrawal.vendor_id)
+    if balance < withdrawal.amount:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Vendor's current balance (UGX {balance:,.0f}) no longer covers this UGX {withdrawal.amount:,.0f} withdrawal.",
+        )
+
+    db.add(models.VendorWalletTransaction(
+        vendor_id=withdrawal.vendor_id,
+        amount=-withdrawal.amount,
+        reason="withdrawal_requested",
+        withdrawal_id=withdrawal.id,
+    ))
+    withdrawal.failure_reason = None
+    db.flush()
+
+    _attempt_withdrawal_payout(db, withdrawal, vendor, current_user)
+    return _serialize_admin_withdrawal(withdrawal, vendor)
 
 @app.patch("/admin/withdrawals/{withdrawal_id}/reject", response_model=schemas.AdminWithdrawalOut)
 def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
@@ -2603,18 +3049,11 @@ def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current
     withdrawal.status = "rejected"
     withdrawal.reviewed_at = datetime.utcnow()
     withdrawal.reviewed_by_user_id = current_user.id
-    _reverse_withdrawal(db, withdrawal)
+    _reverse_withdrawal(db, withdrawal, "rejected")
     db.commit()
     db.refresh(withdrawal)
     vendor = db.query(models.Vendor).filter(models.Vendor.id == withdrawal.vendor_id).first()
-    return schemas.AdminWithdrawalOut(
-        id=withdrawal.id, vendor_id=withdrawal.vendor_id,
-        vendor_name=vendor.name if vendor else None,
-        destination_phone=withdrawal.destination_phone,
-        amount=withdrawal.amount, status=withdrawal.status,
-        failure_reason=withdrawal.failure_reason,
-        requested_at=withdrawal.requested_at, reviewed_at=withdrawal.reviewed_at,
-    )
+    return _serialize_admin_withdrawal(withdrawal, vendor)
 
 @app.get("/vendors", response_model=List[schemas.VendorInfo])
 def list_vendors(db: Session = Depends(get_db)):
@@ -2732,18 +3171,13 @@ def update_vendor_profile(
         is_premium=vendor_premium.is_vendor_premium(db, vendor.id),
     )
 
-@app.post("/vendor/me/verify-sms")
-@limiter.limit("3/minute")
-def send_vendor_phone_verification(request: Request, current_user: models.User = Depends(require_vendor), db: Session = Depends(get_db)):
-    """Self-serve alternative to the admin's bulk SMS campaign — a vendor can
-    request their own verification link on demand from their settings panel."""
-    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
+def _issue_vendor_verify_sms(db: Session, vendor: "models.Vendor") -> str:
+    """Shared by the self-serve settings-panel button and the automatic send
+    on signup/upgrade. Returns 'sent', 'already_verified', or 'no_phone'."""
     if not vendor.whatsapp:
-        raise HTTPException(status_code=400, detail="Add a WhatsApp number before requesting verification.")
+        return "no_phone"
     if vendor.phone_verified_at:
-        return {"status": "already_verified"}
+        return "already_verified"
 
     token = vendor_verify.make_vendor_verify_token(vendor.id, channel="sms")
     code = secrets.token_urlsafe(6)
@@ -2754,7 +3188,20 @@ def send_vendor_phone_verification(request: Request, current_user: models.User =
 
     short_link = f"{settings.BACKEND_BASE_URL}/s/{code}"
     sms.send_sms(vendor.whatsapp, sms.phone_verification_message(vendor.name, short_link))
-    return {"status": "sent"}
+    return "sent"
+
+@app.post("/vendor/me/verify-sms")
+@limiter.limit("3/minute")
+def send_vendor_phone_verification(request: Request, current_user: models.User = Depends(require_vendor), db: Session = Depends(get_db)):
+    """Self-serve alternative to the admin's bulk SMS campaign — a vendor can
+    request their own verification link on demand from their settings panel."""
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == current_user.vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    status = _issue_vendor_verify_sms(db, vendor)
+    if status == "no_phone":
+        raise HTTPException(status_code=400, detail="Add a WhatsApp number before requesting verification.")
+    return {"status": status}
 
 @app.post("/vendor/me/banner")
 async def upload_vendor_banner(
@@ -2996,41 +3443,15 @@ def delete_item(
 ):
     if not current or not current.is_vendor:
         raise HTTPException(status_code=403, detail="Vendor account required")
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    # Locked so a concurrent checkout can't be mid-reservation against this
+    # item while we detach its order history and delete it out from under it.
+    item = db.query(models.Item).filter(models.Item.id == item_id).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if current.vendor_id != item.vendor_id:
         raise HTTPException(status_code=403, detail="You can only delete your own items")
-    # order_items.item_id has no cascade — deleting an item that's ever been
-    # part of an order would otherwise destroy its Cloudinary/R2 images below
-    # (not rollback-able) and then fail at the DB delete itself, leaving the
-    # item stuck with broken images. Check first, before touching storage.
-    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
-        raise HTTPException(
-            status_code=409,
-            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
-        )
-    # Delete ItemImage storage assets and rows first to avoid FK constraint error
-    for img in (item.images or []):
-        try:
-            # Dual-written images have an asset in both stores — clean up each
-            if img.cloudinary_public_id:
-                cloudinary.uploader.destroy(img.cloudinary_public_id)
-            if storage.is_r2_url(img.image_path):
-                storage.delete_image(img.image_path)
-        except Exception:
-            pass
-        db.delete(img)
-    # Delete legacy asset
-    try:
-        if item.cloudinary_public_id:
-            cloudinary.uploader.destroy(item.cloudinary_public_id)
-        if storage.is_r2_url(item.image_path):
-            storage.delete_image(item.image_path)
-    except Exception as e:
-        print(f"Image delete error: {e}")
-
-    db.delete(item)
+    _detach_order_history_or_409(db, item)
+    _delete_item_assets_and_row(db, item)
     db.commit()
     cache.feed_invalidate_all()
     cache.search_invalidate_all()
@@ -3327,6 +3748,16 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
     cached = cache.admin_stats_get()
     if cached is not None:
         return cached
+    # Commission is only "earned" once a checkout actually paid — orders sitting
+    # in "pending" (payment not yet completed) or "cancelled" (failed/refunded)
+    # never converted into real revenue.
+    commission_earnings = db.query(func.coalesce(func.sum(models.Order.commission_amount), 0.0)).filter(
+        models.Order.status.notin_(["pending", "cancelled"])
+    ).scalar()
+    premium_earnings = db.query(func.coalesce(func.sum(models.VendorSubscription.amount), 0.0)).filter(
+        models.VendorSubscription.status == "successful"
+    ).scalar()
+    wallet_balance = db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).scalar()
     result = schemas.AdminStats(
         total_users=db.query(models.User).count(),
         total_vendors=db.query(models.Vendor).count(),
@@ -3334,9 +3765,42 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
         total_wardrobe_saves=db.query(models.Wardrobe).count(),
         active_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == True).count(),
         inactive_vendors=db.query(models.Vendor).filter(models.Vendor.is_active == False).count(),
+        total_commission_earnings=commission_earnings,
+        total_premium_earnings=premium_earnings,
+        total_platform_earnings=commission_earnings + premium_earnings,
+        total_vendor_wallet_balance=wallet_balance,
     )
     cache.admin_stats_set(result)
     return result
+
+@app.get("/admin/vendor-wallets", response_model=List[schemas.AdminVendorWallet])
+def admin_vendor_wallets(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Per-vendor breakdown backing the "Total Current Vendor Wallet
+    Balances" stat card — only vendors with at least one wallet transaction
+    are listed (a vendor who's never sold anything trivially has a balance
+    of 0, and isn't useful clutter here)."""
+    balance_expr = func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)
+    rows = (
+        db.query(models.VendorWalletTransaction.vendor_id, models.Vendor.name, balance_expr.label("balance"))
+        .join(models.Vendor, models.Vendor.id == models.VendorWalletTransaction.vendor_id)
+        .group_by(models.VendorWalletTransaction.vendor_id, models.Vendor.name)
+        .order_by(balance_expr.desc())
+        .all()
+    )
+    pending_vendor_ids = {
+        row.vendor_id for row in db.query(models.VendorWithdrawal.vendor_id)
+        .filter(models.VendorWithdrawal.status.in_(("pending_approval", "processing")))
+        .all()
+    }
+    return [
+        schemas.AdminVendorWallet(
+            vendor_id=r.vendor_id,
+            vendor_name=r.name,
+            balance=r.balance,
+            has_pending_withdrawal=r.vendor_id in pending_vendor_ids,
+        )
+        for r in rows
+    ]
 
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
 def admin_list_users(
@@ -3443,6 +3907,7 @@ def admin_export_vendor_verification(db: Session = Depends(get_db), _: models.Us
 def admin_export_vendor_sms_verification(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
     vendors = (db.query(models.Vendor)
         .filter(models.Vendor.is_active == True)
+        .filter(models.Vendor.phone_verified_at.is_(None))
         .order_by(models.Vendor.id)
         .all())
 
@@ -3645,16 +4110,12 @@ def admin_toggle_promo(db: Session = Depends(get_db), _: models.User = Depends(r
 
 @app.delete("/admin/items/{item_id}", status_code=204)
 def admin_delete_item(item_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    # Locked so a concurrent checkout can't be mid-reservation against this
+    # item while we detach its order history and delete it out from under it.
+    item = db.query(models.Item).filter(models.Item.id == item_id).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    # See delete_item's comment — order_items.item_id has no cascade, so check
-    # before destroying storage assets, not after.
-    if db.query(models.OrderItem).filter(models.OrderItem.item_id == item_id).first():
-        raise HTTPException(
-            status_code=409,
-            detail="This item has order history and can't be deleted. It stops being shown to buyers automatically once it sells out.",
-        )
+    _detach_order_history_or_409(db, item)
     _delete_item_assets_and_row(db, item)
     db.commit()
     cache.feed_invalidate_all()

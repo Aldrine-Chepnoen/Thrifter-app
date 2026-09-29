@@ -45,15 +45,18 @@ export const sendVendorPhoneVerification = () => api.post('/vendor/me/verify-sms
 
 export const searchVendors = (q) => api.get('/vendors/search', { params: { q } }).then(r => r.data);
 
-export const fetchAdminOrders = () => api.get('/admin/orders').then(r => r.data);
+export const fetchAdminOrders = (section = 'pending') => api.get('/admin/orders', { params: { section } }).then(r => r.data);
 export const updateAdminOrderStatus = (id, status) => api.patch(`/admin/orders/${id}/status`, { status }).then(r => r.data);
 export const cancelAdminOrder = (id, reason, note) => api.patch(`/admin/orders/${id}/status`, { status: 'cancelled', reason, note }).then(r => r.data);
+export const deliverAdminCheckout = (checkoutId) => api.patch(`/admin/checkouts/${checkoutId}/deliver`).then(r => r.data);
 
 export const fetchVendorWallet = () => api.get('/vendor/me/wallet').then(r => r.data);
 export const requestVendorWithdrawal = () => api.post('/vendor/me/wallet/withdraw').then(r => r.data);
 export const fetchAdminWithdrawals = () => api.get('/admin/withdrawals').then(r => r.data);
+export const checkPaymentProviderStatus = () => api.get('/admin/payment-provider-status').then(r => r.data);
 export const approveWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/approve`).then(r => r.data);
 export const rejectWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/reject`).then(r => r.data);
-export const initiateVendorSubscriptionPayment = (provider) => api.post('/vendor/subscription/checkout', { provider }).then(r => r.data);
+export const retryWithdrawal = (id) => api.patch(`/admin/withdrawals/${id}/retry`).then(r => r.data);
+export const initiateVendorSubscriptionPayment = (provider, phone) => api.post('/vendor/subscription/checkout', { provider, phone }).then(r => r.data);
 
 export default api;

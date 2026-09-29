@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, Check, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Plus, Share2, MessageCircle, Copy, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
+import VerifyPhoneNudgeModal from './VerifyPhoneNudgeModal';
 import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
@@ -12,6 +13,11 @@ import { useToast } from '../context/ToastContext';
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
+
+// Rounds up so "expires in 8 hours" still reads as "1 day" rather than "0
+// days" — a vendor checking the morning of expiry day should see they're
+// almost out, not a number that reads like it already lapsed.
+const daysUntil = (isoDate) => Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86400000);
 
 // Mirrors UpgradeToPremiumModal's polling constants/rationale — kept in sync
 // with the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES).
@@ -43,7 +49,9 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const shareMenuRef = useRef(null);
+  const [preparingWhatsAppShare, setPreparingWhatsAppShare] = useState(false);
   const [viewStats, setViewStats] = useState({});
   const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
@@ -58,6 +66,10 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const subscriptionPollAttemptsRef = useRef(0);
   const [verifySmsSending, setVerifySmsSending] = useState(false);
   const [verifySmsSent, setVerifySmsSent] = useState(false);
+  // Reset on every mount (i.e. every fresh visit to the page) so the nudge
+  // pops up again each time an unverified vendor lands here, not just once
+  // per session — dismissing only hides it for the current visit.
+  const [phoneNudgeDismissed, setPhoneNudgeDismissed] = useState(false);
   // Tracks whether we've already auto-opened the plan comparison modal for
   // this particular visit to the tab, so it doesn't reopen itself the moment
   // the vendor closes it (state updates — e.g. subscriptionStatus polling —
@@ -174,6 +186,26 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   }, [verifyState, vendorInfo]);
 
+  // Closes the share menu on an outside click/tap or Escape — only wired up
+  // while it's actually open, so it's not doing work on every render.
+  useEffect(() => {
+    if (!shareMenuOpen) return;
+    const handlePointerDown = (e) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target)) setShareMenuOpen(false);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setShareMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [shareMenuOpen]);
+
   const handleUseMyLocationForVerify = () => {
     if (!navigator.geolocation) {
       showToast('Geolocation is not supported by your browser. Please type your pickup location instead.');
@@ -219,10 +251,76 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
     }
   };
 
+  // Shared by both share options so the copied text and the WhatsApp
+  // message always say the same thing.
+  const buildShareText = () => {
+    const vendorDisplayName = vendorInfo?.name || name;
+    const itemCount = items.length;
+    const lines = [`Get these items on Thrifter;`, `"${vendorDisplayName}"`];
+    if (vendorInfo?.description) lines.push(vendorInfo.description);
+    lines.push(`${itemCount} item${itemCount !== 1 ? 's' : ''} available`);
+    lines.push(window.location.href);
+    return lines.join('\n');
+  };
+
+  const MIME_EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+  // Item images live on two hosts: R2 (images.thrifter-ug.com), which sends
+  // no CORS headers at all, and Cloudinary, which allows any origin — so
+  // fetching for a File attachment has to go through fallback_url (each
+  // R2 item's Cloudinary copy) rather than the primary image_path. Items
+  // that predate R2 already have image_path pointing at Cloudinary
+  // directly, so falling back to that when there's no fallback_url still
+  // resolves to a fetchable URL.
+  const fetchItemImageFile = async (item) => {
+    const url = item.fallback_url || item.image_path;
+    if (!url) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const ext = MIME_EXTENSIONS[blob.type] || 'jpg';
+      return new File([blob], `item-${item.id}.${ext}`, { type: blob.type || 'image/jpeg' });
+    } catch {
+      return null; // CORS failure, network error, etc. — just skip this item's photo
+    }
+  };
+
   const handleShare = async () => {
-    await navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setShareMenuOpen(false);
+    await navigator.clipboard.writeText(buildShareText());
+    showToast('Link copied!', 'success');
+  };
+
+  // Attaches every item's primary photo plus one shared caption, via the
+  // Web Share API — the only browser mechanism that can attach real image
+  // files, at the cost of opening the OS's generic "share to any app"
+  // picker (WhatsApp is one option among others there; there's no API to
+  // restrict that list to a single app). Falls back to the text-only
+  // wa.me link — no picker, no images — wherever file sharing isn't
+  // supported, or if every image fetch happens to fail.
+  const handleShareWhatsApp = async () => {
+    setShareMenuOpen(false);
+    const text = buildShareText();
+
+    if (navigator.share && navigator.canShare) {
+      setPreparingWhatsAppShare(true);
+      try {
+        const files = (await Promise.all(items.map(fetchItemImageFile))).filter(Boolean);
+        if (files.length > 0 && navigator.canShare({ files })) {
+          try {
+            await navigator.share({ files, text });
+            return;
+          } catch (err) {
+            if (err?.name === 'AbortError') return; // vendor cancelled the share sheet
+            // Any other failure falls through to the wa.me link below.
+          }
+        }
+      } finally {
+        setPreparingWhatsAppShare(false);
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
   const openSettings = () => {
@@ -489,6 +587,17 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 Premium
               </span>
             )}
+            {isOwnProfile && vendorInfo?.marketplace_visible === false && (
+              <button
+                type="button"
+                onClick={openSettings}
+                title="Verify your phone and set a pickup location to appear to buyers"
+                className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-[11px] font-semibold px-2 py-1 rounded-full normal-case tracking-normal hover:bg-amber-100 dark:hover:bg-amber-900/30"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Not visible to buyers
+              </button>
+            )}
           </h1>
           {vendorInfo?.description && (
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{vendorInfo.description}</p>
@@ -519,21 +628,40 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
             sell a piece
           </Link>
         ) : <div />}
-        <button
-          onClick={handleShare}
-          className="flex items-center gap-2 bg-black/80 text-white font-bold px-5 py-2.5 rounded-full text-sm hover:opacity-90 transition-all"
-        >
-          {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-          {copied ? 'Copied!' : 'share profile'}
-        </button>
-      </div>
-
-      {isOwnProfile && vendorInfo?.marketplace_visible === false && (
-        <div className="px-4 md:px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/40 flex items-center gap-2.5 text-sm text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>your items aren't visible to buyers — verify your phone and set a valid pickup location</span>
+        <div className="relative" ref={shareMenuRef}>
+          <button
+            onClick={() => setShareMenuOpen((open) => !open)}
+            disabled={preparingWhatsAppShare}
+            aria-label="Share this profile"
+            aria-expanded={shareMenuOpen}
+            className="flex items-center justify-center bg-black/80 text-white p-3 rounded-full hover:opacity-90 transition-all disabled:opacity-50"
+          >
+            {preparingWhatsAppShare ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Share2 className="w-5 h-5" />
+            )}
+          </button>
+          {shareMenuOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-lg divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden z-20">
+              <button
+                onClick={handleShareWhatsApp}
+                className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                share on whatsapp
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Copy className="w-4 h-4 text-gray-400" />
+                copy link
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Settings panel */}
       {isOwnProfile && settingsOpen && (
@@ -693,6 +821,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                       Renews / expires {new Date(subscriptionStatus.expires_at).toLocaleDateString()}
                     </p>
                   )}
+                  {subscriptionStatus.is_premium && subscriptionStatus.expires_at && daysUntil(subscriptionStatus.expires_at) <= 3 && (
+                    <p className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 mb-3">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      {/* >=2 shows an exact count ("ends in 3 days" / "2 days"); the
+                          last day rounds up to 1 under ceil() and would otherwise
+                          never progress to "soon" before is_premium flips off at
+                          the actual expiry moment, so that final day says "soon". */}
+                      {daysUntil(subscriptionStatus.expires_at) >= 2
+                        ? `Subscription ends in ${daysUntil(subscriptionStatus.expires_at)} days`
+                        : 'Subscription ends soon'}
+                    </p>
+                  )}
                   {subscriptionStatus.pending_payment && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                       We're waiting on confirmation from your payment provider. This can take a few minutes — we'll update this automatically, no need to keep checking.
@@ -700,7 +840,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                   )}
                   {showSubscriptionFailure && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-1 mb-3 text-xs text-red-700 dark:text-red-300">
-                      Your last Premium upgrade attempt failed: {subscriptionStatus.last_failure_reason}
+                      Your mobile money provider didn't approve the last attempt — usually that means the PIN prompt wasn't confirmed in time, or there wasn't enough balance. Check both, then try again.
+                      <div className="mt-1.5 text-red-600/70 dark:text-red-400/70">Provider said: "{subscriptionStatus.last_failure_reason}"</div>
                     </div>
                   )}
                   <div className="flex justify-between text-sm mt-2">
@@ -725,13 +866,28 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                     <span>Checking status…</span>
                   </button>
                 ) : showSubscriptionFailure ? (
+                  <>
+                    <button
+                      onClick={() => { setSubscriptionFailureDismissed(true); setShowUpgradeModal(true); }}
+                      className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all mb-2"
+                    >
+                      Try again
+                    </button>
+                    <button
+                      onClick={() => setSubscriptionFailureDismissed(true)}
+                      className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-2"
+                    >
+                      Dismiss
+                    </button>
+                  </>
+                ) : subscriptionStatus.is_premium ? (
                   <button
-                    onClick={() => setSubscriptionFailureDismissed(true)}
-                    className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all"
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="w-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 py-3.5 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all flex items-center justify-center gap-2"
                   >
-                    Dismiss
+                    Pay for another month — {formatUGX(subscriptionStatus.price_ugx)}
                   </button>
-                ) : !subscriptionStatus.is_premium && (
+                ) : (
                   <button
                     onClick={() => setShowUpgradeModal(true)}
                     className="w-full bg-[#EAAD11] text-black py-3.5 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
@@ -760,6 +916,15 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
         )}
       </div>
       <UpgradeToPremiumModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
+      <VerifyPhoneNudgeModal
+        isOpen={isOwnProfile && !loading && vendorInfo?.phone_verified === false && !phoneNudgeDismissed}
+        onClose={() => setPhoneNudgeDismissed(true)}
+        phone={user?.vendor_whatsapp || ''}
+        vendorName={vendorInfo?.name || name}
+        description={vendorInfo?.description}
+        location={vendorInfo?.location}
+        onAlreadyVerified={() => setVendorInfo(prev => prev ? { ...prev, phone_verified: true } : prev)}
+      />
     </main>
   );
 };

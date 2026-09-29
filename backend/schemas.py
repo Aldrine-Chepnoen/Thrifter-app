@@ -93,6 +93,28 @@ class ReverseGeocodeRequest(BaseModel):
 class ReverseGeocodeResponse(BaseModel):
     address: str
 
+class PlaceAutocompleteRequest(BaseModel):
+    input: str = Field(..., min_length=1, max_length=200)
+    # Client-generated UUID, reused across one autocomplete session and its
+    # final place-details call — mirrors Google's session-token billing model.
+    session_token: str = Field(..., min_length=1, max_length=100)
+
+class PlacePrediction(BaseModel):
+    description: str
+    place_id: str
+
+class PlaceAutocompleteResponse(BaseModel):
+    predictions: List[PlacePrediction] = []
+
+class PlaceDetailsRequest(BaseModel):
+    place_id: str = Field(..., min_length=1, max_length=200)
+    session_token: str = Field(..., min_length=1, max_length=100)
+
+class PlaceDetailsResponse(BaseModel):
+    address: str
+    lat: float
+    lng: float
+
 class UserInfo(BaseModel):
     id: int
     email: EmailStr
@@ -151,6 +173,24 @@ class AdminStats(BaseModel):
     total_wardrobe_saves: int
     active_vendors: int
     inactive_vendors: int
+    # Platform revenue: commission on delivered/paid orders plus premium
+    # subscription payments. total_platform_earnings is just their sum.
+    total_commission_earnings: float
+    total_premium_earnings: float
+    total_platform_earnings: float
+    # SUM(VendorWalletTransaction.amount) across all vendors — the ledger is
+    # append-only, so this is exactly the money currently owed to vendors
+    # that hasn't been withdrawn yet, not a separately-tracked balance.
+    total_vendor_wallet_balance: float
+
+class AdminVendorWallet(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    balance: float
+    # True when the vendor has a withdrawal sitting in pending_approval or
+    # processing — a large balance next to this flag means "already
+    # requested, awaiting payout", not "hasn't asked yet".
+    has_pending_withdrawal: bool
 
 class AdminUser(BaseModel):
     id: int
@@ -348,6 +388,12 @@ class CheckoutCreate(BaseModel):
     delivery_name: str = Field(..., min_length=2, max_length=100)
     delivery_phone: str = Field(..., min_length=7, max_length=20)
     delivery_address: str = Field(..., min_length=5, max_length=500)
+    # Required — the delivery fee is distance-based, so a real resolved
+    # location (autocomplete selection, device geolocation, or a dropped map
+    # pin) is mandatory. Free-typed text with no resolution is rejected by the
+    # frontend before it ever reaches here.
+    delivery_lat: float = Field(..., ge=-90, le=90)
+    delivery_lng: float = Field(..., ge=-180, le=180)
     payment_method: str = Field("mobile_money", pattern="^(mobile_money|cash_on_delivery)$")
 
 class OrderItemOut(BaseModel):
@@ -360,6 +406,11 @@ class OrderItemOut(BaseModel):
     quantity: int = 1
     image_path: Optional[str] = None
     fallback_url: Optional[str] = None
+    # Every image the item currently has (empty if the item's been deleted) —
+    # image_path/fallback_url above stay as the single display image so
+    # existing thumbnail rendering doesn't need to change; this is for a
+    # lightbox that wants to page through all of them.
+    images: List[ItemImage] = []
     note: Optional[str] = None
 
 class OrderOut(BaseModel):
@@ -375,6 +426,8 @@ class CheckoutOut(BaseModel):
     delivery_name: str
     delivery_phone: str
     delivery_address: str
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
     delivery_day: datetime
     subtotal: float
     delivery_fee: float
@@ -386,6 +439,10 @@ class CheckoutOut(BaseModel):
 
 class PaymentInitiateRequest(BaseModel):
     provider: str = Field(..., pattern="^nylon$")
+    # Only used by /vendor/subscription/checkout — the buyer checkout endpoint
+    # (/checkout/{id}/pay) ignores this and charges checkout.delivery_phone
+    # instead, entered fresh at checkout rather than reused from a stored field.
+    phone: Optional[str] = None
 
 class PaymentInitiateResponse(BaseModel):
     redirect_url: str
@@ -403,6 +460,10 @@ class VendorSubscriptionStatus(BaseModel):
     currency: str = "UGX"
     pending_payment: bool = False
     last_failure_reason: Optional[str] = None
+    # Prefill suggestion for the payment-phone field — the vendor's stored
+    # business contact, not necessarily the number they pay from, so the
+    # frontend must still let them edit it before paying.
+    vendor_whatsapp: Optional[str] = None
 
 class VendorOrderOut(BaseModel):
     id: int
@@ -445,6 +506,11 @@ class AdminOrderOut(BaseModel):
     payment_method: str
     created_at: datetime
     delivery_day: datetime
+    # Checkout-level figures (shared by every order in the same checkout) —
+    # order.subtotal above is only this vendor's slice, not what the buyer
+    # actually owes for the whole delivery.
+    delivery_fee: float
+    checkout_total_amount: float
     items: List[OrderItemOut] = []
     cancel_reason: Optional[str] = None
     cancel_note: Optional[str] = None
@@ -462,7 +528,18 @@ class VendorWithdrawalOut(BaseModel):
 class VendorWalletStatus(BaseModel):
     balance: float
     currency: str = "UGX"
+    # Lets the wallet card show "minimum withdrawal is X" proactively (greying
+    # out Withdraw before the vendor tries and hits the 400 from
+    # request_vendor_withdrawal) instead of only surfacing it as an error toast
+    # after a failed attempt.
+    min_payout_amount: float
     pending_withdrawal: Optional[VendorWithdrawalOut] = None
+    # Populated when the vendor's last withdrawal is "processing" (ambiguous
+    # at the provider, being reconciled) or a "failed" one still within
+    # WITHDRAWAL_RETRY_WINDOW (an admin can still retry it) — lets the
+    # wallet card show a "we're on it" state instead of silently reverting to
+    # a plain Withdraw button while the previous attempt is still unresolved.
+    in_progress_withdrawal: Optional[VendorWithdrawalOut] = None
 
 class AdminWithdrawalOut(BaseModel):
     id: int
@@ -474,6 +551,14 @@ class AdminWithdrawalOut(BaseModel):
     failure_reason: Optional[str] = None
     requested_at: datetime
     reviewed_at: Optional[datetime] = None
+    # True only while status == "failed" and the failure is recent enough to
+    # retry (see WITHDRAWAL_RETRY_WINDOW) — the frontend shows the Retry
+    # button purely off this, so the cutoff logic lives in one place.
+    retryable: bool = False
+
+class PaymentProviderHealth(BaseModel):
+    healthy: bool
+    message: str
 
 class DailyViewCount(BaseModel):
     date: str

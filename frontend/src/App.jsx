@@ -24,6 +24,7 @@ import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
+import HomeBanner from './components/HomeBanner';
 import { useToast } from './context/ToastContext';
 
 function App() {
@@ -399,6 +400,22 @@ function App() {
     }
   }, [location.pathname, user, location.state]);
 
+  // The Meta Pixel base code (index.html) only fires PageView once, on the
+  // initial full page load — it has no way to see React Router's
+  // client-side navigations. metaPixelMounted skips the first run here
+  // since that first PageView was already sent by the base code itself;
+  // every route change after that fires one explicitly.
+  const metaPixelMounted = useRef(false);
+  useEffect(() => {
+    if (!metaPixelMounted.current) {
+      metaPixelMounted.current = true;
+      return;
+    }
+    if (typeof window.fbq === 'function') {
+      window.fbq('track', 'PageView');
+    }
+  }, [location.pathname]);
+
   const getImageUrl = (path) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
@@ -469,36 +486,8 @@ function App() {
               <DemandBoard user={user} onAuthRequired={() => setIsAuthModalOpen(true)} />
             ) : (
               <>
-                {/* Homepage Banner */}
-                <div className="px-4 md:px-6 mb-8 mt-2">
-                  <div className="relative h-[150px] md:h-[130px] w-full bg-gradient-to-r from-[#D2850F] via-[#F4BD13] to-[#FAF6B5] rounded-2xl overflow-hidden input-shadow flex items-center justify-between px-8 md:px-12 border border-[#EAAD11]/20">
-                    <div className="z-10 max-w-[65%] banner-text-shadow">
-                      <h2 className="text-xl md:text-3xl font-serif font-bold text-white leading-tight">
-                        Secure your next fit.
-                      </h2>
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Discover fashion around Kampala
-                        </p>
-                        <p className="text-[10px] md:text-xs text-white font-medium">
-                          Thrift stores, Clothing brands, Fashion Designers
-                        </p>
-                        <p className="text-[9px] md:text-[10px] text-white/90 font-medium italic pt-1 border-t border-white/10 mt-1">
-                          Tip: Add items to your wardrobe for a personalized 'For You' feed.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="absolute right-0 bottom-0 h-full w-[45%] md:w-[40%] flex items-end justify-end pointer-events-none">
-                      <img
-                        src="https://res.cloudinary.com/dqhcuxgu9/image/upload/w_400,q_auto,f_auto,c_limit/v1782600189/homepage-banner_c6nneb.png"
-                        alt="Fashion showcase"
-                        className="h-[120%] w-full object-contain object-bottom transform translate-y-[10%]"
-                      />
-                    </div>
-                    <div className="absolute inset-0 bg-[url('/banner-texture.svg')] opacity-5 pointer-events-none"></div>
-                  </div>
-                </div>
-
+{/* Homepage Banner */}
+<HomeBanner />
                 {loading ? (
                   <ThrifterLoader />
                 ) : items.length > 0 ? (
@@ -535,8 +524,7 @@ function App() {
             onUpdateQuantity={updateCartQuantity}
             onUpdateNote={updateCartNote}
             onClearCart={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
             user={user}
             openAuthModal={openAuthModal}
           />
@@ -545,8 +533,12 @@ function App() {
           <Checkout
             cartItems={cartItems}
             onOrderPlaced={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            collectionPointLat={features?.collection_point_lat}
+            collectionPointLng={features?.collection_point_lng}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
+            deliveryRatePerKmUgx={features?.delivery_rate_per_km_ugx}
+            deliveryMaxRadiusKm={features?.delivery_max_radius_km}
+            codRoundingUgx={features?.cod_rounding_ugx}
             reservationMinutes={features?.reservation_minutes}
           />
         ) : <Navigate to="/cart" replace />} />
