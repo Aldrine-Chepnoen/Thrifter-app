@@ -27,6 +27,11 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   // that dismissal being undone by the next status refetch (the backend keeps
   // reporting last_failure_reason until a new attempt supersedes it).
   const [failureDismissed, setFailureDismissed] = useState(false);
+  // The number this attempt will actually charge — starts empty and gets
+  // prefilled from the vendor's stored WhatsApp once status loads (see
+  // below), but stays editable so a wrong/inactive number can be corrected
+  // per-attempt rather than silently reused every time.
+  const [phone, setPhone] = useState('');
   const pollAttemptsRef = useRef(0);
 
   const loadStatus = () => {
@@ -40,9 +45,17 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (!isOpen) return;
     setFailureDismissed(false);
+    setPhone('');
     pollAttemptsRef.current = 0;
     loadStatus();
   }, [isOpen]);
+
+  // Only fills the default suggestion — never overwrites once the vendor has
+  // typed anything, including clearing it back to empty on purpose.
+  useEffect(() => {
+    if (status?.vendor_whatsapp && !phone) setPhone(status.vendor_whatsapp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   // Auto-poll while a payment is genuinely still pending, instead of making the
   // vendor keep tapping "Check again" — re-fetches ~5s after each response comes
@@ -60,9 +73,13 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const handleUpgrade = async () => {
+    if (!phone.trim()) {
+      showToast('Please enter the mobile money number to pay with.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await initiateVendorSubscriptionPayment('nylon');
+      const res = await initiateVendorSubscriptionPayment('nylon', phone.trim());
       window.location.href = res.redirect_url;
     } catch (e) {
       const detail = e?.response?.data?.detail;
@@ -141,16 +158,33 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Payment didn't go through</h3>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                Your last Premium upgrade attempt failed:
+                Your mobile money provider didn't approve the last attempt — usually that means the PIN prompt wasn't confirmed in time, or there wasn't enough balance on that number. Double-check both, or try a different number, then try again.
               </p>
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-5 text-sm text-red-700 dark:text-red-300">
-                {status.last_failure_reason}
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-4 text-xs text-red-700 dark:text-red-300">
+                Provider said: "{status.last_failure_reason}"
               </div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Mobile money number
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. 0772123456"
+                className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 mb-4"
+              />
+              <button
+                disabled={submitting}
+                onClick={() => { setFailureDismissed(true); handleUpgrade(); }}
+                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 mb-2"
+              >
+                {submitting ? 'Retrying…' : 'Try again'}
+              </button>
               <button
                 onClick={() => setFailureDismissed(true)}
-                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all"
+                className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-2"
               >
-                Dismiss
+                Maybe later
               </button>
             </>
           ) : (
@@ -181,6 +215,21 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                       <span className="font-semibold text-gray-900 dark:text-gray-100">{status.hidden_item_count}</span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {status && !status.is_premium && (
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    Mobile money number to pay with
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. 0772123456"
+                    className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                  />
                 </div>
               )}
 
@@ -222,7 +271,7 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                     </button>
                   ) : (
                     <button
-                      disabled={submitting}
+                      disabled={submitting || !phone.trim()}
                       onClick={handleUpgrade}
                       className="w-full bg-black text-white text-xs font-bold py-2.5 rounded-lg hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >

@@ -2224,6 +2224,7 @@ def get_vendor_subscription(db: Session = Depends(get_db), current_user: models.
         # Re-read after the reverify above, which may have just resolved it.
         pending_payment=(latest_pending.status == "pending") if latest_pending else False,
         last_failure_reason=last_failure_reason,
+        vendor_whatsapp=vendor.whatsapp,
     )
 
 @app.post("/vendor/subscription/checkout", response_model=schemas.PaymentInitiateResponse)
@@ -2279,6 +2280,14 @@ def initiate_vendor_subscription(
             })
         # status == "failed" -> fall through, a fresh attempt is safe.
 
+    # The number to actually charge for THIS attempt — provided fresh by the
+    # vendor rather than reused from vendor.whatsapp (their stored business
+    # contact, which isn't necessarily the mobile money line they're paying
+    # from, and can't be corrected per-attempt if it's wrong).
+    payment_phone = format_whatsapp_number(body.phone or "")
+    if not payment_phone:
+        raise HTTPException(status_code=400, detail="Please provide a valid mobile money phone number to pay with")
+
     tx_ref = f"PREM-{vendor.id}-{uuid.uuid4().hex[:10]}"
     redirect_url = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(vendor.name)}?subscription=complete"
 
@@ -2290,7 +2299,7 @@ def initiate_vendor_subscription(
             currency="UGX",
             customer_email=current_user.email,
             customer_name=vendor.name,
-            customer_phone=vendor.whatsapp or "",
+            customer_phone=payment_phone,
             redirect_url=redirect_url,
         )
     except Exception as e:

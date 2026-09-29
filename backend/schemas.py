@@ -430,6 +430,10 @@ class CheckoutOut(BaseModel):
 
 class PaymentInitiateRequest(BaseModel):
     provider: str = Field(..., pattern="^nylon$")
+    # Only used by /vendor/subscription/checkout — the buyer checkout endpoint
+    # (/checkout/{id}/pay) ignores this and charges checkout.delivery_phone
+    # instead, entered fresh at checkout rather than reused from a stored field.
+    phone: Optional[str] = None
 
 class PaymentInitiateResponse(BaseModel):
     redirect_url: str
@@ -447,6 +451,10 @@ class VendorSubscriptionStatus(BaseModel):
     currency: str = "UGX"
     pending_payment: bool = False
     last_failure_reason: Optional[str] = None
+    # Prefill suggestion for the payment-phone field — the vendor's stored
+    # business contact, not necessarily the number they pay from, so the
+    # frontend must still let them edit it before paying.
+    vendor_whatsapp: Optional[str] = None
 
 class VendorOrderOut(BaseModel):
     id: int

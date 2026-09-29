@@ -823,7 +823,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                   )}
                   {showSubscriptionFailure && (
                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mt-1 mb-3 text-xs text-red-700 dark:text-red-300">
-                      Your last Premium upgrade attempt failed: {subscriptionStatus.last_failure_reason}
+                      Your mobile money provider didn't approve the last attempt — usually that means the PIN prompt wasn't confirmed in time, or there wasn't enough balance. Check both, then try again.
+                      <div className="mt-1.5 text-red-600/70 dark:text-red-400/70">Provider said: "{subscriptionStatus.last_failure_reason}"</div>
                     </div>
                   )}
                   <div className="flex justify-between text-sm mt-2">
@@ -848,12 +849,20 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                     <span>Checking status…</span>
                   </button>
                 ) : showSubscriptionFailure ? (
-                  <button
-                    onClick={() => setSubscriptionFailureDismissed(true)}
-                    className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all"
-                  >
-                    Dismiss
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setSubscriptionFailureDismissed(true); setShowUpgradeModal(true); }}
+                      className="w-full bg-black text-white py-3.5 rounded-xl font-bold hover:bg-gray-800 transition-all mb-2"
+                    >
+                      Try again
+                    </button>
+                    <button
+                      onClick={() => setSubscriptionFailureDismissed(true)}
+                      className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-2"
+                    >
+                      Dismiss
+                    </button>
+                  </>
                 ) : !subscriptionStatus.is_premium && (
                   <button
                     onClick={() => setShowUpgradeModal(true)}
