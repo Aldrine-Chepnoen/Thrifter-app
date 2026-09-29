@@ -14,6 +14,11 @@ const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
 
+// Rounds up so "expires in 8 hours" still reads as "1 day" rather than "0
+// days" — a vendor checking the morning of expiry day should see they're
+// almost out, not a number that reads like it already lapsed.
+const daysUntil = (isoDate) => Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86400000);
+
 // Mirrors UpgradeToPremiumModal's polling constants/rationale — kept in sync
 // with the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES).
 const SUBSCRIPTION_POLL_INTERVAL_MS = 5000;
@@ -816,6 +821,18 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                       Renews / expires {new Date(subscriptionStatus.expires_at).toLocaleDateString()}
                     </p>
                   )}
+                  {subscriptionStatus.is_premium && subscriptionStatus.expires_at && daysUntil(subscriptionStatus.expires_at) <= 3 && (
+                    <p className="flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 mb-3">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      {/* >=2 shows an exact count ("ends in 3 days" / "2 days"); the
+                          last day rounds up to 1 under ceil() and would otherwise
+                          never progress to "soon" before is_premium flips off at
+                          the actual expiry moment, so that final day says "soon". */}
+                      {daysUntil(subscriptionStatus.expires_at) >= 2
+                        ? `Subscription ends in ${daysUntil(subscriptionStatus.expires_at)} days`
+                        : 'Subscription ends soon'}
+                    </p>
+                  )}
                   {subscriptionStatus.pending_payment && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                       We're waiting on confirmation from your payment provider. This can take a few minutes — we'll update this automatically, no need to keep checking.
@@ -863,7 +880,14 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                       Dismiss
                     </button>
                   </>
-                ) : !subscriptionStatus.is_premium && (
+                ) : subscriptionStatus.is_premium ? (
+                  <button
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="w-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 py-3.5 rounded-xl font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all flex items-center justify-center gap-2"
+                  >
+                    Pay for another month — {formatUGX(subscriptionStatus.price_ugx)}
+                  </button>
+                ) : (
                   <button
                     onClick={() => setShowUpgradeModal(true)}
                     className="w-full bg-[#EAAD11] text-black py-3.5 rounded-xl font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"

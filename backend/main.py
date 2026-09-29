@@ -2243,12 +2243,11 @@ def initiate_vendor_subscription(
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    if vendor_premium.is_vendor_premium(db, vendor.id):
-        raise HTTPException(status_code=409, detail={
-            "message": "You already have an active Premium subscription.",
-            "code": "already_premium",
-        })
-
+    # Being premium already is deliberately NOT blocked here — a vendor can
+    # pay for an extra month ahead of their current expiry, and
+    # finalize_subscription_payment stacks the new period onto whatever time
+    # is already remaining rather than wasting it. Only an ambiguous in-flight
+    # payment (checked below) is worth blocking, to avoid a real double charge.
     latest_pending = (
         db.query(models.VendorSubscription)
         .filter(models.VendorSubscription.vendor_id == vendor.id, models.VendorSubscription.status == "pending")

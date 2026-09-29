@@ -84,7 +84,15 @@ def finalize_subscription_payment(db: Session, subscription: models.VendorSubscr
     if status == "successful":
         now = datetime.utcnow()
         subscription.starts_at = now
-        subscription.expires_at = now + timedelta(days=subscription.period_days)
+        # Stack onto remaining time rather than restarting the clock — a
+        # vendor renewing early (or paying for an extra month ahead of
+        # expiry) keeps the days they already paid for, instead of a fresh
+        # "now + period_days" silently discarding them. get_active_subscription
+        # is checked BEFORE this row's own status flips to "successful", so it
+        # still reflects whatever subscription was active going into this call.
+        current = get_active_subscription(db, subscription.vendor_id)
+        base = current.expires_at if current and current.expires_at > now else now
+        subscription.expires_at = base + timedelta(days=subscription.period_days)
     elif status == "failed":
         subscription.failure_reason = failure_reason
     db.commit()
