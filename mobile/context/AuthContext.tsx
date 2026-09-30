@@ -17,6 +17,7 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -64,8 +65,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  // Unlike logout, errors here are NOT swallowed — a vendor with an
+  // outstanding balance, an unresolved withdrawal, or an order in flight
+  // gets a 409 with a specific reason the caller should show, rather than
+  // silently doing nothing.
+  const deleteAccount = async () => {
+    await api.delete('/auth/me');
+    await deleteToken();
+    setUser(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

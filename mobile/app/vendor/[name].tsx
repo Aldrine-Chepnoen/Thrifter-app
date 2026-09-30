@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import ItemCard, { type Item } from '@/components/ItemCard';
+import ReportModal from '@/components/ReportModal';
 import { getImageSrc } from '@/lib/imageHost';
 import api from '@/lib/api';
 
@@ -37,6 +38,9 @@ export default function VendorScreen() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
 
   const isOwnStore =
     !!user?.is_vendor &&
@@ -63,6 +67,50 @@ export default function VendorScreen() {
 
   // Reload when returning from upload or edit
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  useEffect(() => {
+    if (!user || !vendor || isOwnStore) {
+      setBlocked(false);
+      return;
+    }
+    api.get<{ vendor_id: number }[]>('/me/blocked-vendors')
+      .then(({ data }) => setBlocked(data.some((b) => b.vendor_id === vendor.id)))
+      .catch(() => {});
+  }, [user, vendor, isOwnStore]);
+
+  const toggleBlock = async () => {
+    if (!vendor) return;
+    setBlockBusy(true);
+    try {
+      if (blocked) {
+        await api.delete(`/vendors/${vendor.id}/block`);
+        setBlocked(false);
+      } else {
+        await api.post(`/vendors/${vendor.id}/block`);
+        setBlocked(true);
+      }
+    } catch {
+      Alert.alert('Error', 'Could not update. Please try again.');
+    } finally {
+      setBlockBusy(false);
+    }
+  };
+
+  const openVendorMenu = () => {
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+    Alert.alert(vendor?.name ?? 'Vendor options', undefined, [
+      { text: 'Report vendor', onPress: () => setReportOpen(true) },
+      {
+        text: blocked ? 'Unblock vendor' : 'Block vendor',
+        style: blocked ? 'default' : 'destructive',
+        onPress: toggleBlock,
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   const handleDelete = (itemId: number) => {
     Alert.alert(
@@ -174,6 +222,17 @@ export default function VendorScreen() {
         </TouchableOpacity>
       )}
 
+      {/* Report/block menu — everyone else's store */}
+      {!isOwnStore && (
+        <TouchableOpacity
+          onPress={openVendorMenu}
+          className="absolute z-10 bg-white/90 rounded-full w-9 h-9 items-center justify-center"
+          style={{ top: insets.top + 8, right: 16 }}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color="#111" />
+        </TouchableOpacity>
+      )}
+
       <FlatList
         data={items}
         keyExtractor={(item) => item.id.toString()}
@@ -201,6 +260,27 @@ export default function VendorScreen() {
         }
         showsVerticalScrollIndicator={false}
       />
+
+      {blocked && (
+        <View
+          className="absolute left-4 right-4 bg-gray-900/90 rounded-2xl px-4 py-3 flex-row items-center justify-between"
+          style={{ bottom: insets.bottom + 16 }}
+        >
+          <Text className="text-white text-xs flex-1 mr-3">You&apos;ve blocked this vendor &mdash; their items won&apos;t show in your feed.</Text>
+          <TouchableOpacity onPress={toggleBlock} disabled={blockBusy}>
+            <Text className="text-[#EAAD11] text-xs font-bold">{blockBusy ? '…' : 'Unblock'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {vendor && (
+        <ReportModal
+          visible={reportOpen}
+          onClose={() => setReportOpen(false)}
+          targetType="vendor"
+          targetId={vendor.id}
+        />
+      )}
     </View>
   );
 }

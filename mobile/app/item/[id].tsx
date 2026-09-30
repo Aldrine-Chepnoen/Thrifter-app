@@ -13,6 +13,7 @@ import { useCart } from '@/context/CartContext';
 import { getImageSrc } from '@/lib/imageHost';
 import api from '@/lib/api';
 import { type Item } from '@/components/ItemCard';
+import ReportModal from '@/components/ReportModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -31,6 +32,7 @@ export default function ItemDetailScreen() {
   const [saved, setSaved] = useState(false);
   const [savingWard, setSavingWard] = useState(false);
   const [imgIndex, setImgIndex] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     api.get<Item>(`/items/${id}`)
@@ -219,15 +221,29 @@ export default function ItemDetailScreen() {
         {whatsapp ? (
           <TouchableOpacity
             onPress={() => openWhatsApp(whatsapp)}
-            className="bg-[#25D366] rounded-2xl py-4 items-center flex-row justify-center gap-2 mt-5 mb-8"
+            className="bg-[#25D366] rounded-2xl py-4 items-center flex-row justify-center gap-2 mt-5"
           >
             <Ionicons name="logo-whatsapp" size={20} color="#fff" />
             <Text className="text-white font-bold text-base">Contact on WhatsApp</Text>
           </TouchableOpacity>
-        ) : (
-          <View className="mb-8" />
-        )}
+        ) : null}
+
+        {/* Report */}
+        <TouchableOpacity
+          onPress={() => (user ? setReportOpen(true) : router.push('/auth/login'))}
+          className="flex-row items-center justify-center gap-1.5 py-4 mb-8"
+        >
+          <Ionicons name="flag-outline" size={15} color="#9CA3AF" />
+          <Text className="text-xs text-gray-400 font-medium">Report this item</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      <ReportModal
+        visible={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="item"
+        targetId={item.id}
+      />
     </View>
   );
 }

@@ -226,7 +226,10 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     if cached is not None:
         return cached
 
-    user = db.query(models.User).filter(models.User.id == uid).first()
+    # is_deleted excluded here (not just at the /auth/me level) so every other
+    # still-valid token for a deleted account — other devices, other sessions —
+    # stops authenticating too, not just the one used to call DELETE /auth/me.
+    user = db.query(models.User).filter(models.User.id == uid, models.User.is_deleted == False).first()
     if user:
         cached_user = cache.CachedUser(
             id=user.id,
@@ -263,7 +266,7 @@ def get_optional_user(
         token = auth_header.replace("Bearer ", "")
         payload = parse_token(token, db)
         user = db.query(models.User).filter(
-            models.User.id == payload.get("uid")
+            models.User.id == payload.get("uid"), models.User.is_deleted == False
         ).first()
         return user
     except Exception:
@@ -747,6 +750,82 @@ def me(current = Depends(get_current_user), db: Session = Depends(get_db)):
     cache.me_set(current.id, result)
     return result
 
+@app.delete("/auth/me", status_code=204)
+def delete_own_account(
+    authorization: Optional[str] = Header(None),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Self-serve account deletion — required by Google Play's account
+    deletion policy for apps that support account creation. Since the mobile
+    app and website share this same login, hitting this from either place
+    satisfies both the "in-app" and "web-reachable" requirements at once.
+
+    PII is scrubbed rather than the row deleted outright — order/financial
+    records referencing this user must survive per the Terms' 7-year
+    retention commitment (clause 13.2). A vendor account is refused deletion
+    while it has a wallet balance, an unresolved withdrawal, or an order
+    still in flight, so money never ends up orphaned mid-transaction; the
+    error tells them exactly what to resolve first."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user = db.query(models.User).filter(models.User.id == current_user.id).with_for_update().first()
+    if not user or user.is_deleted:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    vendor = None
+    if user.vendor_id:
+        vendor = db.query(models.Vendor).filter(models.Vendor.id == user.vendor_id).first()
+    if vendor:
+        balance = _vendor_wallet_balance(db, vendor.id)
+        if balance > 0:
+            raise HTTPException(status_code=409, detail=f"You have a wallet balance of UGX {balance:,.0f}. Withdraw it before deleting your account.")
+        unresolved_withdrawal = (
+            db.query(models.VendorWithdrawal)
+            .filter(models.VendorWithdrawal.vendor_id == vendor.id, models.VendorWithdrawal.status.in_(("pending_approval", "processing")))
+            .first()
+        )
+        if unresolved_withdrawal:
+            raise HTTPException(status_code=409, detail="You have a withdrawal in progress. Please wait for it to resolve before deleting your account.")
+        active_order = (
+            db.query(models.Order)
+            .filter(models.Order.vendor_id == vendor.id, models.Order.status.in_(("paid", "picked_up")))
+            .first()
+        )
+        if active_order:
+            raise HTTPException(status_code=409, detail="You have an order still in progress. Please wait for it to be delivered before deleting your account.")
+
+    # Scrub PII, keep the row (and anything referencing it — orders, wardrobe,
+    # reports, wallet transactions) intact. The scrubbed email stays unique so
+    # the address is free for the person to register again if they choose to.
+    user.email = f"deleted-user-{user.id}@thrifter.invalid"
+    user.hashed_password = None
+    user.google_sub = None
+    user.is_deleted = True
+    user.deleted_at = datetime.utcnow()
+    if vendor:
+        # Same treatment as an admin deactivating a vendor — see
+        # admin_toggle_vendor — so this vendor's listings disappear from
+        # every buyer-facing surface immediately.
+        vendor.is_active = False
+    db.commit()
+
+    cache.user_invalidate(user.id)
+    if vendor:
+        cache.feed_invalidate_all()
+        cache.search_invalidate_all()
+        cache.admin_stats_invalidate()
+        for item in vendor.items:
+            cache.item_invalidate(item.id)
+
+    # Terminate the current session immediately, same as /auth/logout.
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        db.add(models.BlacklistedToken(token=token, blacklisted_on=time.time()))
+        db.commit()
+
+    return Response(status_code=204)
+
 def validate_item_fields(name: str, description: Optional[str]) -> str:
     """Form fields bypass Pydantic body validation, so enforce the same limits
     as schemas.ItemBase here. Returns the cleaned name."""
@@ -1030,6 +1109,13 @@ def read_items(
             .filter(or_(models.Item.vendor_id == None, _vendor_visible_filter()))
             .filter(models.Item.is_hidden == False)
         )
+        # A buyer's own vendor-block list — only applied to the general feed,
+        # not a direct visit to that vendor's page (query above), so blocking
+        # someone doesn't also strand a buyer unable to revisit that page to
+        # unblock them later.
+        if current_user:
+            blocked_vendor_ids = db.query(models.VendorBlock.vendor_id).filter(models.VendorBlock.user_id == current_user.id)
+            query = query.filter(~models.Item.vendor_id.in_(blocked_vendor_ids))
 
     # Sold-out items (quantity 0 — sold or reserved) stop being listed
     # anywhere, no exceptions — including the vendor's own view of their own
@@ -3242,12 +3328,22 @@ async def upload_vendor_banner(
 
 @app.get("/search", response_model=List[schemas.Item])
 @limiter.limit("30/minute")
-def search_items(request: Request, query: str, db: Session = Depends(get_db)):
+def search_items(request: Request, query: str, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     logger.info(f"AI Search query: {query}")
     try:
-        cached = cache.search_get(query)
+        # Cache key includes the user so a logged-in buyer's vendor-block list
+        # (below) never leaks a filtered result set into another user's or
+        # anonymous cache hit — mirrors the feed's user_segment pattern.
+        cache_key = f"u{current_user.id}:{query}" if current_user else query
+        cached = cache.search_get(cache_key)
         if cached is not None:
             return cached
+
+        blocked_vendor_ids = set()
+        if current_user:
+            blocked_vendor_ids = {
+                row[0] for row in db.query(models.VendorBlock.vendor_id).filter(models.VendorBlock.user_id == current_user.id)
+            }
 
         # 1. Get AI embedding for the text query
         query_emb = search_engine.get_text_embedding(query)
@@ -3266,6 +3362,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
         vector_results = [
             it for it in raw_vector
             if it.quantity > 0 and (it.vendor_id is None or _vendor_is_visible(it.vendor)) and not it.is_hidden
+            and it.vendor_id not in blocked_vendor_ids
         ][:40]
 
         # 3. Keyword search (exact matches)
@@ -3277,6 +3374,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
                 or_(models.Item.vendor_id == None, _vendor_visible_filter()),
                 models.Item.quantity > 0,
                 models.Item.is_hidden == False,
+                ~models.Item.vendor_id.in_(blocked_vendor_ids) if blocked_vendor_ids else True,
                 or_(
                     models.Item.name.ilike(f"%{query}%"),
                     models.Item.description.ilike(f"%{query}%")
@@ -3296,7 +3394,7 @@ def search_items(request: Request, query: str, db: Session = Depends(get_db)):
                 seen_ids.add(it.id)
 
         result = combined[:30]
-        cache.search_set(query, result)
+        cache.search_set(cache_key, result)
         logger.info(f"AI Search returned {len(result)} combined results")
         return result
     except Exception as e:
@@ -3565,6 +3663,83 @@ def remove_wardrobe(item_id: int, current = Depends(get_current_user), db: Sessi
     db.commit()
     cache.feed_invalidate_user(current.id)
     return Response(status_code=204)
+
+# ── Reports and vendor blocking ─────────────────────────────────────────────────
+# Google Play's User Generated Content policy requires apps with UGC (vendor
+# listings, here) to offer an in-app way to report objectionable content/
+# vendors and to block them — "readily accessible", reviewed at submission.
+
+@app.post("/reports", status_code=204)
+@limiter.limit("20/minute")
+def create_report(request: Request, body: schemas.ReportCreate, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    report = models.Report(reporter_user_id=current_user.id, reason=body.reason, note=body.note)
+    if body.target_type == "item":
+        item = db.query(models.Item).filter(models.Item.id == body.target_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        report.item_id = item.id
+    else:
+        vendor = db.query(models.Vendor).filter(models.Vendor.id == body.target_id).first()
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        report.vendor_id = vendor.id
+
+    db.add(report)
+    db.commit()
+    return Response(status_code=204)
+
+@app.post("/vendors/{vendor_id}/block", status_code=204)
+def block_vendor(vendor_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    existing = (
+        db.query(models.VendorBlock)
+        .filter(models.VendorBlock.user_id == current_user.id, models.VendorBlock.vendor_id == vendor_id)
+        .first()
+    )
+    if not existing:
+        db.add(models.VendorBlock(user_id=current_user.id, vendor_id=vendor_id))
+        db.commit()
+        cache.feed_invalidate_user(current_user.id)
+    return Response(status_code=204)
+
+@app.delete("/vendors/{vendor_id}/block", status_code=204)
+def unblock_vendor(vendor_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    row = (
+        db.query(models.VendorBlock)
+        .filter(models.VendorBlock.user_id == current_user.id, models.VendorBlock.vendor_id == vendor_id)
+        .first()
+    )
+    if row:
+        db.delete(row)
+        db.commit()
+        cache.feed_invalidate_user(current_user.id)
+    return Response(status_code=204)
+
+@app.get("/me/blocked-vendors", response_model=List[schemas.BlockedVendorOut])
+def list_blocked_vendors(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    rows = (
+        db.query(models.VendorBlock)
+        .options(selectinload(models.VendorBlock.vendor))
+        .filter(models.VendorBlock.user_id == current_user.id)
+        .order_by(models.VendorBlock.created_at.desc())
+        .all()
+    )
+    return [
+        schemas.BlockedVendorOut(vendor_id=r.vendor_id, vendor_name=r.vendor.name if r.vendor else "Unknown", blocked_at=r.created_at)
+        for r in rows
+    ]
 
 # ── Item view tracking ─────────────────────────────────────────────────────────
 
@@ -3982,6 +4157,56 @@ def admin_deactivate_vendors_bulk(body: schemas.BulkVendorIds, db: Session = Dep
         )
         for v in vendors
     ]
+
+@app.get("/admin/reports", response_model=List[schemas.ReportOut])
+def admin_list_reports(status: Optional[str] = None, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    query = db.query(models.Report).options(
+        selectinload(models.Report.item), selectinload(models.Report.vendor)
+    )
+    if status:
+        query = query.filter(models.Report.status == status)
+    # Open reports first (the ones needing action), newest of each group first.
+    reports = query.order_by((models.Report.status == "open").desc(), models.Report.created_at.desc()).all()
+
+    reporter_ids = {r.reporter_user_id for r in reports if r.reporter_user_id}
+    reporters = {
+        u.id: u.email for u in db.query(models.User).filter(models.User.id.in_(reporter_ids)).all()
+    } if reporter_ids else {}
+
+    return [
+        schemas.ReportOut(
+            id=r.id,
+            target_type="item" if r.item_id else "vendor",
+            item_id=r.item_id, item_name=r.item.name if r.item else None,
+            vendor_id=r.vendor_id if r.vendor_id else (r.item.vendor_id if r.item else None),
+            vendor_name=(r.vendor.name if r.vendor else (r.item.vendor.name if r.item and r.item.vendor else None)),
+            reason=r.reason, note=r.note, status=r.status, created_at=r.created_at,
+            reporter_email=reporters.get(r.reporter_user_id),
+        )
+        for r in reports
+    ]
+
+@app.patch("/admin/reports/{report_id}", response_model=schemas.ReportOut)
+def admin_update_report(report_id: int, body: schemas.ReportStatusUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
+    report = db.query(models.Report).options(
+        selectinload(models.Report.item), selectinload(models.Report.vendor)
+    ).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    report.status = body.status
+    report.reviewed_at = datetime.utcnow()
+    report.reviewed_by_user_id = current_user.id
+    db.commit()
+    db.refresh(report)
+    return schemas.ReportOut(
+        id=report.id,
+        target_type="item" if report.item_id else "vendor",
+        item_id=report.item_id, item_name=report.item.name if report.item else None,
+        vendor_id=report.vendor_id if report.vendor_id else (report.item.vendor_id if report.item else None),
+        vendor_name=(report.vendor.name if report.vendor else (report.item.vendor.name if report.item and report.item.vendor else None)),
+        reason=report.reason, note=report.note, status=report.status, created_at=report.created_at,
+        reporter_email=None,
+    )
 
 @app.post("/vendors/verify", response_model=schemas.VendorVerifyResponse)
 @limiter.limit("20/minute")

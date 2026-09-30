@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Share2, MessageCircle, Copy, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Plus, Share2, MessageCircle, Copy, X, Camera, MapPin, Crown, AlertTriangle, ShieldCheck, Flag, Ban } from 'lucide-react';
 import MasonryGrid from './MasonryGrid';
 import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
 import VerifyPhoneNudgeModal from './VerifyPhoneNudgeModal';
+import ReportModal from './ReportModal';
 import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
@@ -52,6 +53,9 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const shareMenuRef = useRef(null);
   const [preparingWhatsAppShare, setPreparingWhatsAppShare] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
   const [viewStats, setViewStats] = useState({});
   const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
@@ -79,6 +83,31 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
+
+  useEffect(() => {
+    if (!user || !vendorInfo || isOwnProfile) { setBlocked(false); return; }
+    api.get('/me/blocked-vendors')
+      .then(res => setBlocked((res.data || []).some(b => b.vendor_id === vendorInfo.id)))
+      .catch(() => {});
+  }, [user, vendorInfo?.id, isOwnProfile]);
+
+  const toggleBlock = async () => {
+    if (!vendorInfo || blockBusy) return;
+    setBlockBusy(true);
+    try {
+      if (blocked) {
+        await api.delete(`/vendors/${vendorInfo.id}/block`);
+        setBlocked(false);
+      } else {
+        await api.post(`/vendors/${vendorInfo.id}/block`);
+        setBlocked(true);
+      }
+    } catch {
+      showToast('Could not update block status. Please try again.');
+    } finally {
+      setBlockBusy(false);
+    }
+  };
 
   // GET /vendor/me/subscription actively re-verifies a still-pending payment
   // against the provider, so re-calling this is how "Check payment status"
@@ -658,10 +687,46 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
                 <Copy className="w-4 h-4 text-gray-400" />
                 copy link
               </button>
+              {!isOwnProfile && user && (
+                <>
+                  <button
+                    onClick={() => { setShareMenuOpen(false); setReportOpen(true); }}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <Flag className="w-4 h-4 text-gray-400" />
+                    report vendor
+                  </button>
+                  <button
+                    onClick={() => { setShareMenuOpen(false); toggleBlock(); }}
+                    disabled={blockBusy}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                  >
+                    <Ban className="w-4 h-4 text-gray-400" />
+                    {blocked ? 'unblock vendor' : 'block vendor'}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {!isOwnProfile && blocked && (
+        <div className="px-4 md:px-6 py-3 bg-gray-100 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-600 dark:text-gray-300">You&apos;ve blocked this vendor &mdash; their items won&apos;t show up in your feed.</p>
+          <button
+            onClick={toggleBlock}
+            disabled={blockBusy}
+            className="text-sm font-bold text-[#EAAD11] hover:opacity-80 disabled:opacity-50 shrink-0"
+          >
+            Unblock
+          </button>
+        </div>
+      )}
+
+      {reportOpen && vendorInfo && (
+        <ReportModal targetType="vendor" targetId={vendorInfo.id} onClose={() => setReportOpen(false)} />
+      )}
 
       {/* Settings panel */}
       {isOwnProfile && settingsOpen && (

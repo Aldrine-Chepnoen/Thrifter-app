@@ -33,7 +33,7 @@ function Divider() {
 }
 
 export default function ProfileScreen() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, deleteAccount } = useAuth();
   const insets = useSafeAreaInsets();
 
   const handleLogout = () => {
@@ -48,6 +48,28 @@ export default function ProfileScreen() {
         },
       },
     ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your Thrifter account. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+              router.replace('/auth/login');
+            } catch (e: any) {
+              Alert.alert('Could not delete account', e?.response?.data?.detail ?? 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   // ── Logged-out ─────────────────────────────────────────────────────────────
@@ -162,6 +184,15 @@ export default function ProfileScreen() {
         style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}
       >
         <MenuRow icon="log-out-outline" label="Log Out" onPress={handleLogout} danger />
+      </View>
+
+      {/* Delete account — kept separate from Log Out so it isn't an easy
+          mis-tap; required by Google Play's account deletion policy. */}
+      <View
+        className="bg-white mx-4 mt-4 rounded-2xl overflow-hidden"
+        style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}
+      >
+        <MenuRow icon="trash-outline" label="Delete Account" onPress={handleDeleteAccount} danger />
       </View>
 
       <View className="pb-10" />

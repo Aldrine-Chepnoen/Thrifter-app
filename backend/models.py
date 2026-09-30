@@ -17,6 +17,14 @@ class User(Base):
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
     vendor = relationship("Vendor")
 
+    # Self-serve deletion (DELETE /auth/me) soft-deletes rather than removing
+    # the row outright — order/financial history referencing this user must
+    # survive per the 7-year retention commitment in the Terms (clause 13.2).
+    # email/hashed_password/google_sub get scrubbed at deletion time; is_deleted
+    # blocks login and login-adjacent lookups from here on.
+    is_deleted = Column(Boolean, default=False, nullable=False, server_default="false", index=True)
+    deleted_at = Column(DateTime, nullable=True)
+
 class VisualCluster(Base):
     __tablename__ = "visual_clusters"
     id = Column(Integer, primary_key=True, index=True)
@@ -335,6 +343,44 @@ class VendorWithdrawal(Base):
     reviewed_at = Column(DateTime, nullable=True)
     reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    vendor = relationship("Vendor")
+
+class VendorBlock(Base):
+    """A buyer choosing to stop seeing one vendor's items — feed/search/vendor
+    listings all check this for the requesting user. Distinct from
+    Vendor.is_active, which hides a vendor from everyone (an admin/moderation
+    action), not just one user."""
+    __tablename__ = "vendor_blocks"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    vendor = relationship("Vendor")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "vendor_id", name="uq_vendor_block_user_vendor"),
+    )
+
+class Report(Base):
+    """A user flagging an item or a vendor as objectionable — Google Play's
+    User Generated Content policy requires apps with UGC (vendor listings,
+    here) to offer an in-app reporting mechanism. Exactly one of item_id/
+    vendor_id is set per report; reporter_user_id is nullable (ondelete
+    SET NULL) so a report survives the reporter later deleting their account."""
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=True, index=True)
+    reason = Column(String, nullable=False)
+    note = Column(Text, nullable=True)
+    status = Column(String, default="open", nullable=False, index=True)  # open, reviewed, dismissed
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    item = relationship("Item")
     vendor = relationship("Vendor")
 
 class VendorSubscription(Base):

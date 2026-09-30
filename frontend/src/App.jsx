@@ -24,6 +24,7 @@ import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
+import Account from './components/Account';
 import HomeBanner from './components/HomeBanner';
 import { useToast } from './context/ToastContext';
 
@@ -546,6 +547,17 @@ function App() {
           <OrderConfirmation />
         ) : <Navigate to="/" replace />} />
         <Route path="/orders" element={user ? <Orders /> : <Navigate to="/" replace />} />
+        <Route path="/account" element={user ? (
+          <Account
+            user={user}
+            onAccountDeleted={() => {
+              localStorage.removeItem('thrifter_token');
+              setUser(null);
+              setWardrobeIds(new Set());
+              navigate('/');
+            }}
+          />
+        ) : <Navigate to="/" replace />} />
         <Route path="/vendor/orders" element={
           user?.is_vendor
             ? <Navigate to={`/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders`} replace />

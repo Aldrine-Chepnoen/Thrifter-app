@@ -572,3 +572,37 @@ class ItemViewStats(BaseModel):
 
 class WardrobeSaveStats(BaseModel):
     total: int
+
+# Google Play's User Generated Content policy requires an in-app report/block
+# mechanism for apps with UGC (vendor listings, here) — see mobile submission
+# checklist. reason is a fixed set grounded in the Terms' own categories
+# (clause 6.10 Prohibited Items, clause 11 Acceptable Use) rather than free
+# text, so reports are triageable without reading every note.
+REPORT_REASONS = ("counterfeit", "prohibited_item", "misleading", "harassment", "other")
+
+class ReportCreate(BaseModel):
+    target_type: str = Field(..., pattern="^(item|vendor)$")
+    target_id: int
+    reason: str = Field(..., pattern="^(" + "|".join(REPORT_REASONS) + ")$")
+    note: Optional[str] = Field(None, max_length=1000)
+
+class ReportOut(BaseModel):
+    id: int
+    target_type: str
+    item_id: Optional[int] = None
+    item_name: Optional[str] = None
+    vendor_id: Optional[int] = None
+    vendor_name: Optional[str] = None
+    reason: str
+    note: Optional[str] = None
+    status: str
+    created_at: datetime
+    reporter_email: Optional[str] = None
+
+class ReportStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(reviewed|dismissed)$")
+
+class BlockedVendorOut(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    blocked_at: datetime

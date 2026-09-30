@@ -1,12 +1,13 @@
 // This is the ProductModal component for the Thrifter frontend application. It displays detailed information about a specific product. For users, it provides options to add to wardrobe or chat with the vendor. For the item owner (vendor), it provides "Edit Listing" and "Delete Listing" buttons. The edit mode allows vendors to update the name, price, size, and description of their items without having to re-upload.
 import React, { useState, useEffect } from 'react';
-import { X, ShoppingBag, Heart, Edit, Check, Eye } from 'lucide-react';
+import { X, ShoppingBag, Heart, Edit, Check, Eye, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import posthog from 'posthog-js';
 import { getImageSrc } from '../utils';
 import { useToast } from '../context/ToastContext';
+import ReportModal from './ReportModal';
 
 const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, openAuthModal, onUpdated, onAddToCart, isInCart }) => {
   const { showToast } = useToast();
@@ -24,6 +25,7 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [viewStats, setViewStats] = useState(null);
   const [saveStats, setSaveStats] = useState(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -427,12 +429,24 @@ const ProductModal = ({ item, isOpen, onClose, user, onDeleted, isWardrobe, open
                     Add to Cart
                   </button>
                 )}
+
+                <button
+                  onClick={() => (user ? setReportOpen(true) : openAuthModal())}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 py-3 mt-1"
+                >
+                  <Flag className="w-3.5 h-3.5" />
+                  Report this item
+                </button>
               </>
             )}
           </div>
           </div>
         </motion.div>
       </div>
+
+      {reportOpen && (
+        <ReportModal targetType="item" targetId={item.id} onClose={() => setReportOpen(false)} />
+      )}
     </AnimatePresence>
   );
 };
