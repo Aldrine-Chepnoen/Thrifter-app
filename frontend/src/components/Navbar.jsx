@@ -25,7 +25,7 @@ const WhatsAppIcon = () => (
 );
 
 const ContactDropdown = ({ onClose }) => (
-  <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
+  <div className="absolute left-0 top-full mt-2 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
     <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
       Find us on
     </p>
@@ -262,136 +262,149 @@ const Navbar = ({
       transition={{ duration: 0.35, ease: "easeInOut" }}
       className="sticky top-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 py-3 px-4 md:py-4 md:px-6"
     >
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
-        <div className="relative flex items-center justify-center w-full md:w-auto">
-          <Link
-            to="/"
-            onClick={handleLogoClick}
-            className="text-xl md:text-2xl font-serif font-bold tracking-tight text-[#EAAD11]"
-          >
-            Thrifter
-          </Link>
+      <div className="max-w-7xl mx-auto">
 
-          {/* Mobile-only: hamburger top-right of logo row, homepage only */}
-          {isHomePage && (
-            <div ref={mobileMenuRef} className="absolute right-0 md:hidden">
+        {/* ==================== MAIN HEADER ==================== */}
+        <div className="flex items-center justify-between gap-3">
+
+          {/* LEFT: Hamburger + Thrifter branding */}
+          <div className="flex items-center gap-3 min-w-0">
+
+            {/* Hamburger menu */}
+            <div ref={mobileMenuRef} className="relative">
               <button
                 onClick={() => setMenuOpen(o => !o)}
-                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
                 title="Contact & socials"
+                aria-label="Open menu"
               >
-                {menuOpen ? <X className="w-4 h-4 text-gray-600" /> : <Menu className="w-4 h-4 text-gray-600" />}
+                {menuOpen ? (
+                  <X className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                ) : (
+                  <Menu className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                )}
               </button>
-              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
-            </div>
-          )}
-        </div>
 
-        {showIcons && (
-          <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
-            <button
-              onClick={() => handleProtectedAction('/wardrobe', true)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-              title="Wardrobe"
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
-              <Heart className="w-3.5 h-3.5" />
-            </button>
-
-            <Link
-              to="/cart"
-              className="relative flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-              title="Cart"
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Cart</span>
-              <ShoppingBag className="w-3.5 h-3.5" />
-              {cartCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {cartCount}
-                </span>
+              {menuOpen && (
+                <ContactDropdown onClose={() => setMenuOpen(false)} />
               )}
+            </div>
+
+            {/* Thrifter logo + tagline */}
+            <Link
+              to="/"
+              onClick={handleLogoClick}
+              className="flex flex-col leading-none min-w-0"
+            >
+              <span className="text-2xl md:text-3xl font-serif font-bold tracking-tight text-[#EAAD11]">
+                Thrifter
+              </span>
+
+              <span className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 mt-1 tracking-wide">
+                Secure your next fit
+              </span>
             </Link>
 
-            {user && (
-              <Link
-                to={user.is_vendor ? `/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders` : '/orders'}
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-                title="Orders"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">Orders</span>
-                <Package className="w-3.5 h-3.5" />
-              </Link>
-            )}
+          </div>
 
-            {user?.is_admin && (
-              <Link
-                to="/admin"
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
-                title="Admin Dashboard"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">Admin</span>
-                <Shield className="w-3.5 h-3.5" />
-              </Link>
-            )}
+          {/* RIGHT: Main navigation */}
+          {showIcons && (
+            <div className="flex items-center gap-1 md:gap-2">
 
-            {user ? (
-              <div className="flex flex-col items-center gap-1 ml-1">
-                <span className="hidden lg:inline text-[10px] text-gray-500 font-medium flex items-center gap-1">
-                  {user.is_vendor && user.is_premium && <Crown className="w-3 h-3 text-[#EAAD11]" />}
-                  {user.is_vendor ? (user.is_premium ? 'Premium Vendor' : 'Vendor') : 'User'}
+              {/* Wardrobe */}
+              <button
+                onClick={() => handleProtectedAction('/wardrobe', true)}
+                className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Wardrobe"
+              >
+                <Heart className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Wardrobe
                 </span>
+              </button>
+
+              {/* Cart */}
+              <Link
+                to="/cart"
+                className="relative group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Cart"
+              >
+                <div className="relative">
+                  <ShoppingBag className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                  {cartCount > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[9px] font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
+                      {cartCount}
+                    </span>
+                  )}
+                </div>
+
+                <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Cart
+                </span>
+              </Link>
+
+              {/* Profile */}
+              {user?.is_vendor && !isOwnProfile ? (
+                <Link
+                  to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
+                  className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Profile"
+                >
+                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                  <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Profile
+                  </span>
+                </Link>
+              ) : user ? (
                 <button
                   onClick={onLogout}
-                  className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow banner-text-shadow"
+                  className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Profile"
                 >
-                  Logout
+                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                  <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Profile
+                  </span>
                 </button>
-              </div>
-            ) : (
+              ) : (
+                <button
+                  onClick={openAuthModal}
+                  className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Login"
+                >
+                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                  <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Profile
+                  </span>
+                </button>
+              )}
+
+              {/* Dark mode — ICON ONLY */}
               <button
-                onClick={openAuthModal}
-                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow"
+                onClick={toggleDarkMode}
+                className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                Login
+                {darkMode ? (
+                  <Sun className="w-5 h-5 text-[#EAAD11]" />
+                ) : (
+                  <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                )}
               </button>
-            )}
 
-            {user?.is_vendor && !isOwnProfile && (
-              <Link
-                to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-                title="My Shop"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
-                <User className="w-3.5 h-3.5" />
-              </Link>
-            )}
-
-            <button
-              onClick={toggleDarkMode}
-              className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all ml-1"
-              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {darkMode
-                ? <Sun className="w-4 h-4 text-[#EAAD11]" />
-                : <Moon className="w-4 h-4 text-gray-600" />
-              }
-            </button>
-
-            {/* Desktop-only: hamburger at far right of icons row */}
-            <div ref={desktopMenuRef} className="relative hidden md:block">
-              <button
-                onClick={() => setMenuOpen(o => !o)}
-                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-                title="Contact & socials"
-              >
-                {menuOpen ? <X className="w-4 h-4 text-gray-600 dark:text-gray-400" /> : <Menu className="w-4 h-4 text-gray-600 dark:text-gray-400" />}
-              </button>
-              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
             </div>
+          )}
 
-          </div>
-        )}
+        </div>
+        {/* ================== END MAIN HEADER ================== */}
+      </div>
+
 
         {isHomePage && (
           <div className="w-full md:hidden mt-1">
@@ -416,7 +429,6 @@ const Navbar = ({
             </div>
           </div>
         )}
-      </div>
 
       {isHomePage && (
         <>
