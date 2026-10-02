@@ -53,7 +53,19 @@
       "expo-image",
       "expo-secure-store",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Thrifter uses your location to suggest your delivery address and estimate delivery fees."
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_REVERSED_CLIENT_ID"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

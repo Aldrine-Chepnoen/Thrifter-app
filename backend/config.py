@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     # outstanding verification link the moment the login secret changed.
     VENDOR_VERIFY_SECRET: str = os.getenv("VENDOR_VERIFY_SECRET", "dev-verify-secret-change-me-in-production")
 
-    # Google Sign-In (web OAuth client ID, used to verify ID token audience)
+    # Google Sign-In OAuth client IDs, used to verify ID token audience. The
+    # mobile app authenticates with @react-native-google-signin/google-signin,
+    # which mints tokens against platform-specific client IDs distinct from
+    # the web client — /auth/google accepts any of these as a valid audience.
     GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
+    GOOGLE_IOS_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_IOS_CLIENT_ID")
+    GOOGLE_ANDROID_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_ANDROID_CLIENT_ID")
 
     # Google Maps Geocoding API (reverse-geocodes vendor "use my location" coordinates to an address)
     GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")

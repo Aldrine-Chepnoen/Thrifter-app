@@ -655,9 +655,13 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
 @app.post("/auth/google", response_model=Union[schemas.GoogleAuthResponse, schemas.GoogleAuthNeedsConfirmation])
 @limiter.limit("10/minute")
 def google_auth(request: Request, body: schemas.GoogleAuthRequest, db: Session = Depends(get_db)):
+    valid_audiences = [
+        aud for aud in (settings.GOOGLE_CLIENT_ID, settings.GOOGLE_IOS_CLIENT_ID, settings.GOOGLE_ANDROID_CLIENT_ID)
+        if aud
+    ]
     try:
         payload = google_id_token.verify_oauth2_token(
-            body.credential, google_auth_requests.Request(), settings.GOOGLE_CLIENT_ID,
+            body.credential, google_auth_requests.Request(), valid_audiences,
             clock_skew_in_seconds=30,
         )
     except ValueError as e:

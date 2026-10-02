@@ -20,6 +20,11 @@ type CartContextType = {
   updateNote: (itemId: number, note: string) => void;
   clearCart: () => void;
   isInCart: (itemId: number) => boolean;
+  // Increments on every successful addToCart — the tab bar's cart badge
+  // watches this to trigger a one-shot pulse animation, separately from the
+  // count itself (which also changes on removes/clears, where no pulse
+  // should fire).
+  pulseKey: number;
 };
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -27,6 +32,7 @@ const CartContext = createContext<CartContextType | null>(null);
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [pulseKey, setPulseKey] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -44,7 +50,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [cartItems, loaded]);
 
   const addToCart = useCallback((item: Item, qty = 1) => {
-    setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
+    setCartItems((prev) => {
+      if (prev.some((i) => i.id === item.id)) return prev;
+      return [...prev, { ...item, cartQuantity: qty }];
+    });
+    // A harmless extra pulse if the item was already in the cart (no-op add)
+    // is an acceptable trade-off for keeping the state updater above pure.
+    setPulseKey((k) => k + 1);
   }, []);
 
   const removeFromCart = useCallback((itemId: number) => {
@@ -64,7 +76,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const isInCart = useCallback((itemId: number) => cartItems.some((i) => i.id === itemId), [cartItems]);
 
   return (
-    <CartContext.Provider value={{ cartItems, loaded, addToCart, removeFromCart, updateQuantity, updateNote, clearCart, isInCart }}>
+    <CartContext.Provider value={{ cartItems, loaded, addToCart, removeFromCart, updateQuantity, updateNote, clearCart, isInCart, pulseKey }}>
       {children}
     </CartContext.Provider>
   );

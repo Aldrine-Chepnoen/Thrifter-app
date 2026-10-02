@@ -11,13 +11,24 @@ type User = {
   vendor_whatsapp?: string | null;
 };
 
+type VendorSignupOptions = {
+  isVendor: boolean;
+  vendorName?: string;
+  vendorWhatsapp?: string;
+  vendorLocation?: string;
+};
+
 type AuthContextType = {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, vendorOptions?: VendorSignupOptions) => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
+  // Re-fetches /auth/me after a token was already stored by a flow other
+  // than login()/register() — used by Google sign-in, which gets its
+  // access_token back from /auth/google rather than /auth/login.
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -54,8 +65,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(me);
   };
 
-  const register = async (email: string, password: string) => {
-    await api.post('/auth/register', { email, password });
+  const register = async (email: string, password: string, vendorOptions?: VendorSignupOptions) => {
+    await api.post('/auth/register', {
+      email,
+      password,
+      is_vendor: vendorOptions?.isVendor ?? false,
+      vendor_name: vendorOptions?.isVendor ? vendorOptions.vendorName : null,
+      vendor_whatsapp: vendorOptions?.isVendor ? vendorOptions.vendorWhatsapp : null,
+      vendor_location: vendorOptions?.isVendor ? vendorOptions.vendorLocation : null,
+    });
     await login(email, password);
   };
 
@@ -75,8 +93,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    const { data } = await api.get('/auth/me');
+    setUser(data);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, deleteAccount }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, deleteAccount, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

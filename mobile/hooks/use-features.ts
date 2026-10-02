@@ -4,8 +4,13 @@ import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 
 export type Features = {
-  delivery_fee_single_vendor_ugx: number;
-  delivery_fee_multi_vendor_ugx: number;
+  promo_10k_enabled: boolean;
+  delivery_base_fee_ugx: number;
+  delivery_rate_per_km_ugx: number;
+  delivery_max_radius_km: number;
+  cod_rounding_ugx: number;
+  collection_point_lat: number;
+  collection_point_lng: number;
   reservation_minutes: number;
 };
 

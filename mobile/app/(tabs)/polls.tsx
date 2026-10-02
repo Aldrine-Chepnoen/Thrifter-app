@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, RefreshControl, ActivityIndicator,
-  TouchableOpacity, Modal, TextInput, Alert, ScrollView,
+  TouchableOpacity, Modal, TextInput, ScrollView,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import api from '@/lib/api';
 
 type DemandEntry = {
@@ -30,14 +31,11 @@ function EntryCard({
   onVote: (id: number, type: 'up' | 'down') => void;
 }) {
   return (
-    <View
-      className="bg-white rounded-2xl px-4 py-4 mb-3"
-      style={{ shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}
-    >
+    <View className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl px-4 py-4 mb-3">
       {/* Rank + name */}
       <View className="flex-row items-start gap-2 mb-1">
-        <Text style={{ minWidth: 32 }} className="text-base font-bold text-gray-300">#{rank}</Text>
-        <Text className="flex-1 text-base font-semibold text-gray-900 leading-tight" numberOfLines={2}>
+        <Text style={{ minWidth: 32 }} className="text-base font-bold text-gray-300 dark:text-gray-600">#{rank}</Text>
+        <Text className="flex-1 text-base font-semibold text-gray-900 dark:text-gray-100 leading-tight" numberOfLines={2}>
           {entry.item_name}
         </Text>
       </View>
@@ -49,7 +47,7 @@ function EntryCard({
 
       {/* Description */}
       {entry.description ? (
-        <Text className="text-xs text-gray-400 mb-2" style={{ marginLeft: 32 }} numberOfLines={2}>
+        <Text className="text-xs text-gray-400 dark:text-gray-500 mb-2" style={{ marginLeft: 32 }} numberOfLines={2}>
           {entry.description}
         </Text>
       ) : null}
@@ -58,20 +56,20 @@ function EntryCard({
       <View className="flex-row justify-end gap-2 mt-1">
         <TouchableOpacity
           onPress={() => onVote(entry.id, 'up')}
-          className={`flex-row items-center gap-1.5 px-3 py-2 rounded-xl ${entry.user_vote === 'up' ? 'bg-green-50' : 'bg-gray-50'}`}
+          className={`flex-row items-center gap-1.5 px-3 py-2 rounded-xl ${entry.user_vote === 'up' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-gray-800'}`}
         >
-          <Text className={`text-sm font-bold ${entry.user_vote === 'up' ? 'text-green-500' : 'text-gray-400'}`}>▲</Text>
-          <Text className={`text-sm font-semibold ${entry.user_vote === 'up' ? 'text-green-500' : 'text-gray-400'}`}>
+          <Text className={`text-sm font-bold ${entry.user_vote === 'up' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'}`}>▲</Text>
+          <Text className={`text-sm font-semibold ${entry.user_vote === 'up' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'}`}>
             {entry.upvotes}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => onVote(entry.id, 'down')}
-          className={`flex-row items-center gap-1.5 px-3 py-2 rounded-xl ${entry.user_vote === 'down' ? 'bg-red-50' : 'bg-gray-50'}`}
+          className={`flex-row items-center gap-1.5 px-3 py-2 rounded-xl ${entry.user_vote === 'down' ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-800'}`}
         >
-          <Text className={`text-sm font-bold ${entry.user_vote === 'down' ? 'text-red-400' : 'text-gray-300'}`}>▼</Text>
-          <Text className={`text-sm font-semibold ${entry.user_vote === 'down' ? 'text-red-400' : 'text-gray-300'}`}>
+          <Text className={`text-sm font-bold ${entry.user_vote === 'down' ? 'text-red-400' : 'text-gray-300 dark:text-gray-600'}`}>▼</Text>
+          <Text className={`text-sm font-semibold ${entry.user_vote === 'down' ? 'text-red-400' : 'text-gray-300 dark:text-gray-600'}`}>
             {entry.downvotes}
           </Text>
         </TouchableOpacity>
@@ -83,6 +81,7 @@ function EntryCard({
 // ── Main screen ──────────────────────────────────────────────────────────────
 export default function PollsScreen() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
   const [entries, setEntries] = useState<DemandEntry[]>([]);
@@ -141,6 +140,7 @@ export default function PollsScreen() {
     try {
       await api.post(`/demand/${entryId}/vote`, { vote_type: voteType });
     } catch {
+      showToast('Could not record your vote. Please try again.', 'error');
       fetchEntries(); // revert on error
     } finally {
       setVotingIds((s) => { const n = new Set(s); n.delete(entryId); return n; });
@@ -161,7 +161,7 @@ export default function PollsScreen() {
 
   const handleSubmit = async () => {
     if (!itemName.trim() || !price.trim()) {
-      Alert.alert('Required', 'Item name and price are required.');
+      showToast('Item name and price are required.', 'error');
       return;
     }
     setSubmitting(true);
@@ -173,7 +173,7 @@ export default function PollsScreen() {
       });
       setSubmitted(true);
     } catch (e: any) {
-      Alert.alert('Error', e?.response?.data?.detail ?? 'Could not submit. Try again.');
+      showToast(e?.response?.data?.detail ?? 'Could not submit. Try again.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -182,17 +182,17 @@ export default function PollsScreen() {
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-white">
+      <View className="flex-1 items-center justify-center bg-white dark:bg-gray-900">
         <ActivityIndicator color="#EAAD11" size="large" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
+    <View className="flex-1 bg-gray-50 dark:bg-gray-900" style={{ paddingTop: insets.top }}>
       {/* Header */}
-      <View className="bg-white border-b border-gray-100 px-4 py-3 flex-row items-center">
-        <Text className="text-2xl font-bold text-gray-900 flex-1">Demand Board</Text>
+      <View className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-3 flex-row items-center">
+        <Text className="text-2xl font-bold text-gray-900 dark:text-white flex-1">Demand Board</Text>
         <TouchableOpacity onPress={() => setInfoOpen(true)} className="p-2">
           <Ionicons name="information-circle-outline" size={22} color="#9CA3AF" />
         </TouchableOpacity>
@@ -201,7 +201,7 @@ export default function PollsScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           onPress={openSubmit}
-          className="ml-1 bg-[#EAAD11] rounded-xl px-3 py-2"
+          className="ml-1 bg-black rounded-xl px-3 py-2"
         >
           <Text className="text-white font-bold text-sm">+ Request</Text>
         </TouchableOpacity>
@@ -218,8 +218,8 @@ export default function PollsScreen() {
         ListEmptyComponent={
           <View className="items-center justify-center py-24">
             <Ionicons name="stats-chart-outline" size={52} color="#E5E7EB" />
-            <Text className="text-gray-700 font-semibold mt-4">No requests yet</Text>
-            <Text className="text-gray-400 text-sm mt-1 text-center px-8">
+            <Text className="text-gray-700 dark:text-gray-300 font-semibold mt-4">No requests yet</Text>
+            <Text className="text-gray-400 dark:text-gray-500 text-sm mt-1 text-center px-8">
               Be the first to request something from vendors
             </Text>
           </View>
@@ -235,29 +235,29 @@ export default function PollsScreen() {
           onPress={() => setInfoOpen(false)}
         >
           <TouchableOpacity activeOpacity={1}>
-            <View className="bg-white rounded-2xl p-6">
-              <Text className="text-xl font-bold text-gray-900 mb-4">About the Demand Board</Text>
+            <View className="bg-white dark:bg-gray-900 rounded-2xl p-6">
+              <Text className="text-xl font-bold text-gray-900 dark:text-white mb-4">About the Demand Board</Text>
 
-              <Text className="text-sm font-semibold text-gray-700 mb-1">What is this?</Text>
-              <Text className="text-sm text-gray-500 mb-4">
+              <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">What is this?</Text>
+              <Text className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 A place for shoppers to request clothing items they want to see stocked. Vendors use it to know what people are looking for.
               </Text>
 
-              <Text className="text-sm font-semibold text-gray-700 mb-1">What does voting do?</Text>
-              <Text className="text-sm text-gray-500 mb-4">
+              <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">What does voting do?</Text>
+              <Text className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 Upvoting shows vendors this item is in demand. Downvoting pushes it down the list. The most wanted items rank highest.
               </Text>
 
-              <Text className="text-sm font-semibold text-gray-700 mb-1">After submitting?</Text>
-              <Text className="text-sm text-gray-500 mb-5">
+              <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">After submitting?</Text>
+              <Text className="text-sm text-gray-500 dark:text-gray-400 mb-5">
                 Your request goes to our team for approval before appearing on the board.
               </Text>
 
               <TouchableOpacity
-                className="bg-gray-100 rounded-xl py-3 items-center"
+                className="bg-gray-100 dark:bg-gray-800 rounded-xl py-3 items-center"
                 onPress={() => setInfoOpen(false)}
               >
-                <Text className="text-gray-700 font-semibold">Got it</Text>
+                <Text className="text-gray-700 dark:text-gray-300 font-semibold">Got it</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -271,33 +271,33 @@ export default function PollsScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <TouchableOpacity className="flex-1" activeOpacity={1} onPress={closeSubmit} />
-          <View className="bg-white rounded-t-3xl px-6 pt-5 pb-8">
+          <View className="bg-white dark:bg-gray-900 rounded-t-3xl px-6 pt-5 pb-8">
             {submitted ? (
               <View className="items-center py-6">
                 <Ionicons name="checkmark-circle" size={52} color="#EAAD11" />
-                <Text className="text-xl font-bold text-gray-900 mt-3">Request submitted</Text>
-                <Text className="text-gray-400 text-sm text-center mt-2">
+                <Text className="text-xl font-bold text-gray-900 dark:text-white mt-3">Request submitted</Text>
+                <Text className="text-gray-400 dark:text-gray-500 text-sm text-center mt-2">
                   Your request is pending approval and will appear on the board once reviewed.
                 </Text>
                 <TouchableOpacity
-                  className="bg-gray-100 rounded-xl py-3 px-8 mt-6"
+                  className="bg-gray-100 dark:bg-gray-800 rounded-xl py-3 px-8 mt-6"
                   onPress={closeSubmit}
                 >
-                  <Text className="text-gray-700 font-semibold">Close</Text>
+                  <Text className="text-gray-700 dark:text-gray-300 font-semibold">Close</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <>
                 <View className="flex-row items-center mb-5">
-                  <Text className="text-xl font-bold text-gray-900 flex-1">New Request</Text>
+                  <Text className="text-xl font-bold text-gray-900 dark:text-white flex-1">New Request</Text>
                   <TouchableOpacity onPress={closeSubmit}>
                     <Ionicons name="close" size={22} color="#9CA3AF" />
                   </TouchableOpacity>
                 </View>
 
-                <Text className="text-xs text-gray-500 mb-1 font-medium">ITEM NAME *</Text>
+                <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-medium">ITEM NAME *</Text>
                 <TextInput
-                  className="border border-gray-200 rounded-xl px-4 py-3 mb-4 text-gray-900 text-base"
+                  className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-xl px-4 py-3 mb-4 text-gray-900 dark:text-gray-100 text-base"
                   placeholder="e.g. Floral summer dress"
                   placeholderTextColor="#9CA3AF"
                   value={itemName}
@@ -305,9 +305,9 @@ export default function PollsScreen() {
                   maxLength={100}
                 />
 
-                <Text className="text-xs text-gray-500 mb-1 font-medium">PRICE RANGE *</Text>
+                <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-medium">PRICE RANGE *</Text>
                 <TextInput
-                  className="border border-gray-200 rounded-xl px-4 py-3 mb-4 text-gray-900 text-base"
+                  className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-xl px-4 py-3 mb-4 text-gray-900 dark:text-gray-100 text-base"
                   placeholder="e.g. UGX 20,000 – 40,000"
                   placeholderTextColor="#9CA3AF"
                   value={price}
@@ -315,9 +315,9 @@ export default function PollsScreen() {
                   maxLength={100}
                 />
 
-                <Text className="text-xs text-gray-500 mb-1 font-medium">DESCRIPTION <Text className="text-gray-400 font-normal">(optional)</Text></Text>
+                <Text className="text-xs text-gray-500 dark:text-gray-400 mb-1 font-medium">DESCRIPTION <Text className="text-gray-400 dark:text-gray-500 font-normal">(optional)</Text></Text>
                 <TextInput
-                  className="border border-gray-200 rounded-xl px-4 py-3 mb-6 text-gray-900 text-base"
+                  className="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-xl px-4 py-3 mb-6 text-gray-900 dark:text-gray-100 text-base"
                   placeholder="e.g. Size M, navy blue, for church"
                   placeholderTextColor="#9CA3AF"
                   value={description}
@@ -328,7 +328,7 @@ export default function PollsScreen() {
                 />
 
                 <TouchableOpacity
-                  className="bg-[#EAAD11] rounded-xl py-4 items-center"
+                  className="bg-black rounded-xl py-4 items-center"
                   onPress={handleSubmit}
                   disabled={submitting}
                 >

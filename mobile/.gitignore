@@ -41,3 +41,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Google Play service account key (never commit real credentials)
+gentle-habitat-510215-q4-71011f619228.json
