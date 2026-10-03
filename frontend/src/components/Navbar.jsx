@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText, LogOut } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
+import { motion, useAnimation, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
 import { searchVendors } from '../api';
 import { getImageSrc } from '../utils';
@@ -191,6 +191,7 @@ const Navbar = ({
   darkMode,
   toggleDarkMode,
   cartCount = 0,
+  cartPulseKey = 0,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -202,6 +203,27 @@ const Navbar = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const mobileMenuRef = useRef(null);
   const desktopMenuRef = useRef(null);
+
+  // One-shot bounce + gold flash on the cart icon whenever an item is
+  // actually added — driven by cartPulseKey rather than cartCount so
+  // removes/clears stay silent. The color flash does the heavy lifting for
+  // noticeability; scale alone on a 20px icon is too subtle to catch. Scale
+  // runs on Framer Motion; color is a plain CSS class swap (via cartPulsing)
+  // so it restores the right light/dark idle color without needing an
+  // explicit "currentcolor" value to animate back to.
+  const cartIconControls = useAnimation();
+  const [cartPulsing, setCartPulsing] = useState(false);
+  useEffect(() => {
+    if (cartPulseKey === 0) return;
+    cartIconControls.set({ scale: 1 });
+    cartIconControls.start({
+      scale: [1, 1.5, 1],
+      transition: { duration: 0.5, times: [0, 0.35, 1], ease: 'easeOut' },
+    });
+    setCartPulsing(true);
+    const t = setTimeout(() => setCartPulsing(false), 500);
+    return () => clearTimeout(t);
+  }, [cartPulseKey, cartIconControls]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -340,7 +362,9 @@ const Navbar = ({
                 title="Cart"
               >
                 <div className="relative">
-                  <ShoppingBag className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+                  <motion.div animate={cartIconControls} className="inline-flex">
+                    <ShoppingBag className={`w-5 h-5 transition-colors group-hover:text-[#EAAD11] ${cartPulsing ? 'text-[#EAAD11]' : 'text-gray-800 dark:text-gray-200'}`} />
+                  </motion.div>
 
                   {cartCount > 0 && (
                     <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[9px] font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">

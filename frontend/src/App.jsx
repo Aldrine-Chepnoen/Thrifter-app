@@ -25,6 +25,7 @@ import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
 import HomeBanner from './components/HomeBanner';
+import CartFloatingBar from './components/CartFloatingBar';
 import { useToast } from './context/ToastContext';
 
 function App() {
@@ -62,8 +63,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('thrifter_cart', JSON.stringify(cartItems));
   }, [cartItems]);
+  // Increments on every successful addToCart — the navbar's cart icon watches
+  // this to trigger a one-shot pulse animation, separately from the count
+  // itself (which also changes on removes/clears, where no pulse should fire).
+  const [cartPulseKey, setCartPulseKey] = useState(0);
   const addToCart = (item, qty = 1) => {
+    const alreadyInCart = cartItems.some((i) => i.id === item.id);
     setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
+    if (!alreadyInCart) {
+      setCartPulseKey((k) => k + 1);
+    }
   };
   const removeFromCart = (itemId) => {
     setCartItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -454,6 +463,7 @@ function App() {
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
           cartCount={cartItems.length}
+          cartPulseKey={cartPulseKey}
         />
       )}
       
@@ -687,6 +697,8 @@ function App() {
         onAddToCart={(item, qty) => { addToCart(item, qty); setSelectedItem(null); }}
         isInCart={selectedItem ? cartItems.some((i) => i.id === selectedItem.id) : false}
       />
+
+      <CartFloatingBar cartItems={cartItems} cartPulseKey={cartPulseKey} />
     </div>
   );
 }
