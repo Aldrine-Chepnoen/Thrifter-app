@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, Text, Animated } from 'react-native';
 import type { ColorValue } from 'react-native';
 import { useCart } from '@/context/CartContext';
+import { useThemeColors } from '@/hooks/use-theme-colors';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -52,13 +53,14 @@ function CartTabIcon({ color }: { color: ColorValue }) {
 }
 
 export default function TabLayout() {
+  const themeColors = useThemeColors();
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: '#EAAD11',
-        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarInactiveTintColor: themeColors.iconMuted,
         headerShown: false,
-        tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#E5E7EB' },
+        tabBarStyle: { backgroundColor: themeColors.surface, borderTopColor: themeColors.border },
       }}
     >
       <Tabs.Screen
