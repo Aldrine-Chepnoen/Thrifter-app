@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText, LogOut } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -24,7 +24,7 @@ const WhatsAppIcon = () => (
   </svg>
 );
 
-const ContactDropdown = ({ onClose }) => (
+const ContactDropdown = ({ onClose, user, onLogout }) => (
   <div className="absolute left-0 top-full mt-2 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
     <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
       Find us on
@@ -65,10 +65,19 @@ const ContactDropdown = ({ onClose }) => (
       href="/thrifter-privacy-policy.pdf"
       target="_blank" rel="noopener noreferrer"
       onClick={onClose}
-      className="flex items-center gap-3 px-4 pb-3 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+      className={`flex items-center gap-3 px-4 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300 ${user ? 'pb-2.5' : 'pb-3'}`}
     >
       <FileText className="w-4 h-4" />Privacy Policy
     </a>
+    {user && (
+      <button
+        type="button"
+        onClick={() => { onClose(); onLogout(); }}
+        className="flex items-center gap-3 w-full text-left px-4 pb-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-red-600 dark:text-red-400"
+      >
+        <LogOut className="w-4 h-4" />Logout
+      </button>
+    )}
   </div>
 );
 
@@ -286,7 +295,7 @@ const Navbar = ({
               </button>
 
               {menuOpen && (
-                <ContactDropdown onClose={() => setMenuOpen(false)} />
+                <ContactDropdown onClose={() => setMenuOpen(false)} user={user} onLogout={onLogout} />
               )}
             </div>
 
@@ -358,19 +367,7 @@ const Navbar = ({
                     Profile
                   </span>
                 </Link>
-              ) : user ? (
-                <button
-                  onClick={onLogout}
-                  className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-                  title="Profile"
-                >
-                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
-
-                  <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Profile
-                  </span>
-                </button>
-              ) : (
+              ) : !user ? (
                 <button
                   onClick={openAuthModal}
                   className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
@@ -382,7 +379,7 @@ const Navbar = ({
                     Profile
                   </span>
                 </button>
-              )}
+              ) : null}
 
               {/* Dark mode — ICON ONLY */}
               <button
