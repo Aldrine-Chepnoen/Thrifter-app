@@ -354,6 +354,21 @@ const Navbar = ({
                 </span>
               </Link>
 
+              {/* Orders */}
+              {user && (
+                <Link
+                  to={user.is_vendor ? `/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders` : '/orders'}
+                  className="group flex items-center gap-2 px-2 md:px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Orders"
+                >
+                  <Package className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+
+                  <span className="hidden sm:inline text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Orders
+                  </span>
+                </Link>
+              )}
+
               {/* Profile */}
               {user?.is_vendor && !isOwnProfile ? (
                 <Link
