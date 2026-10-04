@@ -1,10 +1,28 @@
 import React, { useEffect, useState } from 'react';
+import { MessageSquarePlus } from 'lucide-react';
 import { fetchMyOrders } from '../api';
 import { ORDER_STATUS_LABELS } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
+};
+
+// Same official Thrifter contact number used elsewhere (Navbar's
+// contact/social dropdown). There's no self-service cancel endpoint — this
+// just gets the buyer to support with the right order already identified,
+// instead of them having to separately find how to reach us and explain
+// from scratch. Ported from mobile/app/orders.tsx.
+const CANCEL_WHATSAPP_NUMBER = '256794185787';
+
+const isCancellable = (c) => c.orders.every((o) => o.status === 'pending' || o.status === 'paid');
+
+const buildCancelMessage = (c) => {
+  const itemNames = c.orders.flatMap((o) => o.items.map((i) => i.item_name_snapshot));
+  const itemsText = itemNames.length > 3
+    ? `${itemNames.slice(0, 3).join(', ')}, +${itemNames.length - 3} more`
+    : itemNames.join(', ');
+  return `Hi Thrifter, I'd like to cancel my order #${c.id} (${itemsText}). Please help me process this.`;
 };
 
 const Orders = () => {
@@ -44,6 +62,17 @@ const Orders = () => {
                   ))}
                 </div>
               ))}
+              {isCancellable(c) && (
+                <a
+                  href={`https://wa.me/${CANCEL_WHATSAPP_NUMBER}?text=${encodeURIComponent(buildCancelMessage(c))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs font-semibold text-[#EAAD11] hover:opacity-80 mt-2"
+                >
+                  <MessageSquarePlus className="w-3.5 h-3.5" />
+                  Want to cancel this order?
+                </a>
+              )}
             </div>
           ))}
         </div>

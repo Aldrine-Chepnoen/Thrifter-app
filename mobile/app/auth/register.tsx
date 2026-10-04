@@ -97,6 +97,22 @@ export default function RegisterScreen() {
 
         <GoogleSignInButton />
 
+        <Text className="text-center text-xs text-gray-400 dark:text-gray-500 mt-4 px-4 leading-relaxed">
+          By continuing, you agree to discover and support local thrift brands, and to our{' '}
+          <Text
+            className="underline"
+            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-terms-and-conditions.pdf`)}
+          >
+            Terms & Conditions
+          </Text>{' '}and{' '}
+          <Text
+            className="underline"
+            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-privacy-policy.pdf`)}
+          >
+            Privacy Policy
+          </Text>.
+        </Text>
+
         <View className="flex-row items-center gap-3 my-5">
           <View className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
           <Text className="text-xs text-gray-400 dark:text-gray-500">or continue with email</Text>
@@ -216,22 +232,6 @@ export default function RegisterScreen() {
             <Text className="text-[#EAAD11] font-semibold">Sign In</Text>
           </Text>
         </TouchableOpacity>
-
-        <Text className="text-center text-xs text-gray-400 dark:text-gray-500 mt-6 px-4 leading-relaxed">
-          By continuing, you agree to discover and support local thrift brands, and to our{' '}
-          <Text
-            className="underline"
-            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-terms-and-conditions.pdf`)}
-          >
-            Terms & Conditions
-          </Text>{' '}and{' '}
-          <Text
-            className="underline"
-            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-privacy-policy.pdf`)}
-          >
-            Privacy Policy
-          </Text>.
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );

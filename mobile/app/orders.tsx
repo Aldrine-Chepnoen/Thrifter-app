@@ -1,12 +1,28 @@
 // Mobile port of frontend/src/components/Orders.jsx.
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '@/lib/api';
 import { getImageSrc } from '@/lib/imageHost';
+
+// Same official Thrifter contact number used in the app's social/contact
+// dropdown. There's no self-service cancel endpoint — this just gets the
+// buyer to support with the right order already identified, instead of
+// them having to separately find how to reach us and explain from scratch.
+const CANCEL_WHATSAPP_NUMBER = '256794185787';
+
+const isCancellable = (c: CheckoutOut) => c.orders.every((o) => o.status === 'pending' || o.status === 'paid');
+
+const buildCancelMessage = (c: CheckoutOut) => {
+  const itemNames = c.orders.flatMap((o) => o.items.map((i) => i.item_name_snapshot));
+  const itemsText = itemNames.length > 3
+    ? `${itemNames.slice(0, 3).join(', ')}, +${itemNames.length - 3} more`
+    : itemNames.join(', ');
+  return `Hi Thrifter, I'd like to cancel my order #${c.id} (${itemsText}). Please help me process this.`;
+};
 
 // Mirrors frontend/src/utils.js's ORDER_STATUS_LABELS.
 const ORDER_STATUS_LABELS: Record<string, string> = {
@@ -88,6 +104,15 @@ export default function OrdersScreen() {
                   ))}
                 </View>
               ))}
+              {isCancellable(c) && (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`https://wa.me/${CANCEL_WHATSAPP_NUMBER}?text=${encodeURIComponent(buildCancelMessage(c))}`)}
+                  className="flex-row items-center gap-1 mt-2"
+                >
+                  <Ionicons name="chatbox-ellipses-outline" size={14} color="#EAAD11" />
+                  <Text className="text-xs font-semibold text-[#EAAD11]">Want to cancel this order?</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))}
         </ScrollView>
