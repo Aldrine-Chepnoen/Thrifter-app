@@ -54,7 +54,7 @@ const ContactDropdown = ({ onClose, user, onLogout }) => (
       <WhatsAppIcon />WhatsApp
     </a>
     <a
-      href="/thrifter-terms-and-conditions.pdf"
+      href="/terms-and-conditions"
       target="_blank" rel="noopener noreferrer"
       onClick={onClose}
       className="flex items-center gap-3 px-4 py-2.5 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
@@ -62,7 +62,7 @@ const ContactDropdown = ({ onClose, user, onLogout }) => (
       <FileText className="w-4 h-4" />Terms & Conditions
     </a>
     <a
-      href="/thrifter-privacy-policy.pdf"
+      href="/privacy-policy"
       target="_blank" rel="noopener noreferrer"
       onClick={onClose}
       className={`flex items-center gap-3 px-4 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300 ${user ? 'pb-2.5' : 'pb-3'}`}

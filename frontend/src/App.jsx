@@ -26,6 +26,8 @@ import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
 import HomeBanner from './components/HomeBanner';
 import CartFloatingBar from './components/CartFloatingBar';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsAndConditions from './components/TermsAndConditions';
 import { useToast } from './context/ToastContext';
 
 function App() {
@@ -603,6 +605,8 @@ function App() {
             ? <AdminDashboard user={user} onOutfitBuilderClick={() => navigate('/outfit-builder')} />
             : <Navigate to="/" replace />
         } />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
