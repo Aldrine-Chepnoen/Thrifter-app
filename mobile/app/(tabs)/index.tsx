@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, FlatList, RefreshControl,
   ActivityIndicator, Dimensions, TouchableOpacity, Keyboard, Modal, ScrollView, Linking,
 } from 'react-native';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,16 @@ import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useThemeColors } from '@/hooks/use-theme-colors';
+import { getImageSrc } from '@/lib/imageHost';
+
+type VendorSearchResult = {
+  id: number;
+  name: string;
+  banner_image?: string | null;
+  banner_fallback_url?: string | null;
+  location?: string | null;
+  item_count: number;
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const H_PAD = 12;
@@ -84,6 +95,14 @@ export default function FeedScreen() {
   const [searchResults, setSearchResults] = useState<Item[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
+  // Vendor typeahead — rides the same input as item search (mirrors web's
+  // SearchBox: a matching vendor or two surfaces in a dropdown beneath the
+  // bar as you type, while the item search above still runs as normal).
+  // Visibility is derived, not a separate toggle tied to focus/blur — on a
+  // touch device, hiding on blur would race the tap on a dropdown row itself
+  // (blur fires before the press registers) and could swallow the tap.
+  const [vendorResults, setVendorResults] = useState<VendorSearchResult[]>([]);
+
   // Image search state
   const [imageSearchActive, setImageSearchActive] = useState(false);
   const [imageResults, setImageResults] = useState<Item[]>([]);
@@ -121,6 +140,27 @@ export default function FeedScreen() {
       showToast('Could not update wardrobe.');
       throw new Error('failed');
     }
+  };
+
+  // ── Vendor typeahead ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const trimmed = inputQuery.trim();
+    if (trimmed.length < 2) {
+      setVendorResults([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      api.get<VendorSearchResult[]>('/vendors/search', { params: { q: trimmed } })
+        .then(({ data }) => setVendorResults(data))
+        .catch(() => setVendorResults([]));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [inputQuery]);
+
+  const handleVendorPress = (name: string) => {
+    setVendorResults([]);
+    Keyboard.dismiss();
+    router.push(`/vendor/${encodeURIComponent(name)}`);
   };
 
   // ── Feed ──────────────────────────────────────────────────────────────────
@@ -184,6 +224,7 @@ export default function FeedScreen() {
     if (!q) return;
     justSubmitted.current = true;
     Keyboard.dismiss();
+    setVendorResults([]);
     await runSearch(q);
   };
 
@@ -191,6 +232,7 @@ export default function FeedScreen() {
     setInputQuery('');
     setSubmittedQuery('');
     setSearchResults([]);
+    setVendorResults([]);
   };
 
   // If user leaves the input without submitting, revert
@@ -207,6 +249,7 @@ export default function FeedScreen() {
       clearSearch();
     } else {
       setInputQuery(query);
+      setVendorResults([]);
       runSearch(query);
     }
   };
@@ -215,7 +258,7 @@ export default function FeedScreen() {
   const handleImageSearch = async () => {
     if (!user) { router.push('/auth/login'); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.85,
     });
     if (result.canceled || !result.assets?.[0]) return;
@@ -253,36 +296,85 @@ export default function FeedScreen() {
     <View className="flex-1 bg-gray-50 dark:bg-gray-950" style={{ paddingTop: insets.top }}>
       {/* Header */}
       <View className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 pt-3 pb-3">
-        <View className="flex-row items-center mb-3">
-          <TouchableOpacity onPress={() => setContactOpen(true)} className="p-1 -ml-1 mr-1">
+        <View className="mb-3" style={{ position: 'relative' }}>
+          <View className="items-center">
+            <Image
+              source={require('../../assets/images/logo-header.png')}
+              style={{ width: 78, height: 44 }}
+              contentFit="contain"
+              accessibilityLabel="Thrifter"
+            />
+          </View>
+          <TouchableOpacity
+            onPress={() => setContactOpen(true)}
+            className="p-1"
+            style={{ position: 'absolute', left: 0, top: 0, bottom: 0, justifyContent: 'center' }}
+          >
             <Ionicons name="menu" size={22} color={themeColors.iconMuted} />
           </TouchableOpacity>
-          <Text className="text-2xl font-serif-bold tracking-tight text-[#EAAD11]">Thrifter</Text>
         </View>
 
         <View className="flex-row items-center gap-2">
-          <View className="flex-1 flex-row items-center bg-gray-100 dark:bg-gray-800 rounded-xl px-3 gap-2">
-            <Ionicons name="search" size={18} color={themeColors.iconFaint} />
-            <TextInput
-              className="flex-1 py-3 text-base text-gray-900 dark:text-gray-100"
-              placeholder="Search clothing..."
-              placeholderTextColor={themeColors.iconFaint}
-              value={inputQuery}
-              onChangeText={setInputQuery}
-              onSubmitEditing={handleSearch}
-              onBlur={handleBlur}
-              returnKeyType="search"
-              autoCorrect={false}
-              autoCapitalize="none"
-            />
-            {inputQuery.length > 0 ? (
-              <TouchableOpacity onPress={clearSearch}>
-                <Ionicons name="close-circle" size={18} color={themeColors.iconFaint} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={handleImageSearch}>
-                <Ionicons name="camera-outline" size={19} color={themeColors.iconFaint} />
-              </TouchableOpacity>
+          <View style={{ flex: 1, position: 'relative' }}>
+            <View className="flex-row items-center bg-gray-100 dark:bg-gray-800 rounded-xl px-3 gap-2">
+              <Ionicons name="search" size={18} color={themeColors.iconFaint} />
+              <TextInput
+                className="flex-1 py-3 text-base text-gray-900 dark:text-gray-100"
+                placeholder="Search items, categories, or vendors..."
+                placeholderTextColor={themeColors.iconFaint}
+                value={inputQuery}
+                onChangeText={setInputQuery}
+                onSubmitEditing={handleSearch}
+                onBlur={handleBlur}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {inputQuery.length > 0 ? (
+                <TouchableOpacity onPress={clearSearch}>
+                  <Ionicons name="close-circle" size={18} color={themeColors.iconFaint} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={handleImageSearch}>
+                  <Ionicons name="camera-outline" size={19} color={themeColors.iconFaint} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Vendor typeahead dropdown */}
+            {vendorResults.length > 0 && !isSearchMode && !imageSearchActive && (
+              <View
+                style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 6, zIndex: 50 }}
+                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden"
+              >
+                <Text className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Vendors</Text>
+                {vendorResults.map((v) => {
+                  const thumb = (v.banner_image || v.banner_fallback_url)
+                    ? getImageSrc({ image_path: v.banner_image, fallback_url: v.banner_fallback_url }, 64)
+                    : null;
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      onPress={() => handleVendorPress(v.name)}
+                      className="flex-row items-center gap-3 px-4 py-2.5"
+                    >
+                      <View className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 items-center justify-center overflow-hidden">
+                        {thumb ? (
+                          <Image source={{ uri: thumb }} style={{ width: 32, height: 32 }} contentFit="cover" />
+                        ) : (
+                          <Ionicons name="storefront-outline" size={14} color={themeColors.iconFaint} />
+                        )}
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-sm font-medium text-gray-800 dark:text-gray-100" numberOfLines={1}>{v.name}</Text>
+                        <Text className="text-xs text-gray-400" numberOfLines={1}>
+                          {v.item_count} item{v.item_count === 1 ? '' : 's'}{v.location ? ` · ${v.location}` : ''}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             )}
           </View>
           <TouchableOpacity

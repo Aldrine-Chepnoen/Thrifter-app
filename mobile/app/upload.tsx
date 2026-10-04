@@ -94,7 +94,7 @@ export default function UploadScreen() {
     const remaining = 3 - images.length;
     if (remaining <= 0) return;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       selectionLimit: remaining,
       quality: 0.85,

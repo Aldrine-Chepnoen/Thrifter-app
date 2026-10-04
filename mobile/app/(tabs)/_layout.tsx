@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, Text, Animated } from 'react-native';
@@ -16,10 +16,13 @@ function TabIcon({ name, color }: { name: IoniconName; color: ColorValue }) {
 // previously the cart was only reachable/visible via the Home tab's header)
 // and a one-shot pulse whenever an item is actually added, driven by
 // CartContext's `pulseKey` rather than the count itself (so removing an item
-// doesn't also pulse).
+// doesn't also pulse). Scale alone on a 24px icon is too subtle to catch —
+// mirrors web's Navbar.jsx, which pairs the scale with a brief gold color
+// flash for the same reason.
 function CartTabIcon({ color }: { color: ColorValue }) {
   const { cartItems, pulseKey } = useCart();
   const scale = useRef(new Animated.Value(1)).current;
+  const [pulsing, setPulsing] = useState(false);
   const count = cartItems.length;
 
   useEffect(() => {
@@ -29,13 +32,15 @@ function CartTabIcon({ color }: { color: ColorValue }) {
       Animated.spring(scale, { toValue: 1.35, useNativeDriver: true, speed: 30, bounciness: 12 }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 8 }),
     ]).start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPulsing(true);
+    const t = setTimeout(() => setPulsing(false), 500);
+    return () => clearTimeout(t);
   }, [pulseKey]);
 
   return (
     <View style={{ width: 24, height: 24 }}>
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name="bag-outline" size={24} color={color} />
+        <Ionicons name="bag-outline" size={24} color={pulsing ? '#EAAD11' : color} />
       </Animated.View>
       {count > 0 && (
         <View

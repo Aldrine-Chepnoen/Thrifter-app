@@ -264,12 +264,8 @@ const Navbar = ({
     >
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
         <div className="relative flex items-center justify-center w-full md:w-auto">
-          <Link
-            to="/"
-            onClick={handleLogoClick}
-            className="text-xl md:text-2xl font-serif font-bold tracking-tight text-[#EAAD11]"
-          >
-            Thrifter
+          <Link to="/" onClick={handleLogoClick} className="flex items-center">
+            <img src="/logo-header.png" alt="Thrifter" className="h-10 md:h-12 w-auto" />
           </Link>
 
           {/* Mobile-only: hamburger top-right of logo row, homepage only */}
