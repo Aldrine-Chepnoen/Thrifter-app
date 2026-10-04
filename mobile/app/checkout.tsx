@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -23,6 +23,13 @@ import { useRef, useEffect } from 'react';
 const formatUGX = (n: number) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
+
+const FRONTEND_BASE_URL = 'https://thrifter-ug.com';
+// #page=4 jumps straight to clause 8 "Returns, Refunds and Issues" — best
+// effort (most in-browser/mobile PDF viewers honor the fragment, a few
+// OS-level ones ignore it and just open to page 1, which is still fine).
+const TERMS_RETURNS_URL = `${FRONTEND_BASE_URL}/thrifter-terms-and-conditions.pdf#page=4`;
+const PRIVACY_URL = `${FRONTEND_BASE_URL}/thrifter-privacy-policy.pdf`;
 
 // Mirrors the backend's _calculate_delivery_fee (backend/main.py) — kept in
 // sync manually so the preview matches what /checkout actually charges.
@@ -228,6 +235,15 @@ export default function CheckoutScreen() {
         </ScrollView>
 
         <View className="px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
+          <Text className="text-center text-xs text-gray-400 dark:text-gray-500 mb-3 px-2 leading-relaxed">
+            By placing this order, you agree to our{' '}
+            <Text className="underline" onPress={() => Linking.openURL(TERMS_RETURNS_URL)}>
+              Terms & Conditions
+            </Text>{' '}(including our returns & refunds policy) and{' '}
+            <Text className="underline" onPress={() => Linking.openURL(PRIVACY_URL)}>
+              Privacy Policy
+            </Text>.
+          </Text>
           <TouchableOpacity
             onPress={isCod ? handleConfirmCod : handleConfirmPay}
             disabled={submitting}
