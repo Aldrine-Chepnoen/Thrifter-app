@@ -59,8 +59,8 @@ const CONTACT_LINKS = [
   { label: 'WhatsApp', icon: 'logo-whatsapp' as const, url: 'https://wa.me/256794185787' },
 ];
 const LEGAL_LINKS = [
-  { label: 'Terms & Conditions', url: 'https://thrifter-ug.com/thrifter-terms-and-conditions.pdf' },
-  { label: 'Privacy Policy', url: 'https://thrifter-ug.com/thrifter-privacy-policy.pdf' },
+  { label: 'Terms & Conditions', url: 'https://thrifter-ug.com/terms-and-conditions' },
+  { label: 'Privacy Policy', url: 'https://thrifter-ug.com/privacy-policy' },
 ];
 
 type Sort = 'random' | 'for_you' | 'latest';

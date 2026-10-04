@@ -101,13 +101,13 @@ export default function RegisterScreen() {
           By continuing, you agree to discover and support local thrift brands, and to our{' '}
           <Text
             className="underline"
-            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-terms-and-conditions.pdf`)}
+            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/terms-and-conditions`)}
           >
             Terms & Conditions
           </Text>{' '}and{' '}
           <Text
             className="underline"
-            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/thrifter-privacy-policy.pdf`)}
+            onPress={() => Linking.openURL(`${FRONTEND_BASE_URL}/privacy-policy`)}
           >
             Privacy Policy
           </Text>.

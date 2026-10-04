@@ -25,11 +25,12 @@ const formatUGX = (n: number) => {
 };
 
 const FRONTEND_BASE_URL = 'https://thrifter-ug.com';
-// #page=4 jumps straight to clause 8 "Returns, Refunds and Issues" — best
-// effort (most in-browser/mobile PDF viewers honor the fragment, a few
-// OS-level ones ignore it and just open to page 1, which is still fine).
-const TERMS_RETURNS_URL = `${FRONTEND_BASE_URL}/thrifter-terms-and-conditions.pdf#page=4`;
-const PRIVACY_URL = `${FRONTEND_BASE_URL}/thrifter-privacy-policy.pdf`;
+// T&C/Privacy moved from static PDFs to real webpages. #refunds jumps
+// straight to clause 8 "Returns, Refunds and Issues" via a real HTML anchor
+// (id="refunds", confirmed present on the live page) — reliable in a way the
+// old PDF's #page=4 fragment never fully was across every viewer.
+const TERMS_RETURNS_URL = `${FRONTEND_BASE_URL}/terms-and-conditions#refunds`;
+const PRIVACY_URL = `${FRONTEND_BASE_URL}/privacy-policy`;
 
 // Mirrors the backend's _calculate_delivery_fee (backend/main.py) — kept in
 // sync manually so the preview matches what /checkout actually charges.
