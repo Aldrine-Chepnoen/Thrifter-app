@@ -78,8 +78,31 @@ const PrivacyPolicy = () => (
       </ul>
     </section>
 
+    <section className="mb-6" id="account-deletion">
+      <h2 className="text-xl font-serif font-bold mb-2">7. Account Deletion</h2>
+      <p className="mb-2">You can permanently delete your Thrifter account and its associated personal data at any time:</p>
+      <ul className="list-disc pl-6 space-y-2 mb-2">
+        <li><strong>In the mobile app:</strong> sign in, go to Profile, and select "Delete Account".</li>
+        <li><strong>On the website:</strong> sign in at thrifter-ug.com, go to Account, and select "Delete my account".</li>
+      </ul>
+      <p className="mb-2">
+        Both paths require you to be signed in and take effect immediately. Upon deletion, your email address, password,
+        and Google sign-in link are permanently removed or anonymized, and your account can no longer be used to sign in.
+      </p>
+      <p className="mb-2">
+        As described in Section 4 above, transactional invoices, financial records, and order history tied to your
+        account are retained for a minimum of seven (7) years as required by Section 17 of Uganda's Electronic
+        Transactions Act, 2011, even after your account is deleted. This retained data is kept solely for legal and
+        accounting compliance and is no longer linked to a usable login.
+      </p>
+      <p>
+        Vendor accounts with a non-zero wallet balance, an unresolved withdrawal, or an order still in progress must
+        resolve these first — the app will indicate what needs to be settled before deletion can proceed.
+      </p>
+    </section>
+
     <section>
-      <h2 className="text-xl font-serif font-bold mb-2">7. Contact</h2>
+      <h2 className="text-xl font-serif font-bold mb-2">8. Contact</h2>
       <p>
         Questions about this Privacy Policy may be directed to ercinnovations.ug@gmail.com or +256 794 185 787.
       </p>
