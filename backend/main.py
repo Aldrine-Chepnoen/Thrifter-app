@@ -2158,6 +2158,72 @@ async def _reconciliation_loop():
 async def start_reconciliation_loop():
     asyncio.create_task(_reconciliation_loop())
 
+def _run_premium_expiry_reminder_sweep() -> None:
+    """Texts a premium vendor once, the first time their subscription enters
+    the PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE window before expires_at — not a
+    recurring nag for the rest of that window (see expiry_reminder_sent_at).
+
+    Candidate rows are found with a plain scan over VendorSubscription, but a
+    candidate can be stale: a vendor who already renewed ahead of expiry has
+    that renewal stacked onto a *newer* row (see
+    vendor_premium.finalize_subscription_payment), leaving this older row's
+    own expires_at untouched even though it no longer governs the vendor's
+    actual premium status. Re-verifying each candidate against
+    get_active_subscription() (the single source of truth also used by
+    is_vendor_premium()) before sending avoids warning an already-renewed
+    vendor that they're about to lose access they're not actually about to lose.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        window_end = now + timedelta(days=settings.PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE)
+        candidates = (
+            db.query(models.VendorSubscription)
+            .filter(
+                models.VendorSubscription.status == "successful",
+                models.VendorSubscription.expiry_reminder_sent_at.is_(None),
+                models.VendorSubscription.expires_at.isnot(None),
+                models.VendorSubscription.expires_at > now,
+                models.VendorSubscription.expires_at <= window_end,
+            )
+            .all()
+        )
+        for sub in candidates:
+            active = vendor_premium.get_active_subscription(db, sub.vendor_id)
+            if not active or active.id != sub.id:
+                # Superseded by a later renewal — nothing to warn about, just
+                # stop rechecking this row on every future sweep.
+                sub.expiry_reminder_sent_at = now
+                continue
+            vendor = db.query(models.Vendor).filter(models.Vendor.id == sub.vendor_id).first()
+            if not vendor:
+                sub.expiry_reminder_sent_at = now
+                continue
+            days_left = max(0, (active.expires_at - now).days)
+            link = f"{settings.FRONTEND_BASE_URL}/vendor/{quote(vendor.name)}?tab=subscription"
+            try:
+                sms.send_sms(vendor.whatsapp, sms.premium_expiry_reminder_message(vendor.name, days_left, link))
+            finally:
+                # Mark sent regardless of send_sms's own outcome — send_sms is
+                # already best-effort/non-blocking and never raises (see its
+                # docstring), so reaching here means a send was attempted.
+                sub.expiry_reminder_sent_at = now
+        if candidates:
+            db.commit()
+    except Exception as e:
+        logger.error(f"Premium expiry reminder sweep failed: {str(e)}", exc_info=True)
+    finally:
+        db.close()
+
+async def _premium_expiry_reminder_loop():
+    while True:
+        await asyncio.to_thread(_run_premium_expiry_reminder_sweep)
+        await asyncio.sleep(settings.PREMIUM_EXPIRY_REMINDER_INTERVAL_SECONDS)
+
+@app.on_event("startup")
+async def start_premium_expiry_reminder_loop():
+    asyncio.create_task(_premium_expiry_reminder_loop())
+
 @app.post("/webhooks/nylonpay")
 async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
     raw_body = await request.body()

@@ -400,5 +400,9 @@ class VendorSubscription(Base):
     raw_response = Column(Text, nullable=True)  # JSON-encoded
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Set once the 3-days-before-expiry reminder SMS has been sent for this
+    # row (or once determined moot — see _run_premium_expiry_reminder_sweep)
+    # so the daily sweep never sends it twice.
+    expiry_reminder_sent_at = Column(DateTime, nullable=True)
 
     vendor = relationship("Vendor")

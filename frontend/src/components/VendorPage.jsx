@@ -82,7 +82,9 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const autoOpenedSubscriptionRef = useRef(false);
 
   const isOwnProfile = user?.vendor_name?.toLowerCase() === name?.toLowerCase();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'orders' ? 'orders' : 'items');
+  const [activeTab, setActiveTab] = useState(
+    ['orders', 'subscription'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'items'
+  );
 
   useEffect(() => {
     if (!user || !vendorInfo || isOwnProfile) { setBlocked(false); return; }

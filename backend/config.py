@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     # background reconciliation sweep takes over instead (see
     # _run_reconciliation_sweep) — mirrors CHECKOUT_RESERVATION_MINUTES.
     VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES: int = int(os.getenv("VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES", "20"))
+    # How often the premium-expiry-reminder sweep runs. Daily is plenty —
+    # unlike payment reconciliation this isn't time-critical, so there's no
+    # reason to burn a DB scan every couple minutes like RECONCILIATION_INTERVAL_SECONDS.
+    PREMIUM_EXPIRY_REMINDER_INTERVAL_SECONDS: int = int(os.getenv("PREMIUM_EXPIRY_REMINDER_INTERVAL_SECONDS", "86400"))
+    # How many days before expiry the reminder SMS fires.
+    PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE: int = int(os.getenv("PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE", "3"))
 
     # SMS (EgoSMS / Pahappa Comms API — live transactional sends; see sms.py)
     EGOSMS_USERNAME: Optional[str] = os.getenv("EGOSMS_USERNAME")

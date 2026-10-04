@@ -138,3 +138,11 @@ def phone_verification_message(vendor_name: str, short_link: str) -> str:
         f"Thrifter: Hello {vendor_name}, Please click this link to verify your phone "
         f"number on Thrifter and keep your account active: {short_link}"
     )
+
+
+def premium_expiry_reminder_message(vendor_name: str, days_left: int, link: str) -> str:
+    when = "today" if days_left <= 0 else ("tomorrow" if days_left == 1 else f"in {days_left} days")
+    return (
+        f"Thrifter: Hi {vendor_name}, your Premium subscription expires {when}. "
+        f"Renew now to keep your unlimited listings and lower commission: {link}"
+    )
