@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, ShoppingBag, Package, Store, FileText, LogOut } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
+import { motion, useAnimation, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
 import { searchVendors } from '../api';
 import { getImageSrc } from '../utils';
@@ -24,8 +24,8 @@ const WhatsAppIcon = () => (
   </svg>
 );
 
-const ContactDropdown = ({ onClose }) => (
-  <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
+const ContactDropdown = ({ onClose, user, onLogout }) => (
+  <div className="absolute left-0 top-full mt-2 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg overflow-hidden z-50">
     <p className="px-4 pt-3 pb-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
       Find us on
     </p>
@@ -65,10 +65,19 @@ const ContactDropdown = ({ onClose }) => (
       href="/privacy-policy"
       target="_blank" rel="noopener noreferrer"
       onClick={onClose}
-      className="flex items-center gap-3 px-4 pb-3 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300"
+      className={`flex items-center gap-3 px-4 pt-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-gray-700 dark:text-gray-300 ${user ? 'pb-2.5' : 'pb-3'}`}
     >
       <FileText className="w-4 h-4" />Privacy Policy
     </a>
+    {user && (
+      <button
+        type="button"
+        onClick={() => { onClose(); onLogout(); }}
+        className="flex items-center gap-3 w-full text-left px-4 pb-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-sm font-medium text-red-600 dark:text-red-400"
+      >
+        <LogOut className="w-4 h-4" />Logout
+      </button>
+    )}
   </div>
 );
 
@@ -182,6 +191,7 @@ const Navbar = ({
   darkMode,
   toggleDarkMode,
   cartCount = 0,
+  cartPulseKey = 0,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -192,13 +202,31 @@ const Navbar = ({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const mobileMenuRef = useRef(null);
-  const desktopMenuRef = useRef(null);
+
+  // One-shot bounce + gold flash on the cart icon whenever an item is
+  // actually added — driven by cartPulseKey rather than cartCount so
+  // removes/clears stay silent. The color flash does the heavy lifting for
+  // noticeability; scale alone on a 20px icon is too subtle to catch. Scale
+  // runs on Framer Motion; color is a plain CSS class swap (via cartPulsing)
+  // so it restores the right light/dark idle color without needing an
+  // explicit "currentcolor" value to animate back to.
+  const cartIconControls = useAnimation();
+  const [cartPulsing, setCartPulsing] = useState(false);
+  useEffect(() => {
+    if (cartPulseKey === 0) return;
+    cartIconControls.set({ scale: 1 });
+    cartIconControls.start({
+      scale: [1, 1.5, 1],
+      transition: { duration: 0.5, times: [0, 0.35, 1], ease: 'easeOut' },
+    });
+    setCartPulsing(true);
+    const t = setTimeout(() => setCartPulsing(false), 500);
+    return () => clearTimeout(t);
+  }, [cartPulseKey, cartIconControls]);
 
   useEffect(() => {
     const handler = (e) => {
-      const outsideMobile = !mobileMenuRef.current?.contains(e.target);
-      const outsideDesktop = !desktopMenuRef.current?.contains(e.target);
-      if (outsideMobile && outsideDesktop) setMenuOpen(false);
+      if (!mobileMenuRef.current?.contains(e.target)) setMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -262,136 +290,139 @@ const Navbar = ({
       transition={{ duration: 0.35, ease: "easeInOut" }}
       className="sticky top-0 z-50 bg-white/90 dark:bg-gray-900/90 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 py-3 px-4 md:py-4 md:px-6"
     >
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-0">
-        <div className="relative flex items-center justify-center w-full md:w-auto">
-          <Link to="/" onClick={handleLogoClick} className="flex items-center">
-            <img src="/logo-header.png" alt="Thrifter" className="h-10 md:h-12 w-auto" />
-          </Link>
+      <div className="max-w-7xl mx-auto">
 
-          {/* Mobile-only: hamburger top-right of logo row, homepage only */}
-          {isHomePage && (
-            <div ref={mobileMenuRef} className="absolute right-0 md:hidden">
+        {/* ==================== MAIN HEADER ==================== */}
+        <div className="flex items-center justify-between gap-3">
+
+          {/* LEFT: Hamburger + Thrifter branding */}
+          <div className="flex items-center gap-3 min-w-0">
+
+            {/* Hamburger menu */}
+            <div ref={mobileMenuRef} className="relative">
               <button
                 onClick={() => setMenuOpen(o => !o)}
-                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
                 title="Contact & socials"
+                aria-label="Open menu"
               >
-                {menuOpen ? <X className="w-4 h-4 text-gray-600" /> : <Menu className="w-4 h-4 text-gray-600" />}
+                {menuOpen ? (
+                  <X className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                ) : (
+                  <Menu className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                )}
               </button>
-              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
-            </div>
-          )}
-        </div>
 
-        {showIcons && (
-          <div className="flex items-center justify-around md:justify-end gap-1 md:gap-2">
-            <button
-              onClick={() => handleProtectedAction('/wardrobe', true)}
-              className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-              title="Wardrobe"
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Wardrobe</span>
-              <Heart className="w-3.5 h-3.5" />
-            </button>
-
-            <Link
-              to="/cart"
-              className="relative flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-              title="Cart"
-            >
-              <span className="text-[10px] md:text-xs tracking-tight">Cart</span>
-              <ShoppingBag className="w-3.5 h-3.5" />
-              {cartCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {cartCount}
-                </span>
+              {menuOpen && (
+                <ContactDropdown onClose={() => setMenuOpen(false)} user={user} onLogout={onLogout} />
               )}
+            </div>
+
+            {/* Thrifter logo */}
+            <Link to="/" onClick={handleLogoClick} className="flex items-center min-w-0">
+              <img src="/logo-header.png" alt="Thrifter" className="h-9 md:h-11 w-auto" />
             </Link>
 
-            {user && (
-              <Link
-                to={user.is_vendor ? `/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders` : '/orders'}
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-                title="Orders"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">Orders</span>
-                <Package className="w-3.5 h-3.5" />
-              </Link>
-            )}
-
-            {user?.is_admin && (
-              <Link
-                to="/admin"
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow banner-text-shadow"
-                title="Admin Dashboard"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">Admin</span>
-                <Shield className="w-3.5 h-3.5" />
-              </Link>
-            )}
-
-            {user ? (
-              <div className="flex flex-col items-center gap-1 ml-1">
-                <Link
-                  to="/account"
-                  className="hidden lg:inline text-[10px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium flex items-center gap-1"
-                  title="Account settings"
-                >
-                  {user.is_vendor && user.is_premium && <Crown className="w-3 h-3 text-[#EAAD11]" />}
-                  {user.is_vendor ? (user.is_premium ? 'Premium Vendor' : 'Vendor') : 'User'}
-                </Link>
-                <button
-                  onClick={onLogout}
-                  className="px-3 py-1.5 bg-[#EAAD11] text-black font-bold rounded-lg hover:opacity-90 text-[10px] transition-all input-shadow banner-text-shadow"
-                >
-                  Logout
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={openAuthModal}
-                className="bg-[#EAAD11] text-black px-4 py-2 rounded-xl hover:opacity-90 transition-all font-bold text-sm ml-2 input-shadow"
-              >
-                Login
-              </button>
-            )}
-
-            {user?.is_vendor && !isOwnProfile && (
-              <Link
-                to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
-                className="flex flex-col items-center gap-1 bg-[#EAAD11] text-black px-2 md:px-4 py-1.5 rounded-xl hover:opacity-90 transition-all font-medium input-shadow"
-                title="My Shop"
-              >
-                <span className="text-[10px] md:text-xs tracking-tight">My profile</span>
-                <User className="w-3.5 h-3.5" />
-              </Link>
-            )}
-
-            <button
-              onClick={toggleDarkMode}
-              className="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all ml-1"
-              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {darkMode
-                ? <Sun className="w-4 h-4 text-[#EAAD11]" />
-                : <Moon className="w-4 h-4 text-gray-600" />
-              }
-            </button>
-
-            {/* Desktop-only: hamburger at far right of icons row */}
-            <div ref={desktopMenuRef} className="relative hidden md:block">
-              <button
-                onClick={() => setMenuOpen(o => !o)}
-                className="flex items-center justify-center p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-                title="Contact & socials"
-              >
-                {menuOpen ? <X className="w-4 h-4 text-gray-600 dark:text-gray-400" /> : <Menu className="w-4 h-4 text-gray-600 dark:text-gray-400" />}
-              </button>
-              {menuOpen && <ContactDropdown onClose={() => setMenuOpen(false)} />}
-            </div>
-
           </div>
-        )}
+
+          {/* RIGHT: Main navigation */}
+          {showIcons && (
+            <div className="flex items-center gap-1 md:gap-2">
+
+              {/* Wardrobe */}
+              <button
+                onClick={() => handleProtectedAction('/wardrobe', true)}
+                className="group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Wardrobe"
+                aria-label="Wardrobe"
+              >
+                <Heart className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+              </button>
+
+              {/* Cart */}
+              <Link
+                to="/cart"
+                className="relative group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title="Cart"
+                aria-label="Cart"
+              >
+                <motion.div animate={cartIconControls} className="inline-flex">
+                  <ShoppingBag className={`w-5 h-5 transition-colors group-hover:text-[#EAAD11] ${cartPulsing ? 'text-[#EAAD11]' : 'text-gray-800 dark:text-gray-200'}`} />
+                </motion.div>
+
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </Link>
+
+              {/* Orders */}
+              {user && (
+                <Link
+                  to={user.is_vendor ? `/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders` : '/orders'}
+                  className="group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Orders"
+                  aria-label="Orders"
+                >
+                  <Package className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+                </Link>
+              )}
+
+              {/* Admin */}
+              {user?.is_admin && (
+                <Link
+                  to="/admin"
+                  className="group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Admin Dashboard"
+                  aria-label="Admin Dashboard"
+                >
+                  <Shield className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+                </Link>
+              )}
+
+              {/* Profile */}
+              {user?.is_vendor && !isOwnProfile ? (
+                <Link
+                  to={`/vendor/${encodeURIComponent(user.vendor_name)}`}
+                  className="group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Profile"
+                  aria-label="Profile"
+                >
+                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+                </Link>
+              ) : !user ? (
+                <button
+                  onClick={openAuthModal}
+                  className="group flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  title="Login"
+                  aria-label="Login"
+                >
+                  <User className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
+                </button>
+              ) : null}
+
+              {/* Dark mode — ICON ONLY */}
+              <button
+                onClick={toggleDarkMode}
+                className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {darkMode ? (
+                  <Sun className="w-5 h-5 text-[#EAAD11]" />
+                ) : (
+                  <Moon className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                )}
+              </button>
+
+            </div>
+          )}
+
+        </div>
+        {/* ================== END MAIN HEADER ================== */}
+      </div>
+
 
         {isHomePage && (
           <div className="w-full md:hidden mt-1">
@@ -416,7 +447,6 @@ const Navbar = ({
             </div>
           </div>
         )}
-      </div>
 
       {isHomePage && (
         <>

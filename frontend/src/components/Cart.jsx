@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getImageSrc } from '../utils';
 import api from '../api';
 
+
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
