@@ -2,9 +2,6 @@
 frontend/node_modules/
 frontend/dist/
 
-# Mobile app (tracked on mobile-dev only — remove this line before final merge to main)
-mobile/
-
 # Python caches
 **/__pycache__/
 *.pyc
@@ -12,7 +9,7 @@ mobile/
 # Local images and generated embeddings
 backend/images/
 backend/embeddings.json
-images
+/images
 backend/cluster_items.py
 backend/clusters.html
 

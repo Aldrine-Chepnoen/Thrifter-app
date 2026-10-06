@@ -14,7 +14,7 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://thrifter-app-production.up.railway.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "202297682269-hh2hivl7rlev9mmfjto78te52d2vl72g.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "REPLACE_WITH_GOOGLE_IOS_CLIENT_ID"
       }
     },
@@ -22,14 +22,16 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://thrifter-app-production.up.railway.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "202297682269-hh2hivl7rlev9mmfjto78te52d2vl72g.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "REPLACE_WITH_GOOGLE_IOS_CLIENT_ID"
       }
     }
   },
   "submit": {
     "production": {
-      "serviceAccountKeyPath": "./gentle-habitat-510215-q4-71011f619228.json"
+      "android": {
+        "serviceAccountKeyPath": "./gentle-habitat-510215-q4-71011f619228.json"
+      }
     }
   }
 }
