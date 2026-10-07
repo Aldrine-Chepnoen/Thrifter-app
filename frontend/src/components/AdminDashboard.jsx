@@ -16,6 +16,12 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [stylesSubTab, setStylesSubTab] = useState('curated'); // 'curated' or 'library'
   const [stats, setStats] = useState(null);
+  // 'all' | 'this_month' | 'last_30' | 'custom' — only the earnings cards
+  // respond to this; wallet balance is a running ledger total and stays
+  // all-time regardless (see backend/main.py's admin_stats).
+  const [statsPeriod, setStatsPeriod] = useState('all');
+  const [statsCustomStart, setStatsCustomStart] = useState('');
+  const [statsCustomEnd, setStatsCustomEnd] = useState('');
   const [vendorWallets, setVendorWallets] = useState(null);
   const [vendorWalletsLoading, setVendorWalletsLoading] = useState(false);
   const [showVendorWalletsModal, setShowVendorWalletsModal] = useState(false);
@@ -199,14 +205,42 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
     }
   };
 
-  const loadStats = async () => {
+  const statsPeriodRange = (period) => {
+    const toISODate = (d) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    if (period === 'this_month') {
+      return { start_date: toISODate(new Date(today.getFullYear(), today.getMonth(), 1)), end_date: toISODate(today) };
+    }
+    if (period === 'last_30') {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 29);
+      return { start_date: toISODate(start), end_date: toISODate(today) };
+    }
+    return null; // 'all'
+  };
+
+  const loadStats = async (period = statsPeriod, customStart = statsCustomStart, customEnd = statsCustomEnd) => {
     try {
-      const res = await api.get('/admin/stats');
+      let params = {};
+      if (period === 'custom') {
+        if (customStart) params.start_date = customStart;
+        if (customEnd) params.end_date = customEnd;
+      } else {
+        params = statsPeriodRange(period) || {};
+      }
+      const res = await api.get('/admin/stats', { params });
       setStats(res.data);
     } catch (e) {
       console.error('Failed to load stats', e);
     }
   };
+
+  const handleStatsPeriodChange = (period) => {
+    setStatsPeriod(period);
+    if (period !== 'custom') loadStats(period);
+  };
+
+  const applyCustomStatsRange = () => loadStats('custom', statsCustomStart, statsCustomEnd);
 
   const openVendorWalletsModal = async () => {
     setShowVendorWalletsModal(true);
@@ -557,12 +591,59 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                 <StatCard icon={<Store />} label="Hidden Vendors" value={stats.inactive_vendors} color="red" />
               </div>
 
-              <h2 className="text-base font-bold mb-4">Money</h2>
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                <h2 className="text-base font-bold">Money</h2>
+                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+                  {[
+                    { id: 'all', label: 'All time' },
+                    { id: 'this_month', label: 'This month' },
+                    { id: 'last_30', label: 'Last 30 days' },
+                    { id: 'custom', label: 'Custom' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleStatsPeriodChange(opt.id)}
+                      className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${
+                        statsPeriod === opt.id
+                          ? 'bg-white dark:bg-gray-700 text-black dark:text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {statsPeriod === 'custom' && (
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <input
+                    type="date"
+                    value={statsCustomStart}
+                    onChange={(e) => setStatsCustomStart(e.target.value)}
+                    className="text-sm px-3 py-1.5 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                  />
+                  <span className="text-sm text-gray-400">to</span>
+                  <input
+                    type="date"
+                    value={statsCustomEnd}
+                    onChange={(e) => setStatsCustomEnd(e.target.value)}
+                    className="text-sm px-3 py-1.5 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                  />
+                  <button
+                    onClick={applyCustomStatsRange}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg bg-[#EAAD11] text-black hover:opacity-90"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
                 <StatCard icon={<DollarSign />} label="Total Platform Earnings" value={stats.total_platform_earnings} prefix="UGX" color="green" />
                 <StatCard icon={<DollarSign />} label="Commission Earnings" value={stats.total_commission_earnings} prefix="UGX" />
                 <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" />
-                <StatCard icon={<Wallet />} label="Total Current Vendor Wallet Balances" value={stats.total_vendor_wallet_balance} prefix="UGX" onClick={openVendorWalletsModal} />
+                <StatCard icon={<Wallet />} label="Vendor Wallet Balances (all-time)" value={stats.total_vendor_wallet_balance} prefix="UGX" onClick={openVendorWalletsModal} />
               </div>
             </>
           ) : <ThrifterLoader />}

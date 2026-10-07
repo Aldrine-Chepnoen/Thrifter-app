@@ -190,7 +190,7 @@ def verify_password(pw: str, hashed: str) -> bool:
     return pwd_context.verify(pw, hashed)
 
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
 
@@ -3989,19 +3989,43 @@ def get_item_wardrobe_save_stats(item_id: int, current_user: models.User = Depen
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/admin/stats", response_model=schemas.AdminStats)
-def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
-    cached = cache.admin_stats_get()
-    if cached is not None:
-        return cached
+def admin_stats(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(require_admin),
+):
+    # Only the unfiltered (all-time) call is cached — a date-filtered view is
+    # an admin drilling into a specific period, not the hot default load.
+    filtered = start_date is not None or end_date is not None
+    if not filtered:
+        cached = cache.admin_stats_get()
+        if cached is not None:
+            return cached
+
     # Commission is only "earned" once a checkout actually paid — orders sitting
     # in "pending" (payment not yet completed) or "cancelled" (failed/refunded)
     # never converted into real revenue.
-    commission_earnings = db.query(func.coalesce(func.sum(models.Order.commission_amount), 0.0)).filter(
+    commission_q = db.query(func.coalesce(func.sum(models.Order.commission_amount), 0.0)).filter(
         models.Order.status.notin_(["pending", "cancelled"])
-    ).scalar()
-    premium_earnings = db.query(func.coalesce(func.sum(models.VendorSubscription.amount), 0.0)).filter(
+    )
+    premium_q = db.query(func.coalesce(func.sum(models.VendorSubscription.amount), 0.0)).filter(
         models.VendorSubscription.status == "successful"
-    ).scalar()
+    )
+    if start_date is not None:
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        commission_q = commission_q.filter(models.Order.created_at >= start_dt)
+        premium_q = premium_q.filter(models.VendorSubscription.created_at >= start_dt)
+    if end_date is not None:
+        end_dt = datetime.combine(end_date, datetime.max.time())
+        commission_q = commission_q.filter(models.Order.created_at <= end_dt)
+        premium_q = premium_q.filter(models.VendorSubscription.created_at <= end_dt)
+
+    commission_earnings = commission_q.scalar()
+    premium_earnings = premium_q.scalar()
+    # The wallet ledger is a running balance, not a period figure — stays
+    # all-time regardless of start_date/end_date so it keeps meaning "what's
+    # currently owed to vendors," not "net wallet movement in this window."
     wallet_balance = db.query(func.coalesce(func.sum(models.VendorWalletTransaction.amount), 0.0)).scalar()
     result = schemas.AdminStats(
         total_users=db.query(models.User).count(),
@@ -4015,7 +4039,8 @@ def admin_stats(db: Session = Depends(get_db), _: models.User = Depends(require_
         total_platform_earnings=commission_earnings + premium_earnings,
         total_vendor_wallet_balance=wallet_balance,
     )
-    cache.admin_stats_set(result)
+    if not filtered:
+        cache.admin_stats_set(result)
     return result
 
 @app.get("/admin/vendor-wallets", response_model=List[schemas.AdminVendorWallet])
