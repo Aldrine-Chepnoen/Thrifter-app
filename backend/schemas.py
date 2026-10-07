@@ -192,6 +192,14 @@ class AdminVendorWallet(BaseModel):
     # requested, awaiting payout", not "hasn't asked yet".
     has_pending_withdrawal: bool
 
+class AdminPremiumVendor(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    # The vendor's current active subscription's expiry — the latest
+    # expires_at among their "successful" VendorSubscription rows, since a
+    # vendor can have several over time (renewals).
+    expires_at: datetime
+
 class AdminUser(BaseModel):
     id: int
     email: str

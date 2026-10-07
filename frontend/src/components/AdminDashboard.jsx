@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus, Check, TrendingUp, ThumbsUp, ThumbsDown, DollarSign, Wallet } from 'lucide-react';
+import { Users, Store, Package, Heart, Trash2, ExternalLink, ToggleLeft, ToggleRight, Pin, PinOff, Sparkles, ChevronRight, X, Edit3, Image as ImageIcon, ChevronLeft, Plus, Check, TrendingUp, ThumbsUp, ThumbsDown, DollarSign, Wallet, Crown } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../api';
@@ -26,6 +26,10 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
   const [vendorWalletsLoading, setVendorWalletsLoading] = useState(false);
   const [showVendorWalletsModal, setShowVendorWalletsModal] = useState(false);
   const [vendorWalletsSearch, setVendorWalletsSearch] = useState('');
+  const [premiumVendors, setPremiumVendors] = useState(null);
+  const [premiumVendorsLoading, setPremiumVendorsLoading] = useState(false);
+  const [showPremiumVendorsModal, setShowPremiumVendorsModal] = useState(false);
+  const [premiumVendorsSearch, setPremiumVendorsSearch] = useState('');
   const [vendors, setVendors] = useState([]);
   const [unverifiedVendors, setUnverifiedVendors] = useState([]);
   const [selectedForDeactivation, setSelectedForDeactivation] = useState(new Set());
@@ -254,6 +258,21 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
       showToast('Could not load vendor wallet balances.');
     } finally {
       setVendorWalletsLoading(false);
+    }
+  };
+
+  const openPremiumVendorsModal = async () => {
+    setShowPremiumVendorsModal(true);
+    setPremiumVendorsSearch('');
+    setPremiumVendorsLoading(true);
+    try {
+      const res = await api.get('/admin/premium-vendors');
+      setPremiumVendors(res.data);
+    } catch (e) {
+      console.error('Failed to load premium vendors', e);
+      showToast('Could not load premium vendor accounts.');
+    } finally {
+      setPremiumVendorsLoading(false);
     }
   };
 
@@ -642,7 +661,7 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
                 <StatCard icon={<DollarSign />} label="Total Platform Earnings" value={stats.total_platform_earnings} prefix="UGX" color="green" />
                 <StatCard icon={<DollarSign />} label="Commission Earnings" value={stats.total_commission_earnings} prefix="UGX" />
-                <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" />
+                <StatCard icon={<DollarSign />} label="Premium Subscription Earnings" value={stats.total_premium_earnings} prefix="UGX" onClick={openPremiumVendorsModal} />
                 <StatCard icon={<Wallet />} label="Vendor Wallet Balances (all-time)" value={stats.total_vendor_wallet_balance} prefix="UGX" onClick={openVendorWalletsModal} />
               </div>
             </>
@@ -1805,6 +1824,76 @@ const AdminDashboard = ({ user, onOutfitBuilderClick }) => {
                   <span className="text-sm font-bold">
                     UGX {vendorWallets.reduce((sum, v) => sum + v.balance, 0).toLocaleString()}
                   </span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showPremiumVendorsModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowPremiumVendorsModal(false)} />
+          <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Crown className="w-5 h-5 text-[#EAAD11]" />
+                Premium Vendor Accounts
+              </h3>
+              <button
+                onClick={() => setShowPremiumVendorsModal(false)}
+                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Soonest-expiring first — only vendors currently on premium are listed.</p>
+
+            {premiumVendorsLoading ? (
+              <div className="py-10"><ThrifterLoader /></div>
+            ) : !premiumVendors || premiumVendors.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">No vendors currently on premium.</p>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={premiumVendorsSearch}
+                  onChange={(e) => setPremiumVendorsSearch(e.target.value)}
+                  placeholder="Search vendors..."
+                  className="w-full text-sm p-2.5 mb-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                />
+                <div className="flex-1 overflow-y-auto -mx-2 px-2">
+                  {premiumVendors
+                    .filter((v) => v.vendor_name.toLowerCase().includes(premiumVendorsSearch.trim().toLowerCase()))
+                    .map((v) => {
+                      const expiresAt = new Date(v.expires_at);
+                      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24));
+                      const expiringSoon = daysLeft <= 3;
+                      return (
+                        <Link
+                          key={v.vendor_id}
+                          to={`/vendor/${encodeURIComponent(v.vendor_name)}`}
+                          onClick={() => setShowPremiumVendorsModal(false)}
+                          className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg px-2 -mx-2"
+                        >
+                          <span className="text-sm font-medium truncate">{v.vendor_name}</span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            {expiringSoon && (
+                              <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                Expiring soon
+                              </span>
+                            )}
+                            <span className="text-sm font-bold whitespace-nowrap">
+                              {expiresAt.toLocaleDateString('en-UG', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          </span>
+                        </Link>
+                      );
+                    })}
+                </div>
+                <div className="flex items-center justify-between pt-3 mt-1 border-t border-gray-100 dark:border-gray-700">
+                  <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total on premium</span>
+                  <span className="text-sm font-bold">{premiumVendors.length}</span>
                 </div>
               </>
             )}

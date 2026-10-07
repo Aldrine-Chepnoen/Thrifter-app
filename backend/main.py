@@ -4072,6 +4072,28 @@ def admin_vendor_wallets(db: Session = Depends(get_db), _: models.User = Depends
         for r in rows
     ]
 
+@app.get("/admin/premium-vendors", response_model=List[schemas.AdminPremiumVendor])
+def admin_premium_vendors(db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Per-vendor breakdown backing the "Premium Subscription Earnings" stat
+    card — only vendors currently premium are listed (the latest expires_at
+    among their "successful" subscriptions, same source of truth as
+    vendor_premium.get_active_subscription(), must still be in the future).
+    Soonest-expiring first, so an admin can see who's about to lapse."""
+    max_expires = func.max(models.VendorSubscription.expires_at)
+    rows = (
+        db.query(models.VendorSubscription.vendor_id, models.Vendor.name, max_expires.label("expires_at"))
+        .join(models.Vendor, models.Vendor.id == models.VendorSubscription.vendor_id)
+        .filter(models.VendorSubscription.status == "successful")
+        .group_by(models.VendorSubscription.vendor_id, models.Vendor.name)
+        .having(max_expires > datetime.utcnow())
+        .order_by(max_expires.asc())
+        .all()
+    )
+    return [
+        schemas.AdminPremiumVendor(vendor_id=r.vendor_id, vendor_name=r.name, expires_at=r.expires_at)
+        for r in rows
+    ]
+
 @app.get("/admin/users", response_model=List[schemas.AdminUser])
 def admin_list_users(
     skip: int = 0,
