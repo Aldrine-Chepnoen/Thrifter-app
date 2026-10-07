@@ -192,7 +192,12 @@ const VendorOrders = () => {
                     className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                   />
                   <div className="min-w-0">
-                    <p className="font-medium line-clamp-1">{item.item_name_snapshot}</p>
+                    <p className="font-medium line-clamp-1">
+                      {item.item_name_snapshot}
+                      {!item.item_id && (
+                        <span className="ml-2 text-xs font-semibold text-red-500">Wasn't available</span>
+                      )}
+                    </p>
                     <p className="text-xs text-gray-400">
                       Order #{order.id} · {formatUGX(item.price_at_purchase)}{item.quantity > 1 ? ' each' : ''}
                     </p>

@@ -311,7 +311,12 @@ const AdminOrders = () => {
                     className="w-10 h-12 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                   />
                   <div className="min-w-0">
-                    <p className="font-medium line-clamp-1">{item.item_name_snapshot}</p>
+                    <p className="font-medium line-clamp-1">
+                      {item.item_name_snapshot}
+                      {!item.item_id && (
+                        <span className="ml-2 text-xs font-semibold text-red-500">Wasn't available</span>
+                      )}
+                    </p>
                     <p className="text-xs text-gray-400">Order #{order.id}</p>
                     {item.note && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1 mt-0.5 max-w-[220px]">
@@ -454,7 +459,12 @@ const AdminOrders = () => {
                         className="w-9 h-11 object-cover rounded-lg bg-gray-100 dark:bg-gray-700 shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium line-clamp-1">{item.item_name_snapshot}</p>
+                        <p className="text-sm font-medium line-clamp-1">
+                          {item.item_name_snapshot}
+                          {!item.item_id && (
+                            <span className="ml-2 text-xs font-semibold text-red-500">Wasn't available</span>
+                          )}
+                        </p>
                         {item.note && (
                           <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1 mt-0.5">
                             <MessageSquare className="w-3 h-3 flex-shrink-0 mt-0.5" />

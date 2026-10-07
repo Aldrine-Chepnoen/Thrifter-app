@@ -41,6 +41,7 @@ type VendorProfile = {
 
 type OrderItem = {
   id: number;
+  item_id?: number | null;
   item_name_snapshot: string;
   price_at_purchase: number;
   quantity: number;
@@ -477,7 +478,10 @@ export default function VendorScreen() {
               contentFit="cover"
             />
             <View className="flex-1">
-              <Text className="font-medium text-gray-900 dark:text-gray-100" numberOfLines={1}>{oi.item_name_snapshot}</Text>
+              <Text className="font-medium text-gray-900 dark:text-gray-100" numberOfLines={1}>
+                {oi.item_name_snapshot}
+                {!oi.item_id && <Text className="text-xs font-semibold text-red-500"> Wasn't available</Text>}
+              </Text>
               <Text className="text-xs text-gray-400 dark:text-gray-500">
                 Order #{order.id} · {formatUGX(oi.price_at_purchase)}{oi.quantity > 1 ? ` × ${oi.quantity}` : ''}
               </Text>

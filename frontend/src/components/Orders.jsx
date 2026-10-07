@@ -58,6 +58,9 @@ const Orders = () => {
                   {order.items.map((oi) => (
                     <p key={oi.id} className="text-sm">
                       {oi.item_name_snapshot}{oi.quantity > 1 ? ` × ${oi.quantity}` : ''} — {formatUGX(oi.price_at_purchase * (oi.quantity || 1))}
+                      {!oi.item_id && (
+                        <span className="ml-2 text-xs font-semibold text-red-500">Wasn't available</span>
+                      )}
                     </p>
                   ))}
                 </div>

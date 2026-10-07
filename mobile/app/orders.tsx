@@ -39,6 +39,7 @@ const formatUGX = (n: number) => {
 
 type OrderItemOut = {
   id: number;
+  item_id?: number | null;
   item_name_snapshot: string;
   price_at_purchase: number;
   quantity: number;
@@ -99,6 +100,9 @@ export default function OrdersScreen() {
                       />
                       <Text className="flex-1 text-sm text-gray-800 dark:text-gray-200">
                         {oi.item_name_snapshot}{oi.quantity > 1 ? ` × ${oi.quantity}` : ''} — {formatUGX(oi.price_at_purchase * (oi.quantity || 1))}
+                        {!oi.item_id && (
+                          <Text className="text-xs font-semibold text-red-500"> Wasn't available</Text>
+                        )}
                       </Text>
                     </View>
                   ))}
