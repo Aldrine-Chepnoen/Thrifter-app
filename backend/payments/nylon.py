@@ -175,6 +175,18 @@ class NylonPayProvider(PaymentProvider):
             return VerifyResult(status="pending")
         result = self._get_client().get_status(reference=provider_ref)
         if not result.is_ok:
+            # Mirror payout()'s category-based classification instead of
+            # collapsing every error to "pending": a definite-failure category
+            # (e.g. "not_found" — no transaction was ever created at Nylon Pay
+            # for this reference, so there is nothing left to resolve) must
+            # reach a terminal "failed" here, or a payout whose initiating
+            # request never registered at Nylon Pay stays stuck "processing"
+            # forever — reconciliation can only ever re-ask the same question
+            # and get the same non-answer back.
+            parsed = _try_parse_json(str(result.error))
+            category = parsed.get("category") if isinstance(parsed, dict) else None
+            if category in self._DEFINITE_FAILURE_CATEGORIES:
+                return VerifyResult(status="failed", failure_reason=_humanize_payout_failure(str(result.error)))
             return VerifyResult(status="pending")
         status = result.value.status
         if status == "successful":
