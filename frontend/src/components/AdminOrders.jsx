@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, X, MessageSquare, ChevronDown } from 'lucide-react';
-import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder, deliverAdminCheckout } from '../api';
+import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder, deliverAdminCheckout, retryRefund } from '../api';
 import { getImageSrc, getLightboxImages } from '../utils';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
@@ -33,6 +33,7 @@ const CANCEL_REASONS = [
   { value: 'vendor_unable_to_fulfill', label: 'Vendor unable to fulfill' },
   { value: 'other', label: 'Other' },
 ];
+const CANCEL_REASON_LABELS = Object.fromEntries(CANCEL_REASONS.map((r) => [r.value, r.label]));
 
 const CancelOrderModal = ({ order, onClose, onCancelled }) => {
   const [reason, setReason] = useState('buyer_requested');
@@ -162,6 +163,11 @@ const AdminOrders = () => {
   // page load was the main reason this screen was slow to open.
   const [completeLoaded, setCompleteLoaded] = useState(false);
   const [completeLoading, setCompleteLoading] = useState(false);
+  // Same lazy-load treatment as complete — cancelled orders only grow over
+  // time too, no reason to pull them on every page load.
+  const [cancelledLoaded, setCancelledLoaded] = useState(false);
+  const [cancelledLoading, setCancelledLoading] = useState(false);
+  const [retryingRefundId, setRetryingRefundId] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [deliveringCheckoutId, setDeliveringCheckoutId] = useState(null);
   const [expandedCheckouts, setExpandedCheckouts] = useState(new Set());
@@ -182,14 +188,16 @@ const AdminOrders = () => {
   const loadSection = (targetSection, { silent } = {}) => {
     if (silent) setRefreshing(true);
     else if (targetSection === 'complete') setCompleteLoading(true);
+    else if (targetSection === 'cancelled') setCancelledLoading(true);
     else setLoading(true);
     return fetchAdminOrders(targetSection)
       .then((fetched) => {
         mergeOrders(fetched);
         if (targetSection === 'complete') setCompleteLoaded(true);
+        if (targetSection === 'cancelled') setCancelledLoaded(true);
       })
       .catch(() => {})
-      .finally(() => { setLoading(false); setRefreshing(false); setCompleteLoading(false); });
+      .finally(() => { setLoading(false); setRefreshing(false); setCompleteLoading(false); setCancelledLoading(false); });
   };
 
   useEffect(() => { loadSection('pending'); }, []);
@@ -197,9 +205,29 @@ const AdminOrders = () => {
   const handleSectionChange = (key) => {
     setSection(key);
     if (key === 'complete' && !completeLoaded) loadSection('complete');
+    if (key === 'cancelled' && !cancelledLoaded) loadSection('cancelled');
   };
 
   const handleRefresh = () => loadSection(section, { silent: true });
+
+  const handleRetryRefund = async (refund) => {
+    setRetryingRefundId(refund.id);
+    try {
+      const updatedRefund = await retryRefund(refund.id);
+      setOrders((prev) => prev.map((o) => (
+        o.refund?.id === refund.id ? { ...o, refund: { ...o.refund, ...updatedRefund } } : o
+      )));
+      if (updatedRefund.status === 'successful') {
+        showToast('Refund sent successfully.', 'success');
+      } else {
+        showToast(`Refund retry failed${updatedRefund.failure_reason ? `: ${updatedRefund.failure_reason}` : '.'}`);
+      }
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not retry this refund.');
+    } finally {
+      setRetryingRefundId(null);
+    }
+  };
 
   const handleAdvance = async (order) => {
     const nextStatus = NEXT_STATUS[order.status];
@@ -277,6 +305,7 @@ const AdminOrders = () => {
     orders.filter((o) => o.status === 'picked_up' && readyCheckoutIds.has(o.checkout_id))
   ).sort(byLocation('delivery_address'));
   const complete = orders.filter((o) => o.status === 'delivered');
+  const cancelled = orders.filter((o) => o.status === 'cancelled');
 
   // One row per line item — order-level fields (vendor, buyer, dates, status)
   // repeat on each row so every row is self-contained and scannable on its own.
@@ -486,11 +515,92 @@ const AdminOrders = () => {
     );
   };
 
+  // One row per order (not per item, unlike OrderTable) — the thing that
+  // matters here is the refund outcome, which is order-level, not per-item.
+  const CancelledOrdersList = ({ list }) => (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-x-auto">
+      <table className="w-full text-sm min-w-[1100px]">
+        <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
+          <tr>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Order</th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Vendor</th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Buyer</th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Cancelled</th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Reason</th>
+            <th className="text-left px-4 py-3 font-medium text-gray-500">Refund</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+          {list.map((order) => (
+            <tr key={order.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/50 transition-colors">
+              <td className="px-4 py-3">
+                <p className="font-medium">Order #{order.id}</p>
+                <p className="text-xs text-gray-400 line-clamp-1 max-w-[200px]">
+                  {order.items.map((i) => i.item_name_snapshot).join(', ')}
+                </p>
+              </td>
+              <td className="px-4 py-3 text-gray-500">
+                {order.vendor_name ? (
+                  <Link to={`/vendor/${encodeURIComponent(order.vendor_name)}`} className="hover:underline">
+                    {order.vendor_name}
+                  </Link>
+                ) : '—'}
+              </td>
+              <td className="px-4 py-3 text-gray-500">
+                <p>{order.delivery_name}</p>
+                <p className="text-xs text-gray-400">{order.delivery_phone}</p>
+              </td>
+              <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                {order.cancelled_at ? formatDate(order.cancelled_at) : '—'}
+              </td>
+              <td className="px-4 py-3 text-gray-500 max-w-[220px]">
+                <p>{CANCEL_REASON_LABELS[order.cancel_reason] || order.cancel_reason || '—'}</p>
+                {order.cancel_note && <p className="text-xs text-gray-400 mt-0.5">{order.cancel_note}</p>}
+              </td>
+              <td className="px-4 py-3">
+                {order.payment_method === 'cash_on_delivery' || !order.refund ? (
+                  <span className="text-xs text-gray-400">No refund needed (COD)</span>
+                ) : order.refund.status === 'successful' ? (
+                  <span className="text-xs font-semibold text-green-600 dark:text-green-400">
+                    Refunded {formatUGX(order.refund.amount)}
+                  </span>
+                ) : order.refund.status === 'failed' ? (
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                        Refund failed
+                      </span>
+                      {order.refund.failure_reason && (
+                        <p className="text-xs text-gray-400 max-w-[200px]">{order.refund.failure_reason}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRetryRefund(order.refund)}
+                      disabled={retryingRefundId === order.refund.id}
+                      className="text-xs bg-[#EAAD11] text-black font-bold px-3 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {retryingRefundId === order.refund.id ? 'Retrying…' : 'Retry Refund'}
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-400 whitespace-nowrap">{order.refund.status}</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {list.length === 0 && (
+        <p className="text-center py-12 text-gray-400 text-sm">No cancelled orders.</p>
+      )}
+    </div>
+  );
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div className="inline-flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl">
-          {[{ key: 'pending', label: 'Pending' }, { key: 'complete', label: 'Complete' }].map((s) => (
+          {[{ key: 'pending', label: 'Pending' }, { key: 'complete', label: 'Complete' }, { key: 'cancelled', label: 'Cancelled' }].map((s) => (
             <button
               key={s.key}
               onClick={() => handleSectionChange(s.key)}
@@ -536,10 +646,10 @@ const AdminOrders = () => {
             )}
           </div>
         </div>
-      ) : completeLoading ? (
-        <ThrifterLoader />
+      ) : section === 'complete' ? (
+        completeLoading ? <ThrifterLoader /> : <OrderTable list={complete} emptyText="No completed orders yet." />
       ) : (
-        <OrderTable list={complete} emptyText="No completed orders yet." />
+        cancelledLoading ? <ThrifterLoader /> : <CancelledOrdersList list={cancelled} />
       )}
 
       {cancelOrder && (
@@ -547,7 +657,7 @@ const AdminOrders = () => {
           order={cancelOrder}
           onClose={() => setCancelOrder(null)}
           onCancelled={(updated) => {
-            setOrders((prev) => prev.filter((o) => o.id !== updated.id));
+            mergeOrders([updated]);
             setCancelOrder(null);
             if (updated.payment_method === 'cash_on_delivery') {
               showToast(`Order #${updated.id} cancelled. No refund needed — it was cash on delivery.`, 'success');
@@ -555,7 +665,7 @@ const AdminOrders = () => {
               showToast(
                 `Order #${updated.id} was cancelled, but the buyer's refund payout failed` +
                 (updated.refund.failure_reason ? ` (${updated.refund.failure_reason})` : '') +
-                `. Refund UGX ${updated.refund.amount?.toLocaleString('en-UG')} manually via the Nylon Pay dashboard.`
+                `. Retry it from the Cancelled tab.`
               );
             } else {
               showToast(`Order #${updated.id} cancelled and refunded.`, 'success');

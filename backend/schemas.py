@@ -491,6 +491,7 @@ class AdminOrderStatusUpdate(BaseModel):
     note: Optional[str] = None
 
 class RefundOut(BaseModel):
+    id: int
     amount: float
     subtotal_refunded: float
     delivery_fee_refunded: float
@@ -563,6 +564,20 @@ class AdminWithdrawalOut(BaseModel):
     # retry (see WITHDRAWAL_RETRY_WINDOW) — the frontend shows the Retry
     # button purely off this, so the cutoff logic lives in one place.
     retryable: bool = False
+
+class AdminRefundOut(BaseModel):
+    id: int
+    order_id: int
+    amount: float
+    currency: str
+    destination_phone: str
+    status: str
+    failure_reason: Optional[str] = None
+    provider_ref: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class PaymentProviderHealth(BaseModel):
     healthy: bool

@@ -2576,6 +2576,7 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
         cancel_note=order.cancel_note,
         cancelled_at=order.cancelled_at,
         refund=schemas.RefundOut(
+            id=refund.id,
             amount=refund.amount,
             subtotal_refunded=refund.subtotal_refunded,
             delivery_fee_refunded=refund.delivery_fee_refunded,
@@ -2628,6 +2629,49 @@ def _delete_item_assets_and_row(db: Session, item: models.Item) -> None:
     except Exception:
         pass
     db.delete(item)
+
+def _attempt_refund_payout(db: Session, refund: models.Refund) -> None:
+    """Calls the payment provider to send the buyer their refund and updates
+    refund.status/failure_reason/provider_ref accordingly. Shared by the
+    initial cancellation and a later admin retry of a failed one.
+
+    Deliberately binary (successful/failed only, no "processing" ambiguous
+    state like _attempt_withdrawal_payout has) — the order cancellation this
+    is called from must never be blocked on payment ambiguity, so every
+    non-success outcome folds straight to "failed". This means a retry
+    should only be used when the failure_reason indicates the original
+    attempt was cleanly rejected (e.g. a provider-side outage/maintenance
+    message) rather than a genuinely ambiguous outcome (timeout, "pending"
+    from the provider) that might have actually gone through — retrying an
+    ambiguous one risks paying the buyer twice. There's no automated
+    distinction for this yet; an admin retrying a failed refund needs to
+    use judgment same as reading the failure_reason tells them to."""
+    tx_ref = f"REFUND-{refund.order_id}-{uuid.uuid4().hex[:10]}"
+    provider_name = refund.provider or settings.DEFAULT_PAYMENT_PROVIDER
+    refund.provider = provider_name
+    try:
+        provider = payments.get_provider(provider_name)
+        result = provider.payout(
+            tx_ref=tx_ref,
+            amount=refund.amount,
+            currency=refund.currency,
+            destination_phone=refund.destination_phone,
+            destination_name=refund.destination_name,
+            description=f"Thrifter refund - order #{refund.order_id}",
+        )
+        if result.success:
+            refund.status = "successful"
+            refund.provider_ref = result.provider_ref
+            refund.failure_reason = None
+        else:
+            refund.status = "failed"
+            refund.failure_reason = result.failure_reason
+            refund.provider_ref = result.provider_ref
+    except Exception as e:
+        logger.error(f"Refund payout failed for order {refund.order_id}: {str(e)}", exc_info=True)
+        refund.status = "failed"
+        refund.failure_reason = str(e)
+
 
 def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
     """Admin-only order cancellation. Restocks (or, for reason="item_unavailable",
@@ -2720,32 +2764,10 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
         # never look like the cancellation itself failed. So every outcome here
         # folds into refund.status="failed" + a normal 200 response, not an
         # HTTPException; the admin sees a cancelled order with a refund that
-        # needs manual follow-up, not a confusing "retry" state that then 409s
-        # on a re-attempt against an order that's already cancelled.
-        tx_ref = f"REFUND-{order.id}-{uuid.uuid4().hex[:10]}"
-        provider_name = settings.DEFAULT_PAYMENT_PROVIDER
-        refund.provider = provider_name
-        try:
-            provider = payments.get_provider(provider_name)
-            result = provider.payout(
-                tx_ref=tx_ref,
-                amount=refund_amount,
-                currency=checkout.currency,
-                destination_phone=checkout.delivery_phone,
-                destination_name=checkout.delivery_name,
-                description=f"Thrifter refund - order #{order.id}",
-            )
-            if result.success:
-                refund.status = "successful"
-                refund.provider_ref = result.provider_ref
-            else:
-                refund.status = "failed"
-                refund.failure_reason = result.failure_reason
-                refund.provider_ref = result.provider_ref
-        except Exception as e:
-            logger.error(f"Refund payout failed for order {order.id}: {str(e)}", exc_info=True)
-            refund.status = "failed"
-            refund.failure_reason = str(e)
+        # can be retried via /admin/refunds/{id}/retry, not a confusing
+        # "retry" state on this endpoint that then 409s on a re-attempt
+        # against an order that's already cancelled.
+        _attempt_refund_payout(db, refund)
 
     db.commit()
     db.refresh(order)
@@ -2762,6 +2784,7 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
 _ADMIN_ORDER_SECTION_STATUSES = {
     "pending": ["paid", "picked_up"],
     "complete": ["delivered"],
+    "cancelled": ["cancelled"],
 }
 
 @app.get("/admin/orders", response_model=List[schemas.AdminOrderOut])
@@ -3193,6 +3216,25 @@ def retry_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_
 
     _attempt_withdrawal_payout(db, withdrawal, vendor, current_user)
     return _serialize_admin_withdrawal(withdrawal, vendor)
+
+@app.patch("/admin/refunds/{refund_id}/retry", response_model=schemas.AdminRefundOut)
+def retry_refund(refund_id: int, db: Session = Depends(get_db), _: models.User = Depends(require_admin)):
+    """Re-attempts a failed buyer refund. Only safe to use when the stored
+    failure_reason indicates a clean rejection (e.g. a provider outage/
+    maintenance message) rather than a genuinely ambiguous outcome that
+    might have actually gone through — see _attempt_refund_payout. There's
+    no automated distinction yet, so this is an admin judgment call, same
+    as reading the failure_reason before clicking retry."""
+    refund = db.query(models.Refund).filter(models.Refund.id == refund_id).with_for_update().first()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Refund not found")
+    if refund.status != "failed":
+        raise HTTPException(status_code=409, detail=f"Refund is already '{refund.status}'")
+
+    _attempt_refund_payout(db, refund)
+    db.commit()
+    db.refresh(refund)
+    return refund
 
 @app.patch("/admin/withdrawals/{withdrawal_id}/reject", response_model=schemas.AdminWithdrawalOut)
 def reject_withdrawal(withdrawal_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(require_admin)):
