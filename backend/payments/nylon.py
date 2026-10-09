@@ -3,7 +3,7 @@ import re
 import uuid
 from typing import Optional, Dict, Any
 
-from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination
+from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination, LEGACY_BASE_URL
 
 from config import settings
 from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult, HealthCheckResult
@@ -39,6 +39,22 @@ _FAILURE_REASON_KEYWORDS = [
     ("pin", "INVALID_PIN"),
 ]
 
+# SDK >=0.6: StatusResponse/Transaction/the webhook payload all carry a
+# structured `failure_code` (one of these seven values) alongside the old
+# free-text failure_reason/status_text — a real enum instead of whatever
+# phrasing happened to come back, so it's preferred over the free-text
+# matching above whenever present. One shared table since the same codes
+# show up for both a buyer's collection and a vendor/refund payout.
+_FAILURE_CODE_MESSAGES = {
+    "provider_rejection": "The mobile money service didn't approve this payment.",
+    "customer_timeout": "The payment request timed out before it was approved.",
+    "insufficient_balance": "Not enough balance on the mobile money account.",
+    "invalid_number": "That phone number isn't a valid mobile money account.",
+    "internal_error": "Something went wrong on Nylon Pay's side. Please try again.",
+    "limit_exceeded": "This is over the mobile money account's transaction limit.",
+    "cancelled": "The payment was cancelled before it completed.",
+}
+
 
 def _sentence_case(text: str) -> str:
     # `failureReason`/`status_text` has no fixed vocabulary — it's free text
@@ -56,7 +72,9 @@ def _sentence_case(text: str) -> str:
     return capitalized
 
 
-def _humanize_failure_reason(raw: Optional[str]) -> Optional[str]:
+def _humanize_failure_reason(raw: Optional[str], failure_code: Optional[str] = None) -> Optional[str]:
+    if failure_code and failure_code in _FAILURE_CODE_MESSAGES:
+        return _FAILURE_CODE_MESSAGES[failure_code]
     if not raw:
         return raw
     key = raw.strip()
@@ -82,7 +100,7 @@ def _try_parse_json(text: str) -> Optional[Any]:
         return None
 
 
-def _humanize_payout_failure(raw: Optional[str]) -> Optional[str]:
+def _humanize_payout_failure(raw: Optional[str], failure_code: Optional[str] = None) -> Optional[str]:
     """Payout (vendor withdrawal) failures come from a different part of Nylon
     Pay's API than the collection failures above, with different failure modes
     (destination/account/provider-availability issues, not a buyer's PIN entry)
@@ -92,7 +110,11 @@ def _humanize_payout_failure(raw: Optional[str]) -> Optional[str]:
     `raw` may be a plain string from a caught `SdkException` (validation errors
     caught before any network call), or a JSON-serialized SdkError
     (category/message/retryable) from a rejected `Result` — both are handled.
+    `failure_code` (SDK >=0.6 only, see _FAILURE_CODE_MESSAGES) takes priority
+    over all of the raw-text handling below when present.
     """
+    if failure_code and failure_code in _FAILURE_CODE_MESSAGES:
+        return _FAILURE_CODE_MESSAGES[failure_code]
     if not raw:
         return raw
     text = raw.strip()
@@ -127,6 +149,13 @@ class NylonPayProvider(PaymentProvider):
             self._client = create_nylon_pay(
                 api_key=settings.NYLONPAY_API_KEY,
                 api_secret=settings.NYLONPAY_API_SECRET,
+                # SDK >=0.6 defaults to a new primary domain (api.nylonpay.com)
+                # and demotes the one this account has always used to
+                # LEGACY_BASE_URL ("still served," per the SDK's own docs).
+                # Pinned explicitly so this upgrade changes failure-message
+                # quality only, not which endpoint every request hits —
+                # migrating domains is a separate decision.
+                base_url=LEGACY_BASE_URL,
             )
         return self._client
 
@@ -195,7 +224,9 @@ class NylonPayProvider(PaymentProvider):
             # `status_text` is Nylon Pay's human-readable reason (e.g. "Insufficient
             # balance") for the StatusResponse returned by get_status — surfaced so
             # callers can show the vendor/buyer why their payment didn't go through.
-            return VerifyResult(status="failed", failure_reason=_humanize_failure_reason(result.value.status_text))
+            # `failure_code` (SDK >=0.6) is the structured version of the same
+            # thing and takes priority when present — see _humanize_failure_reason.
+            return VerifyResult(status="failed", failure_reason=_humanize_failure_reason(result.value.status_text, result.value.failure_code))
         return VerifyResult(status="pending")  # pending, processing, on_hold
 
     def parse_webhook(self, headers: Dict[str, str], data: Dict[str, Any]) -> WebhookResult:
@@ -223,7 +254,7 @@ class NylonPayProvider(PaymentProvider):
             tx_ref=payload.get("reference"),
             provider_tx_id=payload.get("transactionId"),
             status=status_map.get(payload.get("status"), "pending"),
-            failure_reason=_humanize_failure_reason(payload.get("failureReason")),
+            failure_reason=_humanize_failure_reason(payload.get("failureReason"), payload.get("failureCode")),
             raw=data,
         )
 
@@ -293,9 +324,9 @@ class NylonPayProvider(PaymentProvider):
         if txn.status == "successful":
             return PayoutResult(success=True, status="successful", provider_ref=txn.id)
         if txn.status in ("failed", "cancelled"):
-            return PayoutResult(success=False, status="failed", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
+            return PayoutResult(success=False, status="failed", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason, txn.failure_code))
         # on_hold / pending / processing — still alive at Nylon Pay.
-        return PayoutResult(success=False, status="pending", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason))
+        return PayoutResult(success=False, status="pending", provider_ref=txn.id, failure_reason=_humanize_payout_failure(txn.failure_reason, txn.failure_code))
 
     def health_check(self) -> HealthCheckResult:
         """Cheap, side-effect-free probe of whether Nylon Pay's shared API
