@@ -2796,12 +2796,10 @@ def list_admin_orders(
     # Split by section (rather than always returning paid/picked_up/delivered
     # together) so the admin dashboard isn't forced to pull every delivered
     # order — which only grows over time — just to show what's pending.
-    # Cancelled/failed orders never needed fulfillment action, so they're
-    # excluded here rather than given a bucket in the admin UI.
     statuses = _ADMIN_ORDER_SECTION_STATUSES.get(section)
     if statuses is None:
         raise HTTPException(status_code=400, detail=f"Unknown section '{section}'")
-    orders = (
+    query = (
         db.query(models.Order)
         .options(
             joinedload(models.Order.checkout),
@@ -2810,10 +2808,18 @@ def list_admin_orders(
             joinedload(models.Order.items).joinedload(models.OrderItem.item).selectinload(models.Item.images),
         )
         .filter(models.Order.status.in_(statuses))
-        .order_by(models.Order.created_at.desc())
-        .limit(500)
-        .all()
     )
+    if section == "cancelled":
+        # status="cancelled" is also set by _release_checkout for a buyer
+        # simply abandoning checkout without paying (explicit leave, or the
+        # reservation-expiry sweep) — those never charged anything, so
+        # there's no refund and nothing for an admin to act on. Only
+        # _cancel_order (an actual admin decision on a paid order) sets
+        # cancelled_by_user_id, so that's the signal that separates "an
+        # admin cancelled this" from "a cart was abandoned" — the two share
+        # a status value but nothing else about the review workflow.
+        query = query.filter(models.Order.cancelled_by_user_id.isnot(None))
+    orders = query.order_by(models.Order.created_at.desc()).limit(500).all()
     return [_serialize_admin_order(order) for order in orders]
 
 @app.patch("/admin/orders/{order_id}/status", response_model=schemas.AdminOrderOut)
