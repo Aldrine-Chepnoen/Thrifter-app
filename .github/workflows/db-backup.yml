@@ -31,7 +31,10 @@ jobs:
         run: |
           TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
           echo "DUMP_FILE=thrifter_${TIMESTAMP}.dump" >> "$GITHUB_ENV"
-          pg_dump -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "thrifter_${TIMESTAMP}.dump"
+          # ubuntu-latest already ships an older postgresql-client on PATH —
+          # installing v17 alongside it doesn't make plain `pg_dump` resolve
+          # to the new one, so the versioned binary is called directly.
+          /usr/lib/postgresql/17/bin/pg_dump -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "thrifter_${TIMESTAMP}.dump"
 
       # R2 is S3-compatible — ubuntu-latest ships the AWS CLI already, just
       # pointed at R2's endpoint instead of AWS's.
