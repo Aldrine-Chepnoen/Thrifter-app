@@ -1,0 +1,64 @@
+name: Database Backup
+
+# Every 30 minutes, dumps the production Postgres database and uploads it to
+# a private Cloudflare R2 bucket (separate from the public image-serving
+# bucket) — deliberately independent of Railway, so a Railway incident can't
+# also take out backups. workflow_dispatch lets this be triggered manually
+# for a one-off test run without waiting for the schedule.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      # ubuntu-latest's default postgresql-client is older than the
+      # project's Postgres 17 server — pg_dump refuses to dump from a newer
+      # server than itself, so the matching client version has to be
+      # installed explicitly (same issue hit doing this dump by hand).
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          echo "DUMP_FILE=thrifter_${TIMESTAMP}.dump" >> "$GITHUB_ENV"
+          pg_dump -Fc --no-owner --no-acl -d "$DATABASE_URL" -f "thrifter_${TIMESTAMP}.dump"
+
+      # R2 is S3-compatible — ubuntu-latest ships the AWS CLI already, just
+      # pointed at R2's endpoint instead of AWS's.
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BACKUP_BUCKET_NAME }}
+        run: |
+          aws s3 cp "$DUMP_FILE" "s3://${R2_BUCKET}/${DUMP_FILE}" --endpoint-url "$R2_ENDPOINT"
+          rm -f "$DUMP_FILE"
+
+      # Rolling 1-day window (~48 half-hourly snapshots) — bounds storage
+      # growth automatically instead of keeping every backup forever.
+      - name: Delete backups older than 1 day
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BACKUP_BUCKET_NAME }}
+        run: |
+          CUTOFF=$(date -u -d '1 day ago' --iso-8601=seconds)
+          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --endpoint-url "$R2_ENDPOINT" \
+            --query "Contents[?LastModified<='${CUTOFF}'].Key" --output text | tr '\t' '\n' | while read -r key; do
+              if [ -n "$key" ] && [ "$key" != "None" ]; then
+                echo "Deleting old backup: $key"
+                aws s3 rm "s3://${R2_BUCKET}/${key}" --endpoint-url "$R2_ENDPOINT"
+              fi
+            done
