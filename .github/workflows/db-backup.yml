@@ -12,7 +12,11 @@ on:
 
 jobs:
   backup:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest — the PGDG apt step below keys off
+    # the OS codename, and ubuntu-latest is moving to Ubuntu 26 on 2026-10-19
+    # with no guarantee PostgreSQL's repo has packages for it on day one.
+    # An unattended cron job failing silently defeats the point of a backup.
+    runs-on: ubuntu-24.04
     steps:
       # ubuntu-latest's default postgresql-client is older than the
       # project's Postgres 17 server — pg_dump refuses to dump from a newer
