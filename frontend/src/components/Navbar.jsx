@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Package, Crown, Store, FileText } from 'lucide-react';
+import { Search, Camera, Heart, User, Shield, SlidersHorizontal, Moon, Sun, Menu, X, Sparkles, ShoppingBag, Shirt, Package, Crown, Store, FileText, ShoppingBagIcon, Footprints, Tag, Star } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion';
 import { RoughNotation } from 'react-rough-notation';
@@ -226,15 +226,15 @@ const Navbar = ({
   const [activeTag, setActiveTag] = useState(null);
 
   const quickTags = [
-    { label: 'Jerseys',     query: 'jersey'      },
-    { label: 'Shirts',      query: 'shirt'       },
-    { label: 'Jeans',       query: 'jeans'       },
-    { label: 'Sneakers',    query: 'sneakers'    },
-    { label: 'Jackets',     query: 'jacket'      },
-    { label: 'Hoodies',     query: 'hoodie'      },
-    { label: 'Dresses',     query: 'dress'       },
-    { label: 'Handbags',    query: 'handbag'     },
-    { label: 'Accessories', query: 'accessories' },
+    { label: 'Jerseys',     query: 'jersey'  ,    icon : Heart  },
+    { label: 'Shirts',      query: 'shirt'     ,  icon : Shirt  },
+    { label: 'Jeans',       query: 'jeans'     ,  icon : Tag  },
+    { label: 'Sneakers',    query: 'sneakers'  ,  icon : Footprints },
+    { label: 'Jackets',     query: 'jacket'    ,  icon : Shirt },
+    { label: 'Hoodies',     query: 'hoodie'    ,  icon : Shirt },
+    { label: 'Dresses',     query: 'dress'     ,  icon : Star },
+    { label: 'Handbags',    query: 'handbag'    , icon : ShoppingBag },
+    { label: 'Accessories', query: 'accessories', icon : Sparkles},
   ];
 
   const handleTagClick = (query) => {
@@ -453,19 +453,26 @@ const Navbar = ({
           </div>
 
           <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar pb-1">
-            {quickTags.map((tag) => (
+            {quickTags.map((tag) =>{
+              const Icon = tag.icon;
+
+              return(
               <button
                 key={tag.label}
                 onClick={() => handleTagClick(tag.query)}
-                className={`whitespace-nowrap flex-shrink-0 px-3 py-1 rounded-full border text-[10px] md:text-xs font-medium transition-all ${
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 px-3 py-1 rounded-full border text-[10px] md:text-xs font-medium transition-all ${
                   activeTag === tag.query
                     ? 'bg-[#EAAD11] border-[#EAAD11] text-black'
                     : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
                 }`}
               >
-                {tag.label}
+                <Icon
+                className={`w-3.5 h-3.5 ${activeTag===tag.query ? 'text-black' : 'text-[#EAAD11]'}`}
+                aria-hidden="true"
+                />
+                <span>{tag.label}</span>
               </button>
-            ))}
+            )})}
           </div>
 
           <div className="flex justify-center gap-8 mt-3 pt-2 border-t border-gray-100 dark:border-gray-800">
