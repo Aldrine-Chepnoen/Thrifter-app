@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal } from '../api';
+import { RefreshCw, Activity } from 'lucide-react';
+import { fetchAdminWithdrawals, approveWithdrawal, rejectWithdrawal, retryWithdrawal, checkPaymentProviderStatus } from '../api';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
 import { useToast } from '../context/ToastContext';
@@ -13,12 +13,13 @@ const formatDate = (d) => new Date(d).toLocaleDateString('en-UG', { day: 'numeri
 
 const STATUS_STYLES = {
   pending_approval: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  processing: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   paid: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
   rejected: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
 
-const STATUS_LABELS = { pending_approval: 'Pending approval', paid: 'Paid', rejected: 'Rejected', failed: 'Failed' };
+const STATUS_LABELS = { pending_approval: 'Pending approval', processing: 'Processing', paid: 'Paid', rejected: 'Rejected', failed: 'Failed' };
 
 const AdminWithdrawals = () => {
   const { showToast } = useToast();
@@ -26,6 +27,7 @@ const AdminWithdrawals = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   const load = ({ silent } = {}) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -63,6 +65,31 @@ const AdminWithdrawals = () => {
     }
   };
 
+  const handleRetry = async (w) => {
+    if (!window.confirm(`Retry paying out ${formatUGX(w.amount)} to ${w.vendor_name || 'this vendor'} at ${w.destination_phone}? This sends real money and can't be undone.`)) return;
+    setActingId(w.id);
+    try {
+      const updated = await retryWithdrawal(w.id);
+      setWithdrawals((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not retry withdrawal.');
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const res = await checkPaymentProviderStatus();
+      showToast(res.message, res.healthy ? 'success' : 'error');
+    } catch (err) {
+      showToast(err?.response?.data?.detail || 'Could not check Nylon Pay status.');
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
   if (loading) return <ThrifterLoader />;
 
   const pending = withdrawals.filter((w) => w.status === 'pending_approval');
@@ -70,7 +97,16 @@ const AdminWithdrawals = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-end gap-2 mb-6">
+        <button
+          onClick={handleCheckStatus}
+          disabled={checkingStatus}
+          title="Checks whether Nylon Pay's API is reachable, without sending a real payout. Doesn't confirm payouts specifically are enabled — Nylon Pay can pause just that feature on its own."
+          className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+        >
+          <Activity className={`w-3.5 h-3.5 ${checkingStatus ? 'animate-pulse' : ''}`} />
+          {checkingStatus ? 'Checking…' : 'Check Nylon Pay reachability'}
+        </button>
         <button
           onClick={() => load({ silent: true })}
           disabled={refreshing}
@@ -171,6 +207,18 @@ const AdminWithdrawals = () => {
                       </span>
                       {w.failure_reason && (
                         <p className="text-xs text-red-500 mt-1 max-w-[240px]" title={w.failure_reason}>{w.failure_reason}</p>
+                      )}
+                      {w.status === 'failed' && !w.retryable && (
+                        <p className="text-xs text-gray-400 mt-1 max-w-[240px]">Too old to retry — ask the vendor to request again.</p>
+                      )}
+                      {w.retryable && (
+                        <button
+                          onClick={() => handleRetry(w)}
+                          disabled={actingId === w.id}
+                          className="mt-1.5 block text-xs bg-[#EAAD11] text-black font-bold px-3 py-1.5 rounded-lg hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {actingId === w.id ? 'Working…' : 'Retry'}
+                        </button>
                       )}
                     </td>
                   </tr>

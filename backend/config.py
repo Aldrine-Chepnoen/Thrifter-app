@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     # outstanding verification link the moment the login secret changed.
     VENDOR_VERIFY_SECRET: str = os.getenv("VENDOR_VERIFY_SECRET", "dev-verify-secret-change-me-in-production")
 
-    # Google Sign-In (web OAuth client ID, used to verify ID token audience)
+    # Google Sign-In OAuth client IDs, used to verify ID token audience. The
+    # mobile app authenticates with @react-native-google-signin/google-signin,
+    # which mints tokens against platform-specific client IDs distinct from
+    # the web client — /auth/google accepts any of these as a valid audience.
     GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID")
+    GOOGLE_IOS_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_IOS_CLIENT_ID")
+    GOOGLE_ANDROID_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_ANDROID_CLIENT_ID")
 
     # Google Maps Geocoding API (reverse-geocodes vendor "use my location" coordinates to an address)
     GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -53,10 +58,20 @@ class Settings(BaseSettings):
 
     # Checkout / commerce
     DEFAULT_PAYMENT_PROVIDER: str = os.getenv("DEFAULT_PAYMENT_PROVIDER", "nylon")
-    # Flat per-checkout fee when every item in the cart comes from one vendor;
-    # a checkout spanning multiple vendors costs more to fulfil, hence the split.
-    DELIVERY_FEE_SINGLE_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_SINGLE_VENDOR_UGX", "5000"))
-    DELIVERY_FEE_MULTI_VENDOR_UGX: float = float(os.getenv("DELIVERY_FEE_MULTI_VENDOR_UGX", "10000"))
+    # Every order is consolidated at this single physical collection point and
+    # shipped to the buyer from there in one trip, regardless of vendor count —
+    # Livingstone Hall, Makerere University.
+    COLLECTION_POINT_LAT: float = float(os.getenv("COLLECTION_POINT_LAT", "0.338885"))
+    COLLECTION_POINT_LNG: float = float(os.getenv("COLLECTION_POINT_LNG", "32.567991"))
+    DELIVERY_BASE_FEE_UGX: float = float(os.getenv("DELIVERY_BASE_FEE_UGX", "3000"))
+    DELIVERY_RATE_PER_KM_UGX: float = float(os.getenv("DELIVERY_RATE_PER_KM_UGX", "700"))
+    # Beyond this straight-line distance from the collection point, checkout is
+    # blocked rather than charging an ever-larger fee.
+    DELIVERY_MAX_RADIUS_KM: float = float(os.getenv("DELIVERY_MAX_RADIUS_KM", "25"))
+    # Cash-on-delivery fees are rounded up to the nearest multiple of this —
+    # so the delivery person can be paid in exact physical notes/coins instead
+    # of needing odd change. Mobile money pays exact, so this doesn't apply there.
+    COD_ROUNDING_UGX: float = float(os.getenv("COD_ROUNDING_UGX", "500"))
     VENDOR_COMMISSION_RATE: float = float(os.getenv("VENDOR_COMMISSION_RATE", "0.05"))
     # Reduced rate for vendors with an active premium subscription. Placeholder —
     # confirm the real rate before launch.
@@ -75,6 +90,12 @@ class Settings(BaseSettings):
     # background reconciliation sweep takes over instead (see
     # _run_reconciliation_sweep) — mirrors CHECKOUT_RESERVATION_MINUTES.
     VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES: int = int(os.getenv("VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES", "20"))
+    # How often the premium-expiry-reminder sweep runs. Daily is plenty —
+    # unlike payment reconciliation this isn't time-critical, so there's no
+    # reason to burn a DB scan every couple minutes like RECONCILIATION_INTERVAL_SECONDS.
+    PREMIUM_EXPIRY_REMINDER_INTERVAL_SECONDS: int = int(os.getenv("PREMIUM_EXPIRY_REMINDER_INTERVAL_SECONDS", "86400"))
+    # How many days before expiry the reminder SMS fires.
+    PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE: int = int(os.getenv("PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE", "3"))
 
     # SMS (EgoSMS / Pahappa Comms API — live transactional sends; see sms.py)
     EGOSMS_USERNAME: Optional[str] = os.getenv("EGOSMS_USERNAME")

@@ -112,10 +112,22 @@ def withdrawal_paid_message(withdrawal, vendor_name: str) -> str:
     )
 
 
-def withdrawal_reversed_message(withdrawal, vendor_name: str) -> str:
+def withdrawal_rejected_message(withdrawal, vendor_name: str) -> str:
     return (
         f"Thrifter: Hi {vendor_name}, your withdrawal request of {_ugx(withdrawal.amount)} "
-        f"could not be completed and has been returned to your wallet."
+        f"was rejected and has been returned to your wallet."
+    )
+
+
+def withdrawal_failed_message(withdrawal, vendor_name: str) -> str:
+    # Deliberately doesn't say "failed" or invite the vendor to request again —
+    # an admin can retry this on our end (see WITHDRAWAL_RETRY_WINDOW in
+    # main.py), and a vendor submitting a fresh request in the meantime is
+    # exactly how the same money ends up requested twice.
+    return (
+        f"Thrifter: Hi {vendor_name}, your withdrawal of {_ugx(withdrawal.amount)} is taking a little "
+        f"longer than usual. We're on it and it will be completed shortly — if you haven't received it "
+        f"in a couple of hours, please contact us."
     )
 
 
@@ -125,4 +137,12 @@ def phone_verification_message(vendor_name: str, short_link: str) -> str:
     return (
         f"Thrifter: Hello {vendor_name}, Please click this link to verify your phone "
         f"number on Thrifter and keep your account active: {short_link}"
+    )
+
+
+def premium_expiry_reminder_message(vendor_name: str, days_left: int, link: str) -> str:
+    when = "today" if days_left <= 0 else ("tomorrow" if days_left == 1 else f"in {days_left} days")
+    return (
+        f"Thrifter: Hi {vendor_name}, your Premium subscription expires {when}. "
+        f"Renew now to keep your unlimited listings and lower commission: {link}"
     )

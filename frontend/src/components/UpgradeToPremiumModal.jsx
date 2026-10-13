@@ -2,7 +2,7 @@
 // item slot limit (or from the vendor's own Subscription tab). Modeled on
 // AuthModal's shell/spinner conventions; stacks above it at z-[110].
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Crown, XCircle, Check } from 'lucide-react';
+import { X, Crown, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchVendorSlotStatus, initiateVendorSubscriptionPayment } from '../api';
 import { useToast } from '../context/ToastContext';
@@ -10,6 +10,10 @@ import { useToast } from '../context/ToastContext';
 const formatUGX = (n) => {
   try { return `UGX ${Number(n).toLocaleString('en-UG')}`; } catch { return `UGX ${n}`; }
 };
+
+// Rounds up so "expires in 8 hours" still reads as "1 day" rather than "0
+// days" — matches the same rounding VendorPage's inline card uses.
+const daysUntil = (isoDate) => Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86400000);
 
 // Matches the backend's own give-up window (VENDOR_SUBSCRIPTION_PENDING_WINDOW_MINUTES) —
 // past this the reconciliation sweep has already marked the attempt failed server-side,
@@ -27,6 +31,11 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   // that dismissal being undone by the next status refetch (the backend keeps
   // reporting last_failure_reason until a new attempt supersedes it).
   const [failureDismissed, setFailureDismissed] = useState(false);
+  // The number this attempt will actually charge — starts empty and gets
+  // prefilled from the vendor's stored WhatsApp once status loads (see
+  // below), but stays editable so a wrong/inactive number can be corrected
+  // per-attempt rather than silently reused every time.
+  const [phone, setPhone] = useState('');
   const pollAttemptsRef = useRef(0);
 
   const loadStatus = () => {
@@ -40,9 +49,17 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (!isOpen) return;
     setFailureDismissed(false);
+    setPhone('');
     pollAttemptsRef.current = 0;
     loadStatus();
   }, [isOpen]);
+
+  // Only fills the default suggestion — never overwrites once the vendor has
+  // typed anything, including clearing it back to empty on purpose.
+  useEffect(() => {
+    if (status?.vendor_whatsapp && !phone) setPhone(status.vendor_whatsapp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   // Auto-poll while a payment is genuinely still pending, instead of making the
   // vendor keep tapping "Check again" — re-fetches ~5s after each response comes
@@ -60,9 +77,13 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const handleUpgrade = async () => {
+    if (!phone.trim()) {
+      showToast('Please enter the mobile money number to pay with.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await initiateVendorSubscriptionPayment('nylon');
+      const res = await initiateVendorSubscriptionPayment('nylon', phone.trim());
       window.location.href = res.redirect_url;
     } catch (e) {
       const detail = e?.response?.data?.detail;
@@ -141,16 +162,33 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Payment didn't go through</h3>
               </div>
               <p className="text-sm text-gray-500 mb-3">
-                Your last Premium upgrade attempt failed:
+                Your mobile money provider didn't approve the last attempt — usually that means the PIN prompt wasn't confirmed in time, or there wasn't enough balance on that number. Double-check both, or try a different number, then try again.
               </p>
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-5 text-sm text-red-700 dark:text-red-300">
-                {status.last_failure_reason}
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-4 text-xs text-red-700 dark:text-red-300">
+                Provider said: "{status.last_failure_reason}"
               </div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Mobile money number
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. 0772123456"
+                className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 mb-4"
+              />
+              <button
+                disabled={submitting}
+                onClick={() => { setFailureDismissed(true); handleUpgrade(); }}
+                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 mb-2"
+              >
+                {submitting ? 'Retrying…' : 'Try again'}
+              </button>
               <button
                 onClick={() => setFailureDismissed(true)}
-                className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all"
+                className="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 py-2"
               >
-                Dismiss
+                Maybe later
               </button>
             </>
           ) : (
@@ -169,75 +207,120 @@ const UpgradeToPremiumModal = ({ isOpen, onClose }) => {
                   : `Free accounts can list up to ${status?.free_item_limit ?? 10} active items. Go Premium for unlimited listings.`}
               </p>
 
-              {status && !status.is_premium && (
-                <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5 space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Active listings</span>
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">{status.active_item_count} / {status.free_item_limit}</span>
-                  </div>
-                  {status.hidden_item_count > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500 dark:text-gray-400">Hidden (over limit)</span>
-                      <span className="font-semibold text-gray-900 dark:text-gray-100">{status.hidden_item_count}</span>
+              {status?.is_premium ? (
+                <>
+                  {status.expires_at && daysUntil(status.expires_at) <= 3 && (
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-600 dark:text-amber-400 mb-4">
+                      <Crown className="w-4 h-4" />
+                      {daysUntil(status.expires_at) >= 2
+                        ? `Ends in ${daysUntil(status.expires_at)} days — pay now to keep unlimited slots.`
+                        : 'Ends soon — pay now to keep unlimited slots.'}
+                    </p>
+                  )}
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    Mobile money number to pay with
+                  </label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. 0772123456"
+                    className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500 mb-5"
+                  />
+                  <button
+                    disabled={submitting || !phone.trim()}
+                    onClick={handleUpgrade}
+                    className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 mb-3"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-b-white rounded-full animate-spin" />
+                        <span>Redirecting…</span>
+                      </>
+                    ) : (
+                      `Pay for another month — ${formatUGX(status.price_ugx)}`
+                    )}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {status && (
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-5 space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500 dark:text-gray-400">Active listings</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100">{status.active_item_count} / {status.free_item_limit}</span>
+                      </div>
+                      {status.hidden_item_count > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500 dark:text-gray-400">Hidden (over limit)</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100">{status.hidden_item_count}</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
-              )}
 
-              <div className="grid grid-cols-2 gap-3 mb-5">
-                <div className="rounded-2xl bg-black p-4 flex flex-col">
-                  <div className="self-start bg-white text-black text-[10px] font-bold px-2 py-1 rounded-full mb-3">
-                    UGX 0/MONTH
-                  </div>
-                  <h4 className="text-white text-lg font-extrabold mb-3">FREE</h4>
-                  <ul className="space-y-1.5 text-xs text-white/80 mb-4 flex-1">
-                    <li>{status?.free_item_limit ?? 10} product slots</li>
-                    <li>{status ? Math.round(status.commission_rate * 100) : 10}% commission</li>
-                  </ul>
-                  <button
-                    disabled
-                    className="w-full border border-white/40 text-white text-xs font-bold py-2.5 rounded-lg cursor-default"
-                  >
-                    {status?.is_premium ? 'INCLUDED' : 'CURRENT PLAN'}
-                  </button>
-                </div>
-
-                <div className="rounded-2xl bg-[#EAAD11] p-4 flex flex-col">
-                  <div className="self-start bg-black text-white text-[10px] font-bold px-2 py-1 rounded-full mb-3">
-                    {formatUGX(status?.price_ugx ?? 50000)}/MONTH
-                  </div>
-                  <h4 className="text-black text-lg font-extrabold mb-3">PREMIUM</h4>
-                  <ul className="space-y-1.5 text-xs text-black/80 font-medium mb-4 flex-1">
-                    <li>Unlimited slots</li>
-                    <li>{status ? Math.round(status.premium_commission_rate * 100) : 5}% commission</li>
-                    <li>Product view stats</li>
-                    <li>Wardrobe save counts</li>
-                  </ul>
-                  {status?.is_premium ? (
-                    <button
-                      disabled
-                      className="w-full bg-black text-white text-xs font-bold py-2.5 rounded-lg cursor-default flex items-center justify-center gap-1"
-                    >
-                      <Check className="w-3.5 h-3.5" /> CURRENT PLAN
-                    </button>
-                  ) : (
-                    <button
-                      disabled={submitting}
-                      onClick={handleUpgrade}
-                      className="w-full bg-black text-white text-xs font-bold py-2.5 rounded-lg hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
-                    >
-                      {submitting ? (
-                        <>
-                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-b-white rounded-full animate-spin" />
-                          <span>Redirecting…</span>
-                        </>
-                      ) : (
-                        'UPGRADE NOW'
-                      )}
-                    </button>
+                  {status && (
+                    <div className="mb-5">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                        Mobile money number to pay with
+                      </label>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. 0772123456"
+                        className="w-full text-sm p-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-black dark:focus:ring-gray-500"
+                      />
+                    </div>
                   )}
-                </div>
-              </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="rounded-2xl bg-black p-4 flex flex-col">
+                      <div className="self-start bg-white text-black text-[10px] font-bold px-2 py-1 rounded-full mb-3">
+                        UGX 0/MONTH
+                      </div>
+                      <h4 className="text-white text-lg font-extrabold mb-3">FREE</h4>
+                      <ul className="space-y-1.5 text-xs text-white/80 mb-4 flex-1">
+                        <li>{status?.free_item_limit ?? 10} product slots</li>
+                        <li>{status ? Math.round(status.commission_rate * 100) : 10}% commission</li>
+                      </ul>
+                      <button
+                        disabled
+                        className="w-full border border-white/40 text-white text-xs font-bold py-2.5 rounded-lg cursor-default"
+                      >
+                        CURRENT PLAN
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl bg-[#EAAD11] p-4 flex flex-col">
+                      <div className="self-start bg-black text-white text-[10px] font-bold px-2 py-1 rounded-full mb-3">
+                        {formatUGX(status?.price_ugx ?? 50000)}/MONTH
+                      </div>
+                      <h4 className="text-black text-lg font-extrabold mb-3">PREMIUM</h4>
+                      <ul className="space-y-1.5 text-xs text-black/80 font-medium mb-4 flex-1">
+                        <li>Unlimited slots</li>
+                        <li>{status ? Math.round(status.premium_commission_rate * 100) : 5}% commission</li>
+                        <li>Product view stats</li>
+                        <li>Wardrobe save counts</li>
+                      </ul>
+                      <button
+                        disabled={submitting || !phone.trim()}
+                        onClick={handleUpgrade}
+                        className="w-full bg-black text-white text-xs font-bold py-2.5 rounded-lg hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        {submitting ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-white/30 border-b-white rounded-full animate-spin" />
+                            <span>Redirecting…</span>
+                          </>
+                        ) : (
+                          'UPGRADE NOW'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <button
                 onClick={onClose}

@@ -24,6 +24,11 @@ import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import OrderConfirmation from './components/OrderConfirmation';
 import Orders from './components/Orders';
+import Account from './components/Account';
+import HomeBanner from './components/HomeBanner';
+import CartFloatingBar from './components/CartFloatingBar';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsAndConditions from './components/TermsAndConditions';
 import { useToast } from './context/ToastContext';
 
 function App() {
@@ -61,8 +66,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('thrifter_cart', JSON.stringify(cartItems));
   }, [cartItems]);
+  // Increments on every successful addToCart — the navbar's cart icon watches
+  // this to trigger a one-shot pulse animation, separately from the count
+  // itself (which also changes on removes/clears, where no pulse should fire).
+  const [cartPulseKey, setCartPulseKey] = useState(0);
   const addToCart = (item, qty = 1) => {
+    const alreadyInCart = cartItems.some((i) => i.id === item.id);
     setCartItems((prev) => (prev.some((i) => i.id === item.id) ? prev : [...prev, { ...item, cartQuantity: qty }]));
+    if (!alreadyInCart) {
+      setCartPulseKey((k) => k + 1);
+    }
   };
   const removeFromCart = (itemId) => {
     setCartItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -399,6 +412,22 @@ function App() {
     }
   }, [location.pathname, user, location.state]);
 
+  // The Meta Pixel base code (index.html) only fires PageView once, on the
+  // initial full page load — it has no way to see React Router's
+  // client-side navigations. metaPixelMounted skips the first run here
+  // since that first PageView was already sent by the base code itself;
+  // every route change after that fires one explicitly.
+  const metaPixelMounted = useRef(false);
+  useEffect(() => {
+    if (!metaPixelMounted.current) {
+      metaPixelMounted.current = true;
+      return;
+    }
+    if (typeof window.fbq === 'function') {
+      window.fbq('track', 'PageView');
+    }
+  }, [location.pathname]);
+
   const getImageUrl = (path) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
@@ -437,6 +466,7 @@ function App() {
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
           cartCount={cartItems.length}
+          cartPulseKey={cartPulseKey}
         />
       )}
       
@@ -470,70 +500,7 @@ function App() {
             ) : (
               <>
 {/* Homepage Banner */}
-<div className="px-3 sm:px-4 md:px-6 mb-8 mt-2">
-  <div className="relative w-full overflow-hidden rounded-[22px] border-2 border-[#D99A1E] bg-[#F8F5ED] shadow-sm">
-
-    <div className="grid min-h-[360px] grid-cols-1 md:min-h-[390px] md:grid-cols-2">
-
-      {/* LEFT SIDE */}
-      <div className="flex flex-col justify-center px-6 py-8 sm:px-8 sm:py-10 md:px-10 lg:px-12 md:py-10">
-        <div className="max-w-[560px]">
-
-          <h2 className="text-[30px] leading-[0.98] font-extrabold tracking-[-0.03em] text-[#252B32] sm:text-[38px] md:text-[42px] lg:text-[48px]">
-            SECURE YOUR
-            <br />
-            NEXT FIT
-          </h2>
-
-          <div className="mt-5 sm:mt-6">
-            <p className="text-[17px] leading-tight font-bold tracking-[0.08em] text-[#252B32] sm:text-[20px] md:text-[22px]">
-              DISCOVER FASHION
-              <br />
-              AROUND KAMPALA
-            </p>
-
-            <p className="mt-4 text-[12px] leading-[1.45] font-semibold tracking-[0.08em] text-[#252B32] sm:text-[14px] md:text-[15px]">
-              THRIFT STORES, CLOTHING
-              <br />
-              BRANDS, FASHION DESIGNERS
-            </p>
-          </div>
-
-          {/* EXPLORE NOW */}
-          <button
-            type="button"
-            onClick={() =>
-              window.scrollBy({
-                top: window.innerHeight * 0.8,
-                behavior: "smooth",
-              })
-            }
-            className="mt-6 inline-flex w-fit items-center justify-center gap-3 rounded-full bg-[#252B32] px-6 py-3 text-sm font-bold text-white shadow-md transition-all duration-200 hover:scale-[1.02] hover:bg-[#1D2228] active:scale-95 sm:mt-7 sm:px-8 sm:py-3.5 sm:text-base"
-          >
-            <span>Explore now</span>
-            <span
-              className="text-xl leading-none sm:text-2xl"
-              aria-hidden="true"
-            >
-              →
-            </span>
-          </button>
-
-        </div>
-      </div>
-
-      {/* RIGHT SIDE — EXACT NEW BANNER IMAGE */}
-      <div className="relative min-h-[250px] overflow-hidden bg-[#EEE5D4] md:min-h-0">
-        <img
-          src="/new-banner.png"
-          alt="Thrifter fashion showcase"
-          className="absolute inset-0 h-full w-full object-cover object-center"
-        />
-      </div>
-
-    </div>
-  </div>
-</div>
+<HomeBanner />
                 {loading ? (
                   <ThrifterLoader />
                 ) : items.length > 0 ? (
@@ -570,8 +537,7 @@ function App() {
             onUpdateQuantity={updateCartQuantity}
             onUpdateNote={updateCartNote}
             onClearCart={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
             user={user}
             openAuthModal={openAuthModal}
           />
@@ -580,8 +546,12 @@ function App() {
           <Checkout
             cartItems={cartItems}
             onOrderPlaced={clearCart}
-            deliveryFeeSingleVendor={features?.delivery_fee_single_vendor_ugx}
-            deliveryFeeMultiVendor={features?.delivery_fee_multi_vendor_ugx}
+            collectionPointLat={features?.collection_point_lat}
+            collectionPointLng={features?.collection_point_lng}
+            deliveryBaseFeeUgx={features?.delivery_base_fee_ugx}
+            deliveryRatePerKmUgx={features?.delivery_rate_per_km_ugx}
+            deliveryMaxRadiusKm={features?.delivery_max_radius_km}
+            codRoundingUgx={features?.cod_rounding_ugx}
             reservationMinutes={features?.reservation_minutes}
           />
         ) : <Navigate to="/cart" replace />} />
@@ -589,6 +559,17 @@ function App() {
           <OrderConfirmation />
         ) : <Navigate to="/" replace />} />
         <Route path="/orders" element={user ? <Orders /> : <Navigate to="/" replace />} />
+        <Route path="/account" element={user ? (
+          <Account
+            user={user}
+            onAccountDeleted={() => {
+              localStorage.removeItem('thrifter_token');
+              setUser(null);
+              setWardrobeIds(new Set());
+              navigate('/');
+            }}
+          />
+        ) : <Navigate to="/" replace />} />
         <Route path="/vendor/orders" element={
           user?.is_vendor
             ? <Navigate to={`/vendor/${encodeURIComponent(user.vendor_name)}?tab=orders`} replace />
@@ -636,6 +617,8 @@ function App() {
             ? <AdminDashboard user={user} onOutfitBuilderClick={() => navigate('/outfit-builder')} />
             : <Navigate to="/" replace />
         } />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
         <Route path="*" element={<Navigate to="/" replace />} />
         <Route path="/wardrobe" element={user ? (
           <main className="max-w-7xl mx-auto">
@@ -730,6 +713,8 @@ function App() {
         onAddToCart={(item, qty) => { addToCart(item, qty); setSelectedItem(null); }}
         isInCart={selectedItem ? cartItems.some((i) => i.id === selectedItem.id) : false}
       />
+
+      <CartFloatingBar cartItems={cartItems} cartPulseKey={cartPulseKey} />
     </div>
   );
 }

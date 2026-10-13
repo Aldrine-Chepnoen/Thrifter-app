@@ -463,7 +463,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
             <p className="text-center text-xs text-gray-500 mt-4 px-4">
               By continuing, you agree to discover and support local thrift brands, and to our{' '}
               <a
-                href="/thrifter-terms-and-conditions.pdf"
+                href="/terms-and-conditions"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-gray-700 dark:hover:text-gray-300"
@@ -471,7 +471,7 @@ const AuthModal = ({ isOpen, onClose, onAuthed }) => {
                 Terms & Conditions
               </a>{' '}and{' '}
               <a
-                href="/thrifter-privacy-policy.pdf"
+                href="/privacy-policy"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-gray-700 dark:hover:text-gray-300"

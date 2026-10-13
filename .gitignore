@@ -2,9 +2,6 @@
 frontend/node_modules/
 frontend/dist/
 
-# Mobile app (tracked on mobile-dev only — remove this line before final merge to main)
-mobile/
-
 # Python caches
 **/__pycache__/
 *.pyc
@@ -12,7 +9,7 @@ mobile/
 # Local images and generated embeddings
 backend/images/
 backend/embeddings.json
-images
+/images
 backend/cluster_items.py
 backend/clusters.html
 
@@ -41,6 +38,7 @@ APP_TRANSITION_PLAN.md
 .vscode/
 backend/beacon_report.py
 backend/export-r2_beacon-count-by-events-success-2026-07-08-112646.csv
+THRIFTER delivery model.md
 
 #email verification csv files
 Supabase Snippet Active Vendors with Vendor User Emails.csv
