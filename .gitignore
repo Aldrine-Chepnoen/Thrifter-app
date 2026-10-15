@@ -40,6 +40,9 @@ backend/beacon_report.py
 backend/export-r2_beacon-count-by-events-success-2026-07-08-112646.csv
 THRIFTER delivery model.md
 
+# Internal ops runbook — operational/security detail not meant for the public repo
+DB_RECOVERY.md
+
 #email verification csv files
 Supabase Snippet Active Vendors with Vendor User Emails.csv
 Supabase Snippet Fetch Non-Vendor Users by Email.csv
