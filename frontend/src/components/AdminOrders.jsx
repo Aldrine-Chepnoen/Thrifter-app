@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, X, MessageSquare, ChevronDown } from 'lucide-react';
-import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder, deliverAdminCheckout, retryRefund } from '../api';
+import { fetchAdminOrders, updateAdminOrderStatus, cancelAdminOrder, cancelAdminOrderItem, deliverAdminCheckout, retryRefund } from '../api';
 import { getImageSrc, getLightboxImages } from '../utils';
 import { Link } from 'react-router-dom';
 import ThrifterLoader from './ThrifterLoader';
@@ -26,14 +26,22 @@ const STATUS_LABELS = { paid: 'Order placed', picked_up: 'On delivery', delivere
 const NEXT_STATUS = { paid: 'picked_up' };
 const NEXT_LABEL = { paid: 'Mark Picked Up' };
 
+// "item_unavailable" is deliberately left out here — cancelling a whole order
+// for one bad item used to delete every item on it, including perfectly
+// fulfillable ones. Use the per-item "Cancel item" action for that instead
+// (ITEM_CANCEL_REASONS below); the backend rejects item_unavailable on the
+// whole-order endpoint now.
 const CANCEL_REASONS = [
-  { value: 'item_unavailable', label: 'Item unavailable (will be removed from the catalog)' },
   { value: 'buyer_requested', label: 'Buyer requested cancellation' },
   { value: 'delivery_issue', label: 'Delivery issue (bad/unreachable address)' },
   { value: 'vendor_unable_to_fulfill', label: 'Vendor unable to fulfill' },
   { value: 'other', label: 'Other' },
 ];
-const CANCEL_REASON_LABELS = Object.fromEntries(CANCEL_REASONS.map((r) => [r.value, r.label]));
+const ITEM_CANCEL_REASONS = [
+  { value: 'item_unavailable', label: 'Item unavailable (will be removed from the catalog)' },
+  ...CANCEL_REASONS,
+];
+const CANCEL_REASON_LABELS = Object.fromEntries(ITEM_CANCEL_REASONS.map((r) => [r.value, r.label]));
 
 const CancelOrderModal = ({ order, onClose, onCancelled }) => {
   const [reason, setReason] = useState('buyer_requested');
@@ -80,6 +88,93 @@ const CancelOrderModal = ({ order, onClose, onCancelled }) => {
           className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
         >
           {CANCEL_REASONS.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
+        </select>
+
+        <label className="block text-sm font-medium mb-1">
+          Note {noteRequired ? <span className="text-red-500">*</span> : <span className="text-gray-400 font-normal">(optional)</span>}
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+          placeholder={noteRequired ? 'Required for "Other" — what happened?' : 'Any extra context for the record…'}
+        />
+
+        {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="flex-1 py-2.5 rounded-xl font-semibold border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="flex-1 py-2.5 rounded-xl font-bold bg-red-600 text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? 'Cancelling…' : 'Confirm Cancellation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Cancels one line item without touching the rest of the order — e.g. only
+// one of several items turns out to be unavailable. Only offered for
+// cash-on-delivery orders (see api.cancelAdminOrderItem's backend counterpart);
+// a mobile-money order with one bad item still needs the whole-order cancel
+// since refunds there are tracked per order, not per item.
+const CancelOrderItemModal = ({ order, item, onClose, onCancelled }) => {
+  const [reason, setReason] = useState('item_unavailable');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const noteRequired = reason === 'other';
+
+  const handleConfirm = async () => {
+    if (noteRequired && !note.trim()) {
+      setError('A note is required for "Other".');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const updated = await cancelAdminOrderItem(order.id, item.id, reason, note.trim() || undefined);
+      onCancelled(updated);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not cancel this item.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <X className="w-5 h-5" />
+        </button>
+        <h3 className="text-lg font-serif font-bold mb-1">Cancel "{item.item_name_snapshot}"</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Only this item is removed — the rest of Order #{order.id} keeps going. This was cash-on-delivery,
+          so nothing was charged and there's nothing to refund. This cannot be undone.
+        </p>
+
+        <label className="block text-sm font-medium mb-1">Reason</label>
+        <select
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-[#EAAD11]"
+        >
+          {ITEM_CANCEL_REASONS.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
           ))}
         </select>
@@ -172,6 +267,7 @@ const AdminOrders = () => {
   const [deliveringCheckoutId, setDeliveringCheckoutId] = useState(null);
   const [expandedCheckouts, setExpandedCheckouts] = useState(new Set());
   const [cancelOrder, setCancelOrder] = useState(null); // order currently in the cancel-reason modal
+  const [cancelItem, setCancelItem] = useState(null); // { order, item } currently in the per-item cancel modal
   const [lightbox, setLightbox] = useState(null); // { src, alt } of the enlarged item image, or null
 
   // Merges a section's freshly fetched orders into state by id, rather than
@@ -404,6 +500,16 @@ const AdminOrders = () => {
                       Cancel
                     </button>
                   )}
+                  {order.payment_method === 'cash_on_delivery' && item.item_id && (
+                    <button
+                      onClick={() => setCancelItem({ order, item })}
+                      disabled={updatingId === order.id}
+                      className="text-xs text-gray-400 font-medium px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 whitespace-nowrap"
+                      title="Cancel just this item, leaving the rest of the order untouched"
+                    >
+                      Cancel item
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -504,6 +610,15 @@ const AdminOrders = () => {
                       <p className="text-sm text-gray-500 whitespace-nowrap">
                         Qty {item.quantity} · {formatUGX(item.price_at_purchase)}{item.quantity > 1 ? ' each' : ''}
                       </p>
+                      {order.payment_method === 'cash_on_delivery' && item.item_id && (
+                        <button
+                          onClick={() => setCancelItem({ order, item })}
+                          className="text-xs text-gray-400 font-medium px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 whitespace-nowrap"
+                          title="Cancel just this item, leaving the rest of the order untouched"
+                        >
+                          Cancel item
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -670,6 +785,24 @@ const AdminOrders = () => {
             } else {
               showToast(`Order #${updated.id} cancelled and refunded.`, 'success');
             }
+          }}
+        />
+      )}
+
+      {cancelItem && (
+        <CancelOrderItemModal
+          order={cancelItem.order}
+          item={cancelItem.item}
+          onClose={() => setCancelItem(null)}
+          onCancelled={(updated) => {
+            mergeOrders([updated]);
+            setCancelItem(null);
+            showToast(
+              updated.status === 'cancelled'
+                ? `"${cancelItem.item.item_name_snapshot}" was the last item on Order #${updated.id} — the whole order is now cancelled.`
+                : `"${cancelItem.item.item_name_snapshot}" cancelled. The rest of Order #${updated.id} continues.`,
+              'success'
+            );
           }}
         />
       )}
