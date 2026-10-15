@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     GOOGLE_IOS_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_IOS_CLIENT_ID")
     GOOGLE_ANDROID_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_ANDROID_CLIENT_ID")
 
+    # Sign in with Apple — the identity token's `aud` claim must equal the
+    # app's bundle ID, which is public (it's in app.json), so unlike Google
+    # there's no separate OAuth client to provision per platform. All that's
+    # required on Apple's side is enabling the "Sign In with Apple" capability
+    # on this bundle ID in the Apple Developer portal.
+    APPLE_BUNDLE_ID: str = os.getenv("APPLE_BUNDLE_ID", "com.thrifterug.app")
+
     # Google Maps Geocoding API (reverse-geocodes vendor "use my location" coordinates to an address)
     GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
 

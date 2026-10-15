@@ -47,6 +47,17 @@ class GoogleAuthNeedsConfirmation(BaseModel):
     needs_confirmation: bool = True
     email: EmailStr
 
+class AppleAuthRequest(BaseModel):
+    identity_token: str
+    confirm_signup: bool = False
+
+class AppleAuthResponse(Token):
+    is_new_user: bool
+
+class AppleAuthNeedsConfirmation(BaseModel):
+    needs_confirmation: bool = True
+    email: EmailStr
+
 class VendorUpgrade(BaseModel):
     vendor_name: str = Field(..., min_length=2)
     vendor_whatsapp: str
@@ -420,6 +431,12 @@ class OrderItemOut(BaseModel):
     # lightbox that wants to page through all of them.
     images: List[ItemImage] = []
     note: Optional[str] = None
+    # Set only if this specific line was cancelled on its own (e.g. this one
+    # item turned out unavailable) while the rest of the order kept going —
+    # distinct from the whole order being cancelled, see AdminOrderOut.cancel_reason.
+    cancel_reason: Optional[str] = None
+    cancel_note: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
 
 class OrderOut(BaseModel):
     id: int
@@ -488,6 +505,11 @@ class AdminOrderStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(picked_up|delivered|cancelled)$")
     # Required (and validated against CANCEL_REASONS) only when status == "cancelled".
     reason: Optional[str] = None
+    note: Optional[str] = None
+
+class AdminOrderItemCancelRequest(BaseModel):
+    # Validated against CANCEL_REASONS in main.py.
+    reason: str
     note: Optional[str] = None
 
 class RefundOut(BaseModel):

@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
+import AppleSignInButton from '@/components/AppleSignInButton';
 import api from '@/lib/api';
 
 const FRONTEND_BASE_URL = 'https://thrifter-ug.com';
@@ -96,6 +97,7 @@ export default function RegisterScreen() {
         <Text className="text-gray-400 dark:text-gray-500 mb-8">Create your account</Text>
 
         <GoogleSignInButton />
+        <AppleSignInButton />
 
         <Text className="text-center text-xs text-gray-400 dark:text-gray-500 mt-4 px-4 leading-relaxed">
           By continuing, you agree to discover and support local thrift brands, and to our{' '}

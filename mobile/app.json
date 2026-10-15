@@ -8,9 +8,12 @@
     "scheme": "thrifter",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.thrifterug.app",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.thrifterug.app",
@@ -53,6 +56,7 @@
           "microphonePermission": false
         }
       ],
+      "expo-apple-authentication",
       "expo-font",
       "expo-image",
       "expo-secure-store",
@@ -67,7 +71,7 @@
       [
         "@react-native-google-signin/google-signin",
         {
-          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_REVERSED_CLIENT_ID"
+          "iosUrlScheme": "com.googleusercontent.apps.202297682269-02q3najdv86je1algtin0te0v32qr3h6"
         }
       ]
     ],

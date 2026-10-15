@@ -18,6 +18,7 @@ boto3
 python-dotenv
 slowapi
 pyjwt
+cryptography
 google-auth
 requests
 nylonpay-py==0.6.2

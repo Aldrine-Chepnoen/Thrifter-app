@@ -190,9 +190,15 @@ def verify_password(pw: str, hashed: str) -> bool:
     return pwd_context.verify(pw, hashed)
 
 import jwt
+from jwt import PyJWKClient
 from datetime import datetime, timedelta, date
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
+
+# Cached across requests — fetches/refreshes Apple's public signing keys
+# (https://appleid.apple.com/auth/keys) lazily and keeps them around instead
+# of hitting Apple on every sign-in.
+_apple_jwks_client = PyJWKClient("https://appleid.apple.com/auth/keys")
 
 def make_token(payload: dict) -> str:
     payload = dict(payload)
@@ -697,6 +703,51 @@ def google_auth(request: Request, body: schemas.GoogleAuthRequest, db: Session =
     logger.info(f"Google login successful: {u.id}")
     return schemas.GoogleAuthResponse(access_token=token, is_new_user=is_new_user)
 
+@app.post("/auth/apple", response_model=Union[schemas.AppleAuthResponse, schemas.AppleAuthNeedsConfirmation])
+@limiter.limit("10/minute")
+def apple_auth(request: Request, body: schemas.AppleAuthRequest, db: Session = Depends(get_db)):
+    try:
+        signing_key = _apple_jwks_client.get_signing_key_from_jwt(body.identity_token)
+        payload = jwt.decode(
+            body.identity_token, signing_key.key, algorithms=["RS256"],
+            audience=settings.APPLE_BUNDLE_ID, issuer="https://appleid.apple.com",
+        )
+    except Exception as e:
+        logger.warning(f"Apple auth failed: invalid credential ({e})")
+        raise HTTPException(status_code=401, detail="Invalid Apple token")
+
+    # Present on every identity token (not just the first sign-in) as long as
+    # the EMAIL scope was requested — unlike fullName, which Apple only ever
+    # returns once, on the client side, at the moment of first authorization.
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Apple did not provide an email for this account")
+
+    sub = payload["sub"]
+
+    u = db.query(models.User).filter(models.User.apple_sub == sub).first()
+    is_new_user = False
+    if not u:
+        u = db.query(models.User).filter(models.User.email == email).first()
+        if u:
+            # Existing password/Google account signing in with Apple for the first time — link it.
+            u.apple_sub = sub
+            db.commit()
+            logger.info(f"Linked Apple identity to existing user: {u.id}")
+        elif not body.confirm_signup:
+            return schemas.AppleAuthNeedsConfirmation(email=email)
+        else:
+            u = models.User(email=email, apple_sub=sub, hashed_password=None, is_vendor=False)
+            db.add(u)
+            db.commit()
+            db.refresh(u)
+            is_new_user = True
+            logger.info(f"Registered new user via Apple: {u.id}")
+
+    token = make_token({"uid": u.id})
+    logger.info(f"Apple login successful: {u.id}")
+    return schemas.AppleAuthResponse(access_token=token, is_new_user=is_new_user)
+
 @app.post("/auth/vendor-upgrade", response_model=schemas.UserInfo)
 def vendor_upgrade(body: schemas.VendorUpgrade, current = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current:
@@ -805,6 +856,7 @@ def delete_own_account(
     user.email = f"deleted-user-{user.id}@thrifter.invalid"
     user.hashed_password = None
     user.google_sub = None
+    user.apple_sub = None
     user.is_deleted = True
     user.deleted_at = datetime.utcnow()
     if vendor:
@@ -1474,6 +1526,9 @@ def serialize_order(order: models.Order) -> schemas.OrderOut:
                 price_at_purchase=oi.price_at_purchase,
                 quantity=oi.quantity,
                 note=oi.note,
+                cancel_reason=oi.cancel_reason,
+                cancel_note=oi.cancel_note,
+                cancelled_at=oi.cancelled_at,
             )
             for oi in order.items
         ],
@@ -2489,6 +2544,9 @@ def _serialize_vendor_order(order: models.Order) -> schemas.VendorOrderOut:
             fallback_url=fallback_url,
             images=item_images,
             note=oi.note,
+            cancel_reason=oi.cancel_reason,
+            cancel_note=oi.cancel_note,
+            cancelled_at=oi.cancelled_at,
         ))
     return schemas.VendorOrderOut(
         id=order.id,
@@ -2534,6 +2592,9 @@ _ADMIN_ORDER_STATUS_TRANSITIONS = {
 }
 
 CANCEL_REASONS = {"item_unavailable", "buyer_requested", "delivery_issue", "vendor_unable_to_fulfill", "other"}
+# "item_unavailable" is deliberately excluded from whole-order cancellation —
+# see _cancel_order's docstring. It's only valid on the per-item endpoint.
+ORDER_LEVEL_CANCEL_REASONS = CANCEL_REASONS - {"item_unavailable"}
 
 def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
     items = []
@@ -2549,6 +2610,9 @@ def _serialize_admin_order(order: models.Order) -> schemas.AdminOrderOut:
             fallback_url=fallback_url,
             images=item_images,
             note=oi.note,
+            cancel_reason=oi.cancel_reason,
+            cancel_note=oi.cancel_note,
+            cancelled_at=oi.cancelled_at,
         ))
     checkout = order.checkout
     refund = order.refund
@@ -2673,50 +2737,18 @@ def _attempt_refund_payout(db: Session, refund: models.Refund) -> None:
         refund.failure_reason = str(e)
 
 
-def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
-    """Admin-only order cancellation. Restocks (or, for reason="item_unavailable",
-    deletes) the order's items, refunds the buyer via provider payout for a
-    mobile money order (Nylon Pay has no native refund call — a cash-on-delivery
-    order was never charged, so it skips this), and recomputes the checkout's
-    delivery-fee tier if cancelling this order drops it from multi- to single-vendor."""
-    if body.reason not in CANCEL_REASONS:
-        raise HTTPException(status_code=422, detail=f"reason must be one of: {', '.join(sorted(CANCEL_REASONS))}")
-    if body.reason == "other" and not (body.note or "").strip():
-        raise HTTPException(status_code=422, detail="A note is required when reason is 'other'")
-
-    checkout = db.query(models.Checkout).filter(models.Checkout.id == order.checkout_id).with_for_update().first()
-    now = datetime.utcnow()
-
-    deleted_item_ids = []
-    restocked = False
-    if body.reason == "item_unavailable":
-        for oi in order.items:
-            if not oi.item_id:
-                continue
-            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
-            if not item:
-                continue
-            oi.item_id = None
-            db.flush()
-            deleted_item_ids.append(item.id)
-            _delete_item_assets_and_row(db, item)
-    else:
-        # Same restock pattern as _release_checkout — sorted by item id to
-        # match its deadlock-avoidance lock ordering.
-        for oi in sorted(order.items, key=lambda oi: oi.item_id or 0):
-            if not oi.item_id:
-                continue
-            item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
-            if not item:
-                continue
-            was_sold_out = item.quantity == 0
-            _adjust_item_stock(db, item, +oi.quantity, now)
-            if was_sold_out and item.quantity > 0:
-                restocked = True
-
+def _finalize_order_cancellation(db: Session, order: models.Order, checkout: models.Checkout, reason: str, note: Optional[str], current_user: models.User, now: datetime) -> None:
+    """Shared tail for flipping an order to "cancelled" — called either
+    directly (_cancel_order, the whole order at once) or because the last of
+    an order's items was just cancelled one at a time (_cancel_order_item).
+    Recomputes the checkout's delivery-fee tier, and for a mobile money
+    checkout refunds whatever of order.subtotal is still outstanding (the
+    full amount for a direct whole-order cancel; 0 if _cancel_order_item
+    already walked it down to nothing — though that path is COD-only today,
+    see _cancel_order_item's docstring). Commits."""
     order.status = "cancelled"
-    order.cancel_reason = body.reason
-    order.cancel_note = (body.note or "").strip() or None
+    order.cancel_reason = reason
+    order.cancel_note = (note or "").strip() or None
     order.cancelled_at = now
     order.cancelled_by_user_id = current_user.id
 
@@ -2771,6 +2803,133 @@ def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStat
 
     db.commit()
     db.refresh(order)
+
+
+def _cancel_order(db: Session, order: models.Order, body: schemas.AdminOrderStatusUpdate, current_user: models.User) -> schemas.AdminOrderOut:
+    """Admin-only cancellation of an entire order — every item on it at once.
+    Restocks each item, refunds the buyer via provider payout for a mobile
+    money order, and recomputes the checkout's delivery-fee tier (see
+    _finalize_order_cancellation).
+
+    reason="item_unavailable" is deliberately NOT accepted here (see
+    ORDER_LEVEL_CANCEL_REASONS) — only one item being out of stock used to be
+    handled by cancelling (and deleting) the whole order, including any other,
+    perfectly-fulfillable items on it. Use _cancel_order_item instead to take
+    down just the one bad item without touching the rest."""
+    if body.reason not in ORDER_LEVEL_CANCEL_REASONS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"reason must be one of: {', '.join(sorted(ORDER_LEVEL_CANCEL_REASONS))}. "
+                "To mark a single item unavailable without cancelling the rest of the order, "
+                "use PATCH /admin/orders/{order_id}/items/{order_item_id}/cancel instead."
+            ),
+        )
+    if body.reason == "other" and not (body.note or "").strip():
+        raise HTTPException(status_code=422, detail="A note is required when reason is 'other'")
+
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == order.checkout_id).with_for_update().first()
+    now = datetime.utcnow()
+
+    restocked = False
+    # Same restock pattern as _release_checkout — sorted by item id to match
+    # its deadlock-avoidance lock ordering.
+    for oi in sorted(order.items, key=lambda oi: oi.item_id or 0):
+        if not oi.item_id:
+            continue
+        item = db.query(models.Item).filter(models.Item.id == oi.item_id).with_for_update().first()
+        if not item:
+            continue
+        was_sold_out = item.quantity == 0
+        _adjust_item_stock(db, item, +oi.quantity, now)
+        if was_sold_out and item.quantity > 0:
+            restocked = True
+
+    _finalize_order_cancellation(db, order, checkout, body.reason, body.note, current_user, now)
+
+    if restocked:
+        cache.feed_invalidate_all()
+        cache.search_invalidate_all()
+    cache.admin_stats_invalidate()
+
+    return _serialize_admin_order(order)
+
+
+def _cancel_order_item(db: Session, order: models.Order, order_item: models.OrderItem, body: schemas.AdminOrderItemCancelRequest, current_user: models.User) -> schemas.AdminOrderOut:
+    """Admin-only cancellation of a single line item within an order (e.g.
+    this one item turns out to be unavailable) — restocks (or, for
+    reason="item_unavailable", deletes) just this item and shrinks
+    order.subtotal/commission_amount/vendor_payout_amount and
+    checkout.total_amount by exactly this item's share, leaving the order's
+    other items and status untouched. If this was the order's last remaining
+    item, the order collapses to "cancelled" the same way whole-order
+    cancellation does (_finalize_order_cancellation).
+
+    Mobile money refunds are tracked one-per-order (Refund.order_id is
+    unique) — there's no row to record a partial, per-item refund against. So
+    this only works for cash-on-delivery, where nothing was charged up front
+    and there's nothing to refund either way. A mobile-money order with one
+    bad item still has to be cancelled as a whole via _cancel_order."""
+    checkout = db.query(models.Checkout).filter(models.Checkout.id == order.checkout_id).with_for_update().first()
+    if checkout.payment_method == "mobile_money":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Mobile money orders can't have a single item cancelled — refunds are tracked "
+                "per order, not per item. Cancel the whole order instead if a refund is owed."
+            ),
+        )
+    if order.status not in ("paid", "picked_up"):
+        raise HTTPException(status_code=409, detail=f"Cannot cancel an item on an order in status '{order.status}'")
+    if order_item.item_id is None:
+        raise HTTPException(status_code=409, detail="This item has already been cancelled")
+    if body.reason not in CANCEL_REASONS:
+        raise HTTPException(status_code=422, detail=f"reason must be one of: {', '.join(sorted(CANCEL_REASONS))}")
+    if body.reason == "other" and not (body.note or "").strip():
+        raise HTTPException(status_code=422, detail="A note is required when reason is 'other'")
+
+    now = datetime.utcnow()
+    item = db.query(models.Item).filter(models.Item.id == order_item.item_id).with_for_update().first()
+    item_subtotal = order_item.price_at_purchase * order_item.quantity
+
+    deleted_item_ids = []
+    restocked = False
+    if item:
+        if body.reason == "item_unavailable":
+            order_item.item_id = None
+            db.flush()
+            deleted_item_ids.append(item.id)
+            _delete_item_assets_and_row(db, item)
+        else:
+            was_sold_out = item.quantity == 0
+            _adjust_item_stock(db, item, +order_item.quantity, now)
+            if was_sold_out and item.quantity > 0:
+                restocked = True
+            order_item.item_id = None
+    else:
+        order_item.item_id = None
+
+    order_item.cancel_reason = body.reason
+    order_item.cancel_note = (body.note or "").strip() or None
+    order_item.cancelled_at = now
+    order_item.cancelled_by_user_id = current_user.id
+
+    # Shrink this order's running totals by exactly this item's share, scaled
+    # off the order's existing commission split so a premium-vendor order
+    # isn't re-split at today's (possibly different) commission rate.
+    ratio = (order.commission_amount / order.subtotal) if order.subtotal else 0.0
+    commission_delta = round(item_subtotal * ratio, 2)
+    order.subtotal = max(order.subtotal - item_subtotal, 0)
+    order.commission_amount = max(order.commission_amount - commission_delta, 0)
+    order.vendor_payout_amount = max(order.vendor_payout_amount - (item_subtotal - commission_delta), 0)
+    checkout.total_amount = max(checkout.total_amount - item_subtotal, 0)
+
+    remaining_items = [oi for oi in order.items if oi.id != order_item.id and oi.item_id is not None]
+    if remaining_items:
+        db.commit()
+        db.refresh(order)
+    else:
+        _finalize_order_cancellation(db, order, checkout, body.reason, body.note, current_user, now)
 
     if restocked or deleted_item_ids:
         cache.feed_invalidate_all()
@@ -2862,6 +3021,26 @@ def update_admin_order_status(
     db.commit()
     db.refresh(order)
     return _serialize_admin_order(order)
+
+@app.patch("/admin/orders/{order_id}/items/{order_item_id}/cancel", response_model=schemas.AdminOrderOut)
+def cancel_admin_order_item(
+    order_id: int,
+    order_item_id: int,
+    body: schemas.AdminOrderItemCancelRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin),
+):
+    # Locked for the same double-click/retry reason as update_admin_order_status.
+    order = db.query(models.Order).filter(models.Order.id == order_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order_item = db.query(models.OrderItem).filter(
+        models.OrderItem.id == order_item_id, models.OrderItem.order_id == order_id,
+    ).with_for_update().first()
+    if not order_item:
+        raise HTTPException(status_code=404, detail="Order item not found")
+
+    return _cancel_order_item(db, order, order_item, body, current_user)
 
 @app.patch("/admin/checkouts/{checkout_id}/deliver", response_model=List[schemas.AdminOrderOut])
 def deliver_checkout(

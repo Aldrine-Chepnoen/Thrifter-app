@@ -12,6 +12,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String, nullable=True)
     google_sub = Column(String, unique=True, index=True, nullable=True)
+    apple_sub = Column(String, unique=True, index=True, nullable=True)
     is_vendor = Column(Boolean, default=False, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
@@ -20,8 +21,8 @@ class User(Base):
     # Self-serve deletion (DELETE /auth/me) soft-deletes rather than removing
     # the row outright — order/financial history referencing this user must
     # survive per the 7-year retention commitment in the Terms (clause 13.2).
-    # email/hashed_password/google_sub get scrubbed at deletion time; is_deleted
-    # blocks login and login-adjacent lookups from here on.
+    # email/hashed_password/google_sub/apple_sub get scrubbed at deletion time;
+    # is_deleted blocks login and login-adjacent lookups from here on.
     is_deleted = Column(Boolean, default=False, nullable=False, server_default="false", index=True)
     deleted_at = Column(DateTime, nullable=True)
 
@@ -247,6 +248,15 @@ class OrderItem(Base):
     # set at checkout and shown to the vendor/admin fulfilling the order. Length
     # capped at the schema layer (CheckoutItemRequest.note), not here.
     note = Column(Text, nullable=True)
+    # Per-item cancellation (e.g. one item in a multi-item order turns out to
+    # be unavailable) — distinct from Order.cancel_reason/cancelled_at, which
+    # describe the whole order being cancelled. Set by _cancel_order_item;
+    # the order itself only moves to "cancelled" once every one of its items
+    # has been cancelled this way (see _maybe_finalize_order_cancellation).
+    cancelled_at = Column(DateTime, nullable=True)
+    cancel_reason = Column(String, nullable=True)  # item_unavailable, buyer_requested, delivery_issue, vendor_unable_to_fulfill, other
+    cancel_note = Column(Text, nullable=True)
+    cancelled_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     order = relationship("Order", back_populates="items")
     item = relationship("Item")
