@@ -3,7 +3,7 @@ import re
 import uuid
 from typing import Optional, Dict, Any
 
-from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination, LEGACY_BASE_URL
+from nylonpay import create_nylon_pay, SdkException, VerifyWebhookInput, verify_webhook_signature, Customer, Destination
 
 from config import settings
 from .base import PaymentProvider, InitiateResult, WebhookResult, PayoutResult, VerifyResult, HealthCheckResult
@@ -149,13 +149,13 @@ class NylonPayProvider(PaymentProvider):
             self._client = create_nylon_pay(
                 api_key=settings.NYLONPAY_API_KEY,
                 api_secret=settings.NYLONPAY_API_SECRET,
-                # SDK >=0.6 defaults to a new primary domain (api.nylonpay.com)
-                # and demotes the one this account has always used to
-                # LEGACY_BASE_URL ("still served," per the SDK's own docs).
-                # Pinned explicitly so this upgrade changes failure-message
-                # quality only, not which endpoint every request hits —
-                # migrating domains is a separate decision.
-                base_url=LEGACY_BASE_URL,
+                # Previously pinned to LEGACY_BASE_URL (the pre-0.6 domain this
+                # account used to hit). That domain now returns a 308 redirect
+                # instead of serving requests (confirmed 2026-10-18 from a
+                # stuck withdrawal — both the payout call and its status-resolve
+                # call got redirected, never reaching a real endpoint), so no
+                # base_url override here: let the SDK use its current default
+                # (api.nylonpay.com), which is the one actually being served.
             )
         return self._client
 
