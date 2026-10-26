@@ -35,6 +35,7 @@ import payments
 import vendor_verify
 import vendor_premium
 import sms
+import push
 from phone_utils import format_whatsapp_number
 
 # Tables are managed by Alembic migrations
@@ -191,7 +192,7 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 import jwt
 from jwt import PyJWKClient
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
 
@@ -2279,6 +2280,68 @@ async def _premium_expiry_reminder_loop():
 async def start_premium_expiry_reminder_loop():
     asyncio.create_task(_premium_expiry_reminder_loop())
 
+# East Africa Time — Uganda has no DST, so a fixed offset is all that's needed.
+EAT = timezone(timedelta(hours=3))
+_VENDOR_DIGEST_LAST_RUN_KEY = "last_vendor_digest_run_date"
+
+def _run_vendor_follow_digest_sweep() -> None:
+    """Once a day (gated by VENDOR_DIGEST_HOUR_LOCAL, checked every
+    VENDOR_DIGEST_SWEEP_INTERVAL_SECONDS — see _vendor_follow_digest_loop),
+    notifies followers of any vendor who uploaded items in the last 24h.
+
+    The "has today's digest already run" marker is persisted in AppSetting
+    rather than kept in memory, so a redeploy/restart never double-fires or
+    skips a day.
+    """
+    db = SessionLocal()
+    try:
+        now_local = datetime.now(EAT)
+        if now_local.hour < settings.VENDOR_DIGEST_HOUR_LOCAL:
+            return
+        today_str = now_local.date().isoformat()
+        marker = db.query(models.AppSetting).filter(models.AppSetting.key == _VENDOR_DIGEST_LAST_RUN_KEY).first()
+        if marker and marker.value_str == today_str:
+            return
+
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        new_items = (
+            db.query(models.Item.vendor_id, func.count(models.Item.id).label("n"))
+            .filter(models.Item.vendor_id.isnot(None), models.Item.created_at >= cutoff)
+            .group_by(models.Item.vendor_id)
+            .all()
+        )
+        for vendor_id, n in new_items:
+            vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor_id).first()
+            if not vendor:
+                continue
+            followers = db.query(models.VendorFollow).filter(models.VendorFollow.vendor_id == vendor_id).all()
+            if not followers:
+                continue
+            message = f"{vendor.name} added {n} new item{'s' if n != 1 else ''}"
+            for follow in followers:
+                db.add(models.Notification(user_id=follow.user_id, vendor_id=vendor_id, message=message))
+                for push_token in db.query(models.PushToken).filter(models.PushToken.user_id == follow.user_id).all():
+                    push.send_push(push_token.token, "Thrifter", message)
+
+        if marker:
+            marker.value_str = today_str
+        else:
+            db.add(models.AppSetting(key=_VENDOR_DIGEST_LAST_RUN_KEY, value_str=today_str))
+        db.commit()
+    except Exception as e:
+        logger.error(f"Vendor follow digest sweep failed: {str(e)}", exc_info=True)
+    finally:
+        db.close()
+
+async def _vendor_follow_digest_loop():
+    while True:
+        await asyncio.to_thread(_run_vendor_follow_digest_sweep)
+        await asyncio.sleep(settings.VENDOR_DIGEST_SWEEP_INTERVAL_SECONDS)
+
+@app.on_event("startup")
+async def start_vendor_follow_digest_loop():
+    asyncio.create_task(_vendor_follow_digest_loop())
+
 @app.post("/webhooks/nylonpay")
 async def nylonpay_webhook(request: Request, db: Session = Depends(get_db)):
     raw_body = await request.body()
@@ -4037,6 +4100,103 @@ def list_blocked_vendors(current_user = Depends(get_current_user), db: Session =
         schemas.BlockedVendorOut(vendor_id=r.vendor_id, vendor_name=r.vendor.name if r.vendor else "Unknown", blocked_at=r.created_at)
         for r in rows
     ]
+
+@app.post("/vendors/{vendor_id}/follow", status_code=204)
+def follow_vendor(vendor_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    vendor = db.query(models.Vendor).filter(models.Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    existing = (
+        db.query(models.VendorFollow)
+        .filter(models.VendorFollow.user_id == current_user.id, models.VendorFollow.vendor_id == vendor_id)
+        .first()
+    )
+    if not existing:
+        db.add(models.VendorFollow(user_id=current_user.id, vendor_id=vendor_id))
+        db.commit()
+    return Response(status_code=204)
+
+@app.delete("/vendors/{vendor_id}/follow", status_code=204)
+def unfollow_vendor(vendor_id: int, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    row = (
+        db.query(models.VendorFollow)
+        .filter(models.VendorFollow.user_id == current_user.id, models.VendorFollow.vendor_id == vendor_id)
+        .first()
+    )
+    if row:
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
+
+@app.get("/me/followed-vendors", response_model=List[schemas.FollowedVendorOut])
+def list_followed_vendors(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    rows = (
+        db.query(models.VendorFollow)
+        .options(selectinload(models.VendorFollow.vendor))
+        .filter(models.VendorFollow.user_id == current_user.id)
+        .order_by(models.VendorFollow.created_at.desc())
+        .all()
+    )
+    return [
+        schemas.FollowedVendorOut(vendor_id=r.vendor_id, vendor_name=r.vendor.name if r.vendor else "Unknown", followed_at=r.created_at)
+        for r in rows
+    ]
+
+@app.get("/notifications", response_model=List[schemas.NotificationOut])
+def list_notifications(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    rows = (
+        db.query(models.Notification)
+        .options(selectinload(models.Notification.vendor))
+        .filter(models.Notification.user_id == current_user.id)
+        .order_by(models.Notification.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return [
+        schemas.NotificationOut(
+            id=r.id,
+            message=r.message,
+            vendor_id=r.vendor_id,
+            vendor_name=r.vendor.name if r.vendor else None,
+            created_at=r.created_at,
+            read_at=r.read_at,
+        )
+        for r in rows
+    ]
+
+@app.post("/notifications/mark-all-read", status_code=204)
+def mark_all_notifications_read(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    now = datetime.utcnow()
+    (
+        db.query(models.Notification)
+        .filter(models.Notification.user_id == current_user.id, models.Notification.read_at.is_(None))
+        .update({"read_at": now}, synchronize_session=False)
+    )
+    db.commit()
+    return Response(status_code=204)
+
+@app.post("/me/push-token", status_code=204)
+def register_push_token(body: schemas.PushTokenIn, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    existing = db.query(models.PushToken).filter(models.PushToken.token == body.token).first()
+    if existing:
+        existing.user_id = current_user.id
+    else:
+        db.add(models.PushToken(user_id=current_user.id, token=body.token))
+    db.commit()
+    return Response(status_code=204)
 
 # ── Item view tracking ─────────────────────────────────────────────────────────
 

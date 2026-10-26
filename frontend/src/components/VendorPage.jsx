@@ -6,7 +6,7 @@ import VendorOrders from './VendorOrders';
 import UpgradeToPremiumModal from './UpgradeToPremiumModal';
 import VerifyPhoneNudgeModal from './VerifyPhoneNudgeModal';
 import ReportModal from './ReportModal';
-import api, { fetchVendorSlotStatus, sendVendorPhoneVerification } from '../api';
+import api, { fetchVendorSlotStatus, sendVendorPhoneVerification, followVendor, unfollowVendor, fetchFollowedVendors } from '../api';
 import { getImageSrc } from '../utils';
 import ThrifterLoader from './ThrifterLoader';
 import { useToast } from '../context/ToastContext';
@@ -56,6 +56,8 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
   const [reportOpen, setReportOpen] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
+  const [followed, setFollowed] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
   const [viewStats, setViewStats] = useState({});
   const [wardrobeSaveStats, setWardrobeSaveStats] = useState({});
   const [bannerUploading, setBannerUploading] = useState(false);
@@ -93,6 +95,13 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       .catch(() => {});
   }, [user, vendorInfo?.id, isOwnProfile]);
 
+  useEffect(() => {
+    if (!user || !vendorInfo || isOwnProfile) { setFollowed(false); return; }
+    fetchFollowedVendors()
+      .then(rows => setFollowed((rows || []).some(f => f.vendor_id === vendorInfo.id)))
+      .catch(() => {});
+  }, [user, vendorInfo?.id, isOwnProfile]);
+
   const toggleBlock = async () => {
     if (!vendorInfo || blockBusy) return;
     setBlockBusy(true);
@@ -108,6 +117,24 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
       showToast('Could not update block status. Please try again.');
     } finally {
       setBlockBusy(false);
+    }
+  };
+
+  const toggleFollow = async () => {
+    if (!vendorInfo || followBusy) return;
+    setFollowBusy(true);
+    try {
+      if (followed) {
+        await unfollowVendor(vendorInfo.id);
+        setFollowed(false);
+      } else {
+        await followVendor(vendorInfo.id);
+        setFollowed(true);
+      }
+    } catch {
+      showToast('Could not update follow status. Please try again.');
+    } finally {
+      setFollowBusy(false);
     }
   };
 
@@ -643,6 +670,19 @@ const VendorPage = ({ setSelectedItem, user, onItemDeleted, refreshKey, onVendor
             className="flex-shrink-0 bg-[#EAAD11] text-black font-bold px-5 py-2 rounded-full text-sm hover:opacity-90 transition-all"
           >
             {settingsOpen ? 'Close' : 'Edit page'}
+          </button>
+        )}
+        {!isOwnProfile && user && (
+          <button
+            onClick={toggleFollow}
+            disabled={followBusy}
+            className={`flex-shrink-0 font-bold px-5 py-2 rounded-full text-sm transition-all disabled:opacity-50 ${
+              followed
+                ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-700'
+                : 'bg-[#EAAD11] text-black hover:opacity-90'
+            }`}
+          >
+            {followed ? 'Following' : 'Follow'}
           </button>
         )}
       </div>

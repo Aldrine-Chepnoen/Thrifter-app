@@ -8,9 +8,22 @@ import { PlayfairDisplay_400Regular, PlayfairDisplay_700Bold } from '@expo-googl
 import 'react-native-reanimated';
 import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
-import { ToastProvider } from '@/context/ToastContext';
+import { ToastProvider, useToast } from '@/context/ToastContext';
 import { initImageHost } from '@/lib/imageHost';
 import { restoreThemePreference } from '@/lib/theme';
+import { addForegroundNotificationListener } from '@/lib/push';
+
+// Shows a toast for any push notification received while the app is
+// foregrounded (see lib/push.ts's notification handler, which suppresses
+// the system banner so this doesn't double up with it).
+function ForegroundNotifications() {
+  const { showToast } = useToast();
+  useEffect(() => {
+    const sub = addForegroundNotificationListener((_title, body) => showToast(body, 'info'));
+    return () => sub.remove();
+  }, [showToast]);
+  return null;
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -38,6 +51,7 @@ export default function RootLayout() {
 
   return (
     <ToastProvider>
+      <ForegroundNotifications />
       <AuthProvider>
         <CartProvider>
           <Stack>

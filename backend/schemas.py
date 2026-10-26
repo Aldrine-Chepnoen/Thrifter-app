@@ -651,3 +651,19 @@ class BlockedVendorOut(BaseModel):
     vendor_id: int
     vendor_name: str
     blocked_at: datetime
+
+class FollowedVendorOut(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    followed_at: datetime
+
+class NotificationOut(BaseModel):
+    id: int
+    message: str
+    vendor_id: Optional[int] = None
+    vendor_name: Optional[str] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+class PushTokenIn(BaseModel):
+    token: str

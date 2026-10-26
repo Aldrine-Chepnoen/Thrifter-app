@@ -5,6 +5,7 @@ import { motion, useAnimation, useScroll, useMotionValueEvent } from 'framer-mot
 import { RoughNotation } from 'react-rough-notation';
 import { searchVendors } from '../api';
 import { getImageSrc } from '../utils';
+import NotificationBell from './NotificationBell';
 
 const TikTokIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
@@ -368,6 +369,9 @@ const Navbar = ({
                   <Package className="w-5 h-5 text-gray-800 dark:text-gray-200 group-hover:text-[#EAAD11] transition-colors" />
                 </Link>
               )}
+
+              {/* Notifications */}
+              <NotificationBell user={user} />
 
               {/* Admin */}
               {user?.is_admin && (

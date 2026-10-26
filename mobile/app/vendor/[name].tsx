@@ -93,6 +93,8 @@ export default function VendorScreen() {
   const [reportOpen, setReportOpen] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
+  const [followed, setFollowed] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
 
@@ -178,6 +180,31 @@ export default function VendorScreen() {
       showToast('Could not update. Please try again.');
     } finally {
       setBlockBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!user || !vendor || isOwnStore) { setFollowed(false); return; }
+    api.get<{ vendor_id: number }[]>('/me/followed-vendors')
+      .then(({ data }) => setFollowed(data.some((f) => f.vendor_id === vendor.id)))
+      .catch(() => {});
+  }, [user, vendor, isOwnStore]);
+
+  const toggleFollow = async () => {
+    if (!vendor) return;
+    setFollowBusy(true);
+    try {
+      if (followed) {
+        await api.delete(`/vendors/${vendor.id}/follow`);
+        setFollowed(false);
+      } else {
+        await api.post(`/vendors/${vendor.id}/follow`);
+        setFollowed(true);
+      }
+    } catch {
+      showToast('Could not update. Please try again.');
+    } finally {
+      setFollowBusy(false);
     }
   };
 
@@ -576,6 +603,17 @@ export default function VendorScreen() {
               className="bg-[#EAAD11] rounded-full px-4 py-2"
             >
               <Text className="text-black font-bold text-xs">{settingsOpen ? 'Close' : 'Edit page'}</Text>
+            </TouchableOpacity>
+          )}
+          {!isOwnStore && user && (
+            <TouchableOpacity
+              onPress={toggleFollow}
+              disabled={followBusy}
+              className={followed ? 'bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-full px-4 py-2' : 'bg-[#EAAD11] rounded-full px-4 py-2'}
+            >
+              <Text className={followed ? 'text-gray-900 dark:text-white font-bold text-xs' : 'text-black font-bold text-xs'}>
+                {followed ? 'Following' : 'Follow'}
+              </Text>
             </TouchableOpacity>
           )}
         </View>

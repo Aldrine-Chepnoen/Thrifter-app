@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { getToken, setToken, deleteToken } from '@/lib/storage';
+import { registerPushTokenAsync } from '@/lib/push';
 
 type User = {
   id: number;
@@ -97,6 +98,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await api.get('/auth/me');
     setUser(data);
   };
+
+  // Register (or re-register, e.g. after a reinstall) this device's push
+  // token any time a user becomes logged in — covers login, register,
+  // Google sign-in's refreshUser(), and session restore on app launch.
+  useEffect(() => {
+    if (user) registerPushTokenAsync();
+  }, [user?.id]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, register, logout, deleteAccount, refreshUser }}>

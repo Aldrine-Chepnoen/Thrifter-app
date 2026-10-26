@@ -104,6 +104,13 @@ class Settings(BaseSettings):
     # How many days before expiry the reminder SMS fires.
     PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE: int = int(os.getenv("PREMIUM_EXPIRY_REMINDER_DAYS_BEFORE", "3"))
 
+    # How often the vendor-follow digest sweep checks whether it's time to run
+    # (the sweep itself only actually fires once per day, gated by
+    # VENDOR_DIGEST_HOUR_LOCAL — see _run_vendor_follow_digest_sweep).
+    VENDOR_DIGEST_SWEEP_INTERVAL_SECONDS: int = int(os.getenv("VENDOR_DIGEST_SWEEP_INTERVAL_SECONDS", "1800"))
+    # Local hour (East Africa Time, UTC+3) at which the daily digest fires.
+    VENDOR_DIGEST_HOUR_LOCAL: int = int(os.getenv("VENDOR_DIGEST_HOUR_LOCAL", "19"))
+
     # SMS (EgoSMS / Pahappa Comms API — live transactional sends; see sms.py)
     EGOSMS_USERNAME: Optional[str] = os.getenv("EGOSMS_USERNAME")
     EGOSMS_PASSWORD: Optional[str] = os.getenv("EGOSMS_PASSWORD")

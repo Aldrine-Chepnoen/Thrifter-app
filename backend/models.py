@@ -1,5 +1,5 @@
 # This file defines the database models for the Thrifter backend application using SQLAlchemy. It includes models for users, vendors, items, blacklisted tokens, and a wardrobe feature. The User model represents registered users of the application, with fields for email, hashed password, and vendor association. The Vendor model represents sellers on the platform, with fields for name, WhatsApp contact, and a relationship to their items. The Item model represents products listed by vendors, including details such as name, price, size, market, image information, description, and an embedding vector for search functionality. The BlacklistedToken model is used to store JWT tokens that have been invalidated. The Wardrobe model allows users to save items they are interested in. These models form the core of the application's data structure and are used throughout the backend for managing data and relationships between entities.
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean, DateTime, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from database import Base
 from pgvector.sqlalchemy import Vector
@@ -122,6 +122,11 @@ class Item(Base):
     # Maintained by vendor_premium.sync_vendor_item_visibility() — never set
     # directly elsewhere. Sold items are exempt and never hidden by this flag.
     is_hidden = Column(Boolean, default=False, nullable=False, server_default="false", index=True)
+
+    # When this listing was created — existing rows backfill to the
+    # migration's run time via server_default; only used going forward by
+    # the vendor-follow digest sweep to find "new since yesterday" items.
+    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_items_vendor_id_is_hidden", "vendor_id", "is_hidden"),
@@ -371,6 +376,44 @@ class VendorBlock(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "vendor_id", name="uq_vendor_block_user_vendor"),
     )
+
+class VendorFollow(Base):
+    """A buyer opting in to be notified when this vendor uploads new items —
+    see the vendor-follow digest sweep in main.py."""
+    __tablename__ = "vendor_follows"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    vendor = relationship("Vendor")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "vendor_id", name="uq_vendor_follow_user_vendor"),
+    )
+
+class Notification(Base):
+    """An in-app notification for a user — currently only produced by the
+    vendor-follow digest sweep, but generic enough for future notification
+    types (hence the nullable vendor_id rather than a dedicated digest table)."""
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    read_at = Column(DateTime, nullable=True)
+
+    vendor = relationship("Vendor")
+
+class PushToken(Base):
+    """An Expo push token registered by a logged-in mobile device."""
+    __tablename__ = "push_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False)
+    platform = Column(String, default="expo", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class Report(Base):
     """A user flagging an item or a vendor as objectionable — Google Play's

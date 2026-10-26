@@ -57,6 +57,7 @@
         }
       ],
       "expo-apple-authentication",
+      "expo-notifications",
       "expo-font",
       "expo-image",
       "expo-secure-store",
