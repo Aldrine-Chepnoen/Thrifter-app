@@ -3339,19 +3339,31 @@ def _reverse_withdrawal(db: Session, withdrawal: models.VendorWithdrawal, reason
     nothing left to retry) or "failed" (a payout attempt itself failed — an
     admin can retry it within WITHDRAWAL_RETRY_WINDOW, so the vendor is told
     to sit tight rather than to take any action, since a new request of
-    their own would just create a second live attempt on top of this one)."""
+    their own would just create a second live attempt on top of this one).
+
+    A "failed" reason can fire repeatedly across retries of the same
+    withdrawal (each retry that doesn't pan out reverses it again) — the SMS
+    for that is sent only once per withdrawal, on the first failure, so a
+    string of retries doesn't spam the vendor with the same "still working
+    on it" text. Detected by checking for an earlier reversal row rather than
+    a dedicated column, since this function itself is the only thing that
+    ever creates one."""
+    already_failed_before = reason == "failed" and db.query(models.VendorWalletTransaction).filter(
+        models.VendorWalletTransaction.withdrawal_id == withdrawal.id,
+        models.VendorWalletTransaction.reason == "withdrawal_reversed",
+    ).first() is not None
     db.add(models.VendorWalletTransaction(
         vendor_id=withdrawal.vendor_id,
         amount=withdrawal.amount,
         reason="withdrawal_reversed",
         withdrawal_id=withdrawal.id,
     ))
-    vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
-    message = (
-        sms.withdrawal_rejected_message(withdrawal, vendor_name) if reason == "rejected"
-        else sms.withdrawal_failed_message(withdrawal, vendor_name)
-    )
-    sms.send_sms(withdrawal.destination_phone, message)
+    if reason == "rejected":
+        vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
+        sms.send_sms(withdrawal.destination_phone, sms.withdrawal_rejected_message(withdrawal, vendor_name))
+    elif not already_failed_before:
+        vendor_name = withdrawal.vendor.name if withdrawal.vendor else "there"
+        sms.send_sms(withdrawal.destination_phone, sms.withdrawal_failed_message(withdrawal, vendor_name))
 
 def _attempt_withdrawal_payout(db: Session, withdrawal: models.VendorWithdrawal, vendor: Optional[models.Vendor], current_user: models.User) -> None:
     """Calls the payment provider to actually send the payout and updates
