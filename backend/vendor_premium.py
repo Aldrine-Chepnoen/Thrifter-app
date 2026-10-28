@@ -11,7 +11,7 @@ against the limit and are never hidden by this module.
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 import models
 from config import settings
@@ -57,6 +57,7 @@ def sync_vendor_item_visibility(db: Session, vendor: models.Vendor) -> List[int]
     """
     items = (
         db.query(models.Item)
+        .options(defer(models.Item.embedding))
         .filter(models.Item.vendor_id == vendor.id, models.Item.status.in_(ACTIVE_STATUSES))
         .order_by(models.Item.id.desc())
         .all()
